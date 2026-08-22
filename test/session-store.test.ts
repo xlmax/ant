@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAgentState, runAgent } from "../src/agent.js";
-import { echoTool } from "../src/echo-tool.js";
-import { ToolEnvironment } from "../src/environment.js";
-import { StubModel } from "../src/models/stub-model.js";
-import { JsonlSessionStore } from "../src/session-store.js";
+import { createAgentState, runAgent } from "../src/core/agent.js";
+import { ToolEnvironment } from "../src/core/environment.js";
+import { JsonlSessionStore } from "../src/core/session-store.js";
+import { echoTool } from "./support/echo-tool.js";
+import { StubModel } from "./support/stub-model.js";
 
 test("JSONL session store persists and resumes agent events", async () => {
   const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));

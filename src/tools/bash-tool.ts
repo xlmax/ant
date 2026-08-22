@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 
-import type { Tool } from "./environment.js";
+import type { Tool } from "../core/environment.js";
 
 const MAX_BYTES = 50 * 1024;
 const MAX_LINES = 2_000;

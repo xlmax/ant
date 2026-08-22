@@ -3,14 +3,11 @@ import {
   runAgent,
   type AgentEvent,
   type AgentState,
-} from "./agent.js";
-import { createBashTool } from "./bash-tool.js";
-import { ToolEnvironment, type Tool } from "./environment.js";
-import { createEditTool } from "./edit-tool.js";
+} from "./core/agent.js";
+import { createCodingTools } from "./coding-tools.js";
+import { ToolEnvironment } from "./core/environment.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
-import { createReadTool } from "./read-tool.js";
-import { createWriteTool } from "./write-tool.js";
-import { JsonlSessionStore, type AgentSession } from "./session-store.js";
+import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
 import { join } from "node:path";
 
 function formatValue(value: unknown): string {
@@ -101,16 +98,6 @@ function createModel(): DeepSeekModel {
   });
 }
 
-function createTools(): Tool[] {
-  const workspace = process.cwd();
-  return [
-    createReadTool(workspace),
-    createBashTool(workspace),
-    createEditTool(workspace),
-    createWriteTool(workspace),
-  ];
-}
-
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
 
@@ -146,7 +133,7 @@ async function main(): Promise<void> {
 
   const result = await runAgent(state, {
     model,
-    environment: new ToolEnvironment(createTools()),
+    environment: new ToolEnvironment(createCodingTools(process.cwd())),
     observers: [session.observer],
     signal: AbortSignal.timeout(60_000),
   });

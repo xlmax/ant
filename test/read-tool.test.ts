@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ToolEnvironment } from "../src/environment.js";
-import { createReadTool } from "../src/read-tool.js";
+import { ToolEnvironment } from "../src/core/environment.js";
+import { createReadTool } from "../src/tools/read-tool.js";
 
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "minimal-agent-"));

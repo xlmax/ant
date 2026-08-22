@@ -3,7 +3,7 @@ import type {
   AgentModel,
   Decision,
   ModelInput,
-} from "../agent.js";
+} from "../../src/core/agent.js";
 
 function findLastObservation(
   events: readonly AgentEvent[],

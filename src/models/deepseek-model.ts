@@ -6,7 +6,7 @@ import type {
   Observation,
   ToolCall,
   ToolSpec,
-} from "../agent.js";
+} from "../core/agent.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
@@ -14,6 +14,7 @@ const SYSTEM_PROMPT = [
   "Ты — компонент принятия решений coding-агента, умеющего использовать инструменты.",
   "За один ответ можно вызвать несколько инструментов, только если эти вызовы независимы друг от друга.",
   "Используй инструмент, только если задача требует данных из среды или воздействия на неё. Не вызывай инструменты для повтора, форматирования, перевода, простого вычисления или генерации текста, который можешь дать самостоятельно.",
+  "Все инструменты работают в текущей рабочей директории. По умолчанию используй относительные пути и не предполагая существование каталога /workspace.",
   "Используй read для чтения файлов вместо cat или sed. Для больших файлов применяй offset и limit.",
   "Используй bash для исследования среды, поиска файлов, запуска программ, тестов и команд Git.",
   "Используй edit для точечных замен: oldText должен точно и уникально совпадать с исходным файлом. Несколько независимых замен в одном файле передавай одним вызовом edit.",
@@ -197,7 +198,11 @@ function parseDecision(payload: unknown): Decision {
   const content = firstChoice.message.content;
 
   if (typeof content !== "string" || content.trim() === "") {
-    throw new Error("DeepSeek response contains neither a tool call nor text");
+    throw new Error(
+      `DeepSeek response contains neither a tool call nor text: ${JSON.stringify(
+        firstChoice,
+      ).slice(0, 500)}`,
+    );
   }
 
   return {

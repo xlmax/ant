@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { Tool } from "./environment.js";
+import type { Tool } from "../core/environment.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 const MAX_BYTES = 50 * 1024;

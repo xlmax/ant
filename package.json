@@ -7,8 +7,9 @@
     "dev": "node --env-file-if-exists=.env.local --import tsx src/main.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env.local dist/main.js",
-    "check": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.research.json",
+    "test": "tsx --test test/*.test.ts",
+    "eval": "node --env-file-if-exists=.env.local --import tsx research/evaluation/run.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

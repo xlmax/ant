@@ -1,4 +1,4 @@
-import type { Tool } from "./environment.js";
+import type { Tool } from "../../src/core/environment.js";
 
 export const echoTool: Tool = {
   spec: {

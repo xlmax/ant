@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentEvent, ModelInput } from "../src/agent.js";
+import type { AgentEvent, ModelInput } from "../src/core/agent.js";
 import { DeepSeekModel } from "../src/models/deepseek-model.js";
 
 test("DeepSeekModel maps tool calls and observations to the API protocol", async () => {
@@ -104,7 +104,9 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
     return;
   }
 
-  const [firstCall, secondCall] = toolDecision.calls;
+  const firstCall = toolDecision.calls[0];
+  const secondCall = toolDecision.calls[1];
+  assert.ok(secondCall);
 
   events.push(
     { type: "decision", decision: toolDecision },

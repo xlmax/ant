@@ -5,10 +5,10 @@ import {
   createAgentState,
   runAgent,
   type AgentModel,
-} from "../src/agent.js";
-import { echoTool } from "../src/echo-tool.js";
-import { ToolEnvironment } from "../src/environment.js";
-import { StubModel } from "../src/models/stub-model.js";
+} from "../src/core/agent.js";
+import { ToolEnvironment } from "../src/core/environment.js";
+import { echoTool } from "./support/echo-tool.js";
+import { StubModel } from "./support/stub-model.js";
 
 test("the model can call a tool and finish with its observation", async () => {
   const result = await runAgent(createAgentState("Привет"), {

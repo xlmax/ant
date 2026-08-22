@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBashTool } from "../src/bash-tool.js";
-import { ToolEnvironment } from "../src/environment.js";
+import { ToolEnvironment } from "../src/core/environment.js";
+import { createBashTool } from "../src/tools/bash-tool.js";
 
 test("bash runs a command and returns its output", async () => {
   const environment = new ToolEnvironment([createBashTool(process.cwd())]);

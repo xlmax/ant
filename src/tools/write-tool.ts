@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Tool } from "./environment.js";
+import type { Tool } from "../core/environment.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 function parseInput(input: unknown): { path: string; content: string } {

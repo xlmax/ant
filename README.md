@@ -49,6 +49,10 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 npm run dev -- "Прочитай package.json и README.md, затем объясни устройство проекта"
 ```
 
+## Исследовательские материалы
+
+Live eval-набор и его документация находятся в [`research/evaluation/`](research/evaluation/README.md). Он не входит в production-сборку и выполняет платные API-запросы только при явном запуске `npm run eval`.
+
 ## Проверки
 
 ```bash
