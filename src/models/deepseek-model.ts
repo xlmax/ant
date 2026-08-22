@@ -104,6 +104,9 @@ function eventMessages(event: AgentEvent): DeepSeekMessage[] {
     case "user":
       return [{ role: "user", content: event.content }];
 
+    case "model.requested":
+      return [];
+
     case "decision":
       return [decisionMessage(event.decision)];
 

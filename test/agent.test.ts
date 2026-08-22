@@ -28,7 +28,14 @@ test("the model can call a tool and finish with its observation", async () => {
   );
   assert.deepEqual(
     result.state.events.map((event) => event.type),
-    ["task", "decision", "observation", "decision"],
+    [
+      "task",
+      "model.requested",
+      "decision",
+      "observation",
+      "model.requested",
+      "decision",
+    ],
   );
 });
 
@@ -78,6 +85,14 @@ test("the agent executes every tool call from one model turn", async () => {
   assert.equal(result.answer, "Получено результатов: 2");
   assert.deepEqual(
     result.state.events.map((event) => event.type),
-    ["task", "decision", "observation", "observation", "decision"],
+    [
+      "task",
+      "model.requested",
+      "decision",
+      "observation",
+      "observation",
+      "model.requested",
+      "decision",
+    ],
   );
 });

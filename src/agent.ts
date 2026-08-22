@@ -26,6 +26,7 @@ export interface Observation {
 export type AgentEvent =
   | { type: "task"; content: string }
   | { type: "user"; content: string }
+  | { type: "model.requested" }
   | { type: "decision"; decision: Decision }
   | {
       type: "observation";
@@ -56,9 +57,14 @@ export type AgentResult =
   | { status: "waiting"; question: string; state: AgentState }
   | { status: "cancelled"; state: AgentState };
 
+export interface AgentObserver {
+  onEvent(event: AgentEvent): void | Promise<void>;
+}
+
 export interface AgentDependencies {
   model: AgentModel;
   environment: Environment;
+  observers?: readonly AgentObserver[];
   signal?: AbortSignal;
 }
 
@@ -68,14 +74,28 @@ export function createAgentState(task: string): AgentState {
   };
 }
 
+async function appendEvent(
+  state: AgentState,
+  event: AgentEvent,
+  observers: readonly AgentObserver[],
+): Promise<void> {
+  state.events.push(event);
+
+  for (const observer of observers) {
+    await observer.onEvent(event);
+  }
+}
+
 export async function runAgent(
   state: AgentState,
   dependencies: AgentDependencies,
 ): Promise<AgentResult> {
-  const { model, environment, signal } = dependencies;
+  const { model, environment, observers = [], signal } = dependencies;
 
   while (!signal?.aborted) {
     let decision: Decision;
+
+    await appendEvent(state, { type: "model.requested" }, observers);
 
     try {
       decision = await model.decide(
@@ -93,7 +113,7 @@ export async function runAgent(
       throw error;
     }
 
-    state.events.push({ type: "decision", decision });
+    await appendEvent(state, { type: "decision", decision }, observers);
 
     switch (decision.type) {
       case "finish":
@@ -124,11 +144,15 @@ export async function runAgent(
             throw error;
           }
 
-          state.events.push({
-            type: "observation",
-            call,
-            observation,
-          });
+          await appendEvent(
+            state,
+            {
+              type: "observation",
+              call,
+              observation,
+            },
+            observers,
+          );
         }
         break;
     }
