@@ -43,8 +43,14 @@ export interface ModelInput {
   tools: readonly ToolSpec[];
 }
 
+export type TextDeltaHandler = (text: string) => void;
+
 export interface AgentModel {
-  decide(input: ModelInput, signal?: AbortSignal): Promise<Decision>;
+  decide(
+    input: ModelInput,
+    signal?: AbortSignal,
+    onTextDelta?: TextDeltaHandler,
+  ): Promise<Decision>;
 }
 
 export interface Environment {
@@ -65,6 +71,7 @@ export interface AgentDependencies {
   model: AgentModel;
   environment: Environment;
   observers?: readonly AgentObserver[];
+  onTextDelta?: TextDeltaHandler;
   signal?: AbortSignal;
 }
 
@@ -90,7 +97,7 @@ export async function runAgent(
   state: AgentState,
   dependencies: AgentDependencies,
 ): Promise<AgentResult> {
-  const { model, environment, observers = [], signal } = dependencies;
+  const { model, environment, observers = [], onTextDelta, signal } = dependencies;
 
   while (!signal?.aborted) {
     let decision: Decision;
@@ -104,6 +111,7 @@ export async function runAgent(
           tools: environment.tools(),
         },
         signal,
+        onTextDelta,
       );
     } catch (error) {
       if (signal?.aborted) {

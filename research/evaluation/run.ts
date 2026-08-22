@@ -13,6 +13,7 @@ import {
   type ModelInput,
 } from "../../src/core/agent.js";
 import { createCodingTools } from "../../src/coding-tools.js";
+import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/core/environment.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
 import { JsonlSessionStore } from "../../src/core/session-store.js";
@@ -82,15 +83,18 @@ class CappedModel implements AgentModel {
   }
 }
 
-function createModel(): DeepSeekModel {
+async function createModel(): Promise<DeepSeekModel> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
   if (!apiKey) {
     throw new Error("Для запуска eval необходима переменная DEEPSEEK_API_KEY");
   }
 
+  const systemPrompt = await loadSystemPrompt(process.cwd());
+
   return new DeepSeekModel({
     apiKey,
+    systemPrompt: systemPrompt.content,
     model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
     baseUrl:
       process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
@@ -534,7 +538,7 @@ async function runTask(task: EvalTask): Promise<EvalTaskReport> {
   const workspace = await mkdtemp(join(tmpdir(), `minimal-agent-eval-${task.id}-`));
   const startedAt = performance.now();
   const model = new CappedModel(
-    createModel(),
+    await createModel(),
     task.maxModelCalls ?? MAX_MODEL_CALLS,
   );
 

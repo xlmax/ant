@@ -1,50 +1,22 @@
+import { join } from "node:path";
+
 import {
   createAgentState,
   runAgent,
-  type AgentEvent,
   type AgentState,
 } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
+import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
+import {
+  JsonlSessionStore,
+  type AgentSession,
+} from "./core/session-store.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
-import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
-import { join } from "node:path";
+import { ConsoleRenderer } from "./ui/console-renderer.js";
+import { runRepl } from "./ui/repl.js";
 
-function formatValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function printEvent(event: AgentEvent): void {
-  switch (event.type) {
-    case "task":
-      console.log(`Задача: ${event.content}`);
-      break;
-
-    case "user":
-      console.log(`Пользователь: ${event.content}`);
-      break;
-
-    case "decision":
-      if (event.decision.type === "tools") {
-        for (const call of event.decision.calls) {
-          console.log(
-            `Модель запросила: ${call.name} (${call.id}) ${formatValue(
-              call.input,
-            )}`,
-          );
-        }
-      }
-      break;
-
-    case "observation":
-      console.log(
-        event.observation.ok
-          ? `Результат инструмента: ${formatValue(event.observation.value)}`
-          : `Ошибка инструмента: ${event.observation.error}`,
-      );
-      break;
-  }
-}
+const TURN_TIMEOUT_MS = 60_000;
 
 interface CliOptions {
   task: string;
@@ -81,7 +53,10 @@ function parseCliOptions(args: readonly string[]): CliOptions {
   };
 }
 
-function createModel(): DeepSeekModel {
+async function createModel(workspace: string): Promise<{
+  model: DeepSeekModel;
+  promptSources: string[];
+}> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
   if (!apiKey) {
@@ -90,29 +65,36 @@ function createModel(): DeepSeekModel {
     );
   }
 
-  return new DeepSeekModel({
-    apiKey,
-    model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
-    baseUrl:
-      process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
-  });
+  const systemPrompt = await loadSystemPrompt(workspace);
+
+  return {
+    model: new DeepSeekModel({
+      apiKey,
+      systemPrompt: systemPrompt.content,
+      model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
+      baseUrl:
+        process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
+    }),
+    promptSources: systemPrompt.sources,
+  };
 }
 
-async function main(): Promise<void> {
-  const options = parseCliOptions(process.argv.slice(2));
+async function appendUserMessage(
+  state: AgentState,
+  session: AgentSession,
+  content: string,
+): Promise<void> {
+  const event = { type: "user" as const, content };
+  state.events.push(event);
+  await session.observer.onEvent(event);
+}
 
-  if (!options.task) {
-    console.error(
-      'Использование: npm run dev -- [--resume <session-id>] "текст задачи"',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const model = createModel();
-  const store = new JsonlSessionStore(
-    join(process.cwd(), ".agent", "sessions"),
-  );
+async function runOneShot(
+  options: CliOptions,
+  model: DeepSeekModel,
+  environment: ToolEnvironment,
+  store: JsonlSessionStore,
+): Promise<void> {
   let state: AgentState;
   let session: AgentSession;
 
@@ -120,42 +102,51 @@ async function main(): Promise<void> {
     const resumed = await store.resume(options.resume);
     state = resumed.state;
     session = resumed.session;
-
-    const event = { type: "user" as const, content: options.task };
-    state.events.push(event);
-    await session.observer.onEvent(event);
+    await appendUserMessage(state, session, options.task);
   } else {
     state = createAgentState(options.task);
     session = await store.create(state);
   }
 
+  const renderer = new ConsoleRenderer();
   console.log(`Сессия: ${session.id}`);
+  renderer.beginTurn();
 
   const result = await runAgent(state, {
     model,
-    environment: new ToolEnvironment(createCodingTools(process.cwd())),
-    observers: [session.observer],
-    signal: AbortSignal.timeout(60_000),
+    environment,
+    observers: [session.observer, renderer],
+    onTextDelta: renderer.onTextDelta,
+    signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
   });
 
-  for (const event of result.state.events) {
-    printEvent(event);
+  renderer.printResult(result);
+
+  if (result.status === "cancelled") {
+    process.exitCode = 2;
+  }
+}
+
+async function main(): Promise<void> {
+  const options = parseCliOptions(process.argv.slice(2));
+  const workspace = process.cwd();
+  const { model, promptSources } = await createModel(workspace);
+  const environment = new ToolEnvironment(createCodingTools(workspace));
+  const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
+
+  console.log(`Системный промпт: ${promptSources.join(", ")}`);
+
+  if (!options.task) {
+    await runRepl({
+      model,
+      environment,
+      store,
+      ...(options.resume === undefined ? {} : { resume: options.resume }),
+    });
+    return;
   }
 
-  switch (result.status) {
-    case "completed":
-      console.log(`Ответ: ${result.answer}`);
-      break;
-
-    case "waiting":
-      console.log(`Вопрос: ${result.question}`);
-      break;
-
-    case "cancelled":
-      console.error("Работа агента отменена");
-      process.exitCode = 2;
-      break;
-  }
+  await runOneShot(options, model, environment, store);
 }
 
 main().catch((error: unknown) => {

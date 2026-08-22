@@ -6,24 +6,15 @@ import type {
   Observation,
   ToolCall,
   ToolSpec,
+  TextDeltaHandler,
 } from "../core/agent.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
-const SYSTEM_PROMPT = [
-  "Ты — компонент принятия решений coding-агента, умеющего использовать инструменты.",
-  "За один ответ можно вызвать несколько инструментов, только если эти вызовы независимы друг от друга.",
-  "Используй инструмент, только если задача требует данных из среды или воздействия на неё. Не вызывай инструменты для повтора, форматирования, перевода, простого вычисления или генерации текста, который можешь дать самостоятельно.",
-  "Все инструменты работают в текущей рабочей директории. По умолчанию используй относительные пути и не предполагая существование каталога /workspace.",
-  "Используй read для чтения файлов вместо cat или sed. Для больших файлов применяй offset и limit.",
-  "Используй bash для исследования среды, поиска файлов, запуска программ, тестов и команд Git.",
-  "Используй edit для точечных замен: oldText должен точно и уникально совпадать с исходным файлом. Несколько независимых замен в одном файле передавай одним вызовом edit.",
-  "Используй write только для новых файлов или полной перезаписи существующих.",
-  "После получения результатов инструментов либо вызови следующие необходимые инструменты, либо дай окончательный ответ. Не утверждай, что действие выполнено, если в истории нет подтверждающего результата.",
-].join(" ");
 
 interface DeepSeekModelOptions {
   apiKey: string;
+  systemPrompt: string;
   model?: string;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
@@ -122,9 +113,12 @@ function eventMessages(event: AgentEvent): DeepSeekMessage[] {
   }
 }
 
-function createMessages(events: readonly AgentEvent[]): DeepSeekMessage[] {
+function createMessages(
+  events: readonly AgentEvent[],
+  systemPrompt: string,
+): DeepSeekMessage[] {
   return [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     ...events.flatMap(eventMessages),
   ];
 }
@@ -211,8 +205,134 @@ function parseDecision(payload: unknown): Decision {
   };
 }
 
+async function parseStreamingDecision(
+  response: Response,
+  onTextDelta: TextDeltaHandler,
+): Promise<Decision> {
+  if (!response.body) {
+    throw new Error("DeepSeek returned an empty streaming response");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const toolCalls: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }> = [];
+  let content = "";
+  let buffer = "";
+
+  const processEvent = (event: string): void => {
+    for (const line of event.split("\n")) {
+      const trimmed = line.trim();
+
+      if (!trimmed.startsWith("data:")) {
+        continue;
+      }
+
+      const data = trimmed.slice("data:".length).trim();
+
+      if (!data || data === "[DONE]") {
+        continue;
+      }
+
+      let payload: unknown;
+
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        throw new Error("DeepSeek returned invalid streaming JSON");
+      }
+
+      if (!isRecord(payload) || !Array.isArray(payload.choices)) {
+        continue;
+      }
+
+      const choice = payload.choices[0];
+
+      if (!isRecord(choice) || !isRecord(choice.delta)) {
+        continue;
+      }
+
+      const deltaContent = choice.delta.content;
+
+      if (typeof deltaContent === "string") {
+        content += deltaContent;
+        onTextDelta(deltaContent);
+      }
+
+      if (!Array.isArray(choice.delta.tool_calls)) {
+        continue;
+      }
+
+      for (const partialCall of choice.delta.tool_calls) {
+        if (!isRecord(partialCall)) {
+          continue;
+        }
+
+        const index =
+          typeof partialCall.index === "number" && partialCall.index >= 0
+            ? partialCall.index
+            : 0;
+        const current = toolCalls[index] ?? {
+          id: "",
+          type: "function" as const,
+          function: { name: "", arguments: "" },
+        };
+
+        if (typeof partialCall.id === "string") {
+          current.id = partialCall.id;
+        }
+
+        if (isRecord(partialCall.function)) {
+          if (typeof partialCall.function.name === "string") {
+            current.function.name += partialCall.function.name;
+          }
+
+          if (typeof partialCall.function.arguments === "string") {
+            current.function.arguments += partialCall.function.arguments;
+          }
+        }
+
+        toolCalls[index] = current;
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+
+    let separator = buffer.indexOf("\n\n");
+
+    while (separator !== -1) {
+      processEvent(buffer.slice(0, separator));
+      buffer = buffer.slice(separator + 2);
+      separator = buffer.indexOf("\n\n");
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (buffer.trim()) {
+    processEvent(buffer);
+  }
+
+  const message: Record<string, unknown> = { content };
+
+  if (toolCalls.length > 0) {
+    message.tool_calls = toolCalls;
+  }
+
+  return parseDecision({ choices: [{ message }] });
+}
+
 export class DeepSeekModel implements AgentModel {
   readonly #apiKey: string;
+  readonly #systemPrompt: string;
   readonly #model: string;
   readonly #baseUrl: string;
   readonly #fetch: typeof globalThis.fetch;
@@ -222,19 +342,28 @@ export class DeepSeekModel implements AgentModel {
       throw new Error("DeepSeek API key must not be empty");
     }
 
+    if (options.systemPrompt.trim() === "") {
+      throw new Error("System prompt must not be empty");
+    }
+
     this.#apiKey = options.apiKey;
+    this.#systemPrompt = options.systemPrompt;
     this.#model = options.model ?? DEFAULT_MODEL;
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async decide(input: ModelInput, signal?: AbortSignal): Promise<Decision> {
+  async decide(
+    input: ModelInput,
+    signal?: AbortSignal,
+    onTextDelta?: TextDeltaHandler,
+  ): Promise<Decision> {
     const tools = createTools(input.tools);
     const body: Record<string, unknown> = {
       model: this.#model,
-      messages: createMessages(input.events),
+      messages: createMessages(input.events, this.#systemPrompt),
       thinking: { type: "disabled" },
-      stream: false,
+      stream: onTextDelta !== undefined,
     };
 
     if (tools.length > 0) {
@@ -259,14 +388,18 @@ export class DeepSeekModel implements AgentModel {
       `${this.#baseUrl}/chat/completions`,
       request,
     );
-    const responseText = await response.text();
-
     if (!response.ok) {
+      const responseText = await response.text();
       throw new Error(
         `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
       );
     }
 
+    if (onTextDelta) {
+      return parseStreamingDecision(response, onTextDelta);
+    }
+
+    const responseText = await response.text();
     let payload: unknown;
 
     try {

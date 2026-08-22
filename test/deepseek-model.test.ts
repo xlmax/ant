@@ -64,6 +64,7 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
 
   const model = new DeepSeekModel({
     apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
     fetch: fetchMock,
   });
   const events: AgentEvent[] = [{ type: "task", content: "Поздоровайся" }];
@@ -165,4 +166,51 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
       content: '{"ok":true,"value":{"text":"Мир"}}',
     },
   ]);
+});
+
+test("DeepSeekModel streams text deltas and returns the final decision", async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          'data: {"choices":[{"delta":{"content":"Гото"}}]}\n\n',
+        ),
+      );
+      controller.enqueue(
+        encoder.encode(
+          'data: {"choices":[{"delta":{"content":"во"}}]}\n\n',
+        ),
+      );
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    request = init;
+    return new Response(stream, { status: 200 });
+  }) as typeof fetch;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    fetch: fetchMock,
+  });
+  const deltas: string[] = [];
+
+  const decision = await model.decide(
+    {
+      events: [{ type: "task", content: "Ответь" }],
+      tools: [],
+    },
+    undefined,
+    (text) => deltas.push(text),
+  );
+
+  assert.deepEqual(deltas, ["Гото", "во"]);
+  assert.deepEqual(decision, { type: "finish", answer: "Готово" });
+  assert.equal(JSON.parse(String(request?.body)).stream, true);
 });

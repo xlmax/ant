@@ -1,0 +1,19 @@
+import { ansi } from "./ansi.js";
+
+function lineWidth(): number {
+  return Math.max(40, process.stdout.columns ?? 80);
+}
+
+export function sectionHeader(
+  title: string,
+  style: (text: string) => string,
+): string {
+  const prefix = `───${title}`;
+  return `${ansi.dim("───")}${style(title)}${ansi.dim(
+    "─".repeat(Math.max(1, lineWidth() - prefix.length)),
+  )}`;
+}
+
+export function sectionFooter(): string {
+  return ansi.dim("─".repeat(lineWidth()));
+}
