@@ -4,6 +4,22 @@
 
 ## Установка
 
+### Готовая сборка
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xlmax/ant/master/install.sh | sh
+```
+
+Или вручную из GitHub Releases:
+
+```bash
+npm install -g https://github.com/xlmax/ant/releases/download/v0.1.0/ant-0.1.0.tgz
+```
+
+Требуется Node.js ≥ 20.12. Затем запускается как `ant`.
+
+### Из исходников
+
 ```bash
 npm install
 ```

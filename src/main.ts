@@ -1,4 +1,6 @@
-import { join } from "node:path";
+#!/usr/bin/env node
+import { join, resolve } from "node:path";
+import { loadEnvFile } from "node:process";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
@@ -178,14 +180,26 @@ async function printSessionList(store: JsonlSessionStore): Promise<void> {
   }
 }
 
+function loadLocalEnv(workspace: string): void {
+  try {
+    loadEnvFile(resolve(workspace, ".env.local"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
 async function main(): Promise<void> {
+  const workspace = process.cwd();
+  loadLocalEnv(workspace);
+
   const options = parseCliOptions(process.argv.slice(2));
   if (options.action === "help") {
     console.log(cliHelp());
     return;
   }
 
-  const workspace = process.cwd();
   const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
   if (options.action === "list-sessions") {
     await printSessionList(store);
