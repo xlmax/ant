@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadSettings, saveUserModelId, saveUserShowReasoning } from "../src/config/settings.js";
+import {
+  loadSettings,
+  saveUserModelId,
+  saveUserModelThinking,
+  saveUserShowReasoning,
+} from "../src/config/settings.js";
 
 async function temporaryDirectories(): Promise<{ workspace: string; home: string }> {
   const root = await mkdtemp(join(tmpdir(), "ant-settings-"));
@@ -94,6 +99,47 @@ test("saving a selected model updates the global user settings only", async () =
       future: { setting: true },
     });
     assert.equal((await loadSettings(workspace, home)).settings.model.id, "deepseek-v4-pro");
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saving thinking settings uses the global layer", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "deepseek-v4-pro" }, future: { setting: true } }),
+      "utf8",
+    );
+
+    await saveUserModelThinking({ enabled: true, effort: "max" }, home);
+
+    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
+      model: {
+        id: "deepseek-v4-pro",
+        thinking: { enabled: true, effort: "max" },
+      },
+      future: { setting: true },
+    });
+    assert.deepEqual((await loadSettings(workspace, home)).settings.model.thinking, {
+      enabled: true,
+      effort: "max",
+    });
+
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { thinking: { effort: "low" } } }),
+      "utf8",
+    );
+
+    assert.deepEqual((await loadSettings(workspace, home)).settings.model.thinking, {
+      enabled: true,
+      effort: "low",
+    });
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

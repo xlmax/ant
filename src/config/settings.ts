@@ -385,6 +385,10 @@ export async function loadSettings(
 export interface UserSettingsUpdate {
   model?: {
     id?: string;
+    thinking?: {
+      enabled?: boolean;
+      effort?: ReasoningEffort;
+    };
   };
   ui?: {
     showReasoning?: boolean;
@@ -404,7 +408,25 @@ export async function saveUserSettings(
     if (currentModel !== undefined && !isRecord(currentModel)) {
       throw new Error("Настройка model должна быть объектом");
     }
-    next.model = { ...currentModel, ...update.model };
+    const { thinking: thinkingUpdate, ...modelUpdate } = update.model;
+    let currentThinking: Record<string, unknown> | undefined;
+    if (thinkingUpdate !== undefined) {
+      const savedThinking = currentModel?.thinking;
+      if (savedThinking !== undefined) {
+        if (!isRecord(savedThinking)) {
+          throw new Error("Настройка model.thinking должна быть объектом");
+        }
+        currentThinking = savedThinking;
+      }
+    }
+
+    next.model = {
+      ...currentModel,
+      ...modelUpdate,
+      ...(thinkingUpdate === undefined
+        ? {}
+        : { thinking: { ...currentThinking, ...thinkingUpdate } }),
+    };
   }
 
   if (update.ui !== undefined) {
@@ -436,4 +458,11 @@ export async function saveUserShowReasoning(
   homeDirectory: string = homedir(),
 ): Promise<void> {
   await saveUserSettings({ ui: { showReasoning } }, homeDirectory);
+}
+
+export async function saveUserModelThinking(
+  thinking: ModelSettings["thinking"],
+  homeDirectory: string = homedir(),
+): Promise<void> {
+  await saveUserSettings({ model: { thinking } }, homeDirectory);
 }

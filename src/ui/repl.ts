@@ -19,6 +19,7 @@ export interface ReplOptions {
   createAgentModel(settings: ModelSettings): AgentModel;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
+  saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
@@ -165,18 +166,29 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(modelSettings)}`));
             } else {
               const nextSettings = selectEffort(modelSettings, command.selection);
-              if (
-                nextSettings.thinking.enabled === modelSettings.thinking.enabled &&
-                nextSettings.thinking.effort === modelSettings.thinking.effort
-              ) {
-                console.log(
-                  ansi.dim(`Рассуждения модели уже настроены: ${formatModelStatus(modelSettings)}`),
-                );
-              } else {
+              const changed =
+                nextSettings.thinking.enabled !== modelSettings.thinking.enabled ||
+                nextSettings.thinking.effort !== modelSettings.thinking.effort;
+
+              if (changed) {
                 modelSettings = nextSettings;
                 model = options.createAgentModel(modelSettings);
+              }
+
+              try {
+                await options.saveThinking(nextSettings.thinking);
                 console.log(
-                  ansi.dim(`Рассуждения модели переключены: ${formatModelStatus(modelSettings)}`),
+                  ansi.dim(
+                    changed
+                      ? `Рассуждения модели переключены и сохранены: ${formatModelStatus(modelSettings)}`
+                      : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(modelSettings)}`,
+                  ),
+                );
+              } catch (error) {
+                console.error(
+                  ansi.red(
+                    `Не удалось сохранить настройки размышлений: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
                 );
               }
             }
