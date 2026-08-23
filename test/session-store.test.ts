@@ -43,6 +43,27 @@ test("JSONL session store persists and resumes agent events", async () => {
   }
 });
 
+test("JSONL session store lists saved sessions and their tasks", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+
+  try {
+    const store = new JsonlSessionStore(directory);
+    assert.deepEqual(await store.list(), []);
+
+    const first = await store.create(createAgentState("Первая задача"));
+    const second = await store.create(createAgentState("Вторая задача"));
+    const sessions = await store.list();
+    const tasks = new Map(sessions.map((session) => [session.id, session.task]));
+
+    assert.equal(sessions.length, 2);
+    assert.equal(tasks.get(first.id), "Первая задача");
+    assert.equal(tasks.get(second.id), "Вторая задача");
+    assert.ok(sessions.every((session) => session.updatedAt.endsWith("Z")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL session store preserves image attachments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 

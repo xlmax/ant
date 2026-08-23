@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import type { ModelSettings } from "./config/settings.js";
 import {
   createAgentState,
@@ -20,41 +21,6 @@ import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
 
 const TURN_TIMEOUT_MS = 60_000;
-
-interface CliOptions {
-  task: string;
-  resume?: string;
-}
-
-function parseCliOptions(args: readonly string[]): CliOptions {
-  const taskParts: string[] = [];
-  let resume: string | undefined;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-
-    if (argument === "--resume") {
-      const sessionId = args[index + 1];
-
-      if (!sessionId) {
-        throw new Error("Для --resume нужно указать идентификатор сессии");
-      }
-
-      resume = sessionId;
-      index += 1;
-      continue;
-    }
-
-    if (argument !== undefined) {
-      taskParts.push(argument);
-    }
-  }
-
-  return {
-    task: taskParts.join(" ").trim(),
-    ...(resume === undefined ? {} : { resume }),
-  };
-}
 
 function createDeepSeekModel(
   apiKey: string,
@@ -129,7 +95,7 @@ async function appendUserMessage(
 }
 
 async function runOneShot(
-  options: CliOptions,
+  options: Pick<CliOptions, "task" | "resume">,
   model: DeepSeekModel,
   environment: ToolEnvironment,
   store: JsonlSessionStore,
@@ -168,9 +134,55 @@ async function runOneShot(
   }
 }
 
+function formatSessionTask(task: string): string {
+  const singleLine = task.replace(/\s+/gu, " ").trim();
+  return singleLine.length <= 80 ? singleLine : `${singleLine.slice(0, 77)}…`;
+}
+
+async function resolveResumeId(
+  options: CliOptions,
+  store: JsonlSessionStore,
+): Promise<string | undefined> {
+  if (!options.continueLatest) {
+    return options.resume;
+  }
+
+  const latest = (await store.list())[0];
+  if (!latest) {
+    throw new Error("Нет сохранённых сессий для продолжения");
+  }
+
+  return latest.id;
+}
+
+async function printSessionList(store: JsonlSessionStore): Promise<void> {
+  const sessions = await store.list();
+  if (sessions.length === 0) {
+    console.log("Сохранённых сессий нет.");
+    return;
+  }
+
+  console.log("Сохранённые сессии:");
+  for (const session of sessions) {
+    console.log(`${session.id} · ${session.updatedAt} · ${formatSessionTask(session.task)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
+  if (options.action === "help") {
+    console.log(cliHelp());
+    return;
+  }
+
   const workspace = process.cwd();
+  const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
+  if (options.action === "list-sessions") {
+    await printSessionList(store);
+    return;
+  }
+
+  const resume = await resolveResumeId(options, store);
   const {
     model,
     modelSettings,
@@ -187,8 +199,6 @@ async function main(): Promise<void> {
     workspace,
     bashPath === undefined ? {} : { bashPath },
   ));
-  const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
-
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
 
   if (!options.task) {
@@ -201,12 +211,18 @@ async function main(): Promise<void> {
       environment,
       store,
       showReasoning,
-      ...(options.resume === undefined ? {} : { resume: options.resume }),
+      ...(resume === undefined ? {} : { resume }),
     });
     return;
   }
 
-  await runOneShot(options, model, environment, store, showReasoning);
+  await runOneShot(
+    { task: options.task, ...(resume === undefined ? {} : { resume }) },
+    model,
+    environment,
+    store,
+    showReasoning,
+  );
 }
 
 main().catch((error: unknown) => {

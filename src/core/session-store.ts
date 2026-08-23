@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -17,6 +17,14 @@ export interface AgentSession {
   id: string;
   filePath: string;
   observer: AgentObserver;
+}
+
+export interface SessionSummary {
+  id: string;
+  filePath: string;
+  createdAt: string;
+  updatedAt: string;
+  task: string;
 }
 
 function sessionFilePath(sessionDirectory: string, sessionId: string): string {
@@ -64,6 +72,20 @@ function serializeRecord(sessionId: string, event: AgentEvent): string {
   return `${JSON.stringify(record)}\n`;
 }
 
+async function readSessionRecords(filePath: string): Promise<SessionRecord[]> {
+  const content = await readFile(filePath, "utf8");
+  const records = content
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line, index) => parseRecord(line, index + 1));
+
+  if (records.length === 0) {
+    throw new Error("Невозможно продолжить пустую сессию");
+  }
+
+  return records;
+}
+
 class JsonlSessionObserver implements AgentObserver {
   readonly #sessionId: string;
   readonly #filePath: string;
@@ -103,20 +125,56 @@ export class JsonlSessionStore {
     };
   }
 
+  async list(): Promise<SessionSummary[]> {
+    let entries: Array<{ name: string; isFile(): boolean }>;
+
+    try {
+      entries = await readdir(this.#sessionDirectory, {
+        withFileTypes: true,
+        encoding: "utf8",
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+
+    const sessions: SessionSummary[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const id = entry.name.slice(0, -".jsonl".length);
+      if (!/^[a-f0-9-]+$/iu.test(id)) {
+        continue;
+      }
+
+      const filePath = sessionFilePath(this.#sessionDirectory, id);
+      const records = await readSessionRecords(filePath);
+      const first = records[0]!;
+      const last = records.at(-1)!;
+      const task = records.find((record) => record.event.type === "task")?.event;
+
+      sessions.push({
+        id,
+        filePath,
+        createdAt: first.timestamp,
+        updatedAt: last.timestamp,
+        task: task?.type === "task" ? task.content : "Без исходной задачи",
+      });
+    }
+
+    return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
   async resume(sessionId: string): Promise<{
     state: AgentState;
     session: AgentSession;
   }> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
-    const content = await readFile(filePath, "utf8");
-    const records = content
-      .split(/\r?\n/u)
-      .filter(Boolean)
-      .map((line, index) => parseRecord(line, index + 1));
-
-    if (records.length === 0) {
-      throw new Error("Невозможно продолжить пустую сессию");
-    }
+    const records = await readSessionRecords(filePath);
 
     for (const record of records) {
       if (record.sessionId !== sessionId) {
