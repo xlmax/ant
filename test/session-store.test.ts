@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { createAgentState, runAgent } from "../src/core/agent.js";
 import { ToolEnvironment } from "../src/core/environment.js";
-import { JsonlSessionStore } from "../src/core/session-store.js";
+import { isPersistedEvent, JsonlSessionStore } from "../src/core/session-store.js";
 import { echoTool } from "./support/echo-tool.js";
 import { StubModel } from "./support/stub-model.js";
 
@@ -23,6 +23,19 @@ test("JSONL session store persists and resumes agent events", async () => {
       maxAttempts: 1,
     });
     await session.observer.onEvent({
+      type: "model.usage",
+      usage: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        reasoning: "off",
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        contextWindow: 1_000_000,
+        source: "provider",
+      },
+    });
+    await session.observer.onEvent({
       type: "decision",
       decision: {
         type: "finish",
@@ -36,9 +49,9 @@ test("JSONL session store persists and resumes agent events", async () => {
 
     assert.deepEqual(
       resumed.state.events.map((event) => event.type),
-      ["task", "model.requested", "decision"],
+      ["task", "decision"],
     );
-    assert.equal(content.trim().split("\n").length, 3);
+    assert.equal(content.trim().split("\n").length, 2);
     assert.match(content, /Внутреннее рассуждение/u);
     assert.match(content, /"version":1/u);
     assert.match(content, new RegExp(session.id, "u"));
@@ -152,7 +165,8 @@ test("session observer records the complete agent loop", async () => {
     const resumed = await store.resume(session.id);
 
     assert.equal(result.status, "completed");
-    assert.deepEqual(resumed.state.events, result.state.events);
+    const persistedEvents = result.state.events.filter((event) => isPersistedEvent(event));
+    assert.deepEqual(resumed.state.events, persistedEvents);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

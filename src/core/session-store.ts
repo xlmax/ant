@@ -87,6 +87,16 @@ function serializeRecord(sessionId: string, event: AgentEvent, timestamp: string
   return `${JSON.stringify(record)}\n`;
 }
 
+/**
+ * Telemetry events are transient process noise: the model ignores them when
+ * rebuilding context, so they are not written to the session journal.
+ */
+export function isPersistedEvent(event: AgentEvent): boolean {
+  return (
+    event.type !== "model.requested" && event.type !== "model.retry" && event.type !== "model.usage"
+  );
+}
+
 function summaryFromRecords(
   id: string,
   filePath: string,
@@ -220,6 +230,10 @@ class JsonlSessionObserver implements AgentObserver {
   }
 
   async onEvent(event: AgentEvent): Promise<void> {
+    if (!isPersistedEvent(event)) {
+      return;
+    }
+
     const timestamp = new Date().toISOString();
     await appendFile(this.#filePath, serializeRecord(this.#sessionId, event, timestamp), "utf8");
     this.#summary = {
@@ -254,7 +268,10 @@ export class JsonlSessionStore {
     await mkdir(this.#sessionDirectory, { recursive: true });
     await writeFileAtomically(
       filePath,
-      state.events.map((event) => serializeRecord(id, event, createdAt)).join(""),
+      state.events
+        .filter((event) => isPersistedEvent(event))
+        .map((event) => serializeRecord(id, event, createdAt))
+        .join(""),
     );
     await writeSessionMetadata(this.#sessionDirectory, summary);
 
