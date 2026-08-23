@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_PROMPT_PATH = fileURLToPath(
@@ -25,28 +25,15 @@ async function readOptional(path: string): Promise<string | undefined> {
   }
 }
 
-function configuredPaths(workspace: string): string[] {
-  const value = process.env.AGENT_SYSTEM_PROMPT_PATHS;
-
-  if (!value) {
-    return [];
-  }
-
-  return value
-    .split(delimiter)
-    .map((path) => path.trim())
-    .filter(Boolean)
-    .map((path) => resolve(workspace, path));
-}
-
 export async function loadSystemPrompt(
   workspace: string,
+  additionalPaths: readonly string[] = [],
 ): Promise<SystemPrompt> {
   const candidates = [
     DEFAULT_PROMPT_PATH,
     resolve(homedir(), ".minimal-ai-agent", "SYSTEM.md"),
     resolve(workspace, ".agent", "SYSTEM.md"),
-    ...configuredPaths(workspace),
+    ...additionalPaths.map((path) => resolve(workspace, path)),
   ];
   const sources: string[] = [];
   const parts: string[] = [];

@@ -40,13 +40,13 @@ function parseInput(input: unknown): BashInput {
   };
 }
 
-function shellConfiguration(): { shell: string; args: string[] } {
+function shellConfiguration(bashPath?: string): { shell: string; args: string[] } {
   if (process.platform !== "win32") {
-    return { shell: "bash", args: ["-c"] };
+    return { shell: bashPath ?? "bash", args: ["-c"] };
   }
 
   const candidates = [
-    process.env.AGENT_BASH_PATH,
+    bashPath,
     process.env.ProgramFiles && `${process.env.ProgramFiles}\\Git\\bin\\bash.exe`,
     process.env.ProgramFiles && `${process.env.ProgramFiles}\\Git\\usr\\bin\\bash.exe`,
     "bash.exe",
@@ -58,7 +58,7 @@ function shellConfiguration(): { shell: string; args: string[] } {
     }
   }
 
-  throw new Error("bash executable was not found; set AGENT_BASH_PATH");
+  throw new Error("bash executable was not found; configure tools.bashPath");
 }
 
 function truncateOutput(output: string): { output: string; truncated: boolean } {
@@ -81,7 +81,10 @@ function truncateOutput(output: string): { output: string; truncated: boolean } 
   return { output: result, truncated };
 }
 
-export function createBashTool(workspaceDirectory: string): Tool {
+export function createBashTool(
+  workspaceDirectory: string,
+  bashPath?: string,
+): Tool {
   return {
     spec: {
       name: "bash",
@@ -101,7 +104,7 @@ export function createBashTool(workspaceDirectory: string): Tool {
     async execute(input: unknown, signal?: AbortSignal): Promise<unknown> {
       const { command, timeout } = parseInput(input);
       signal?.throwIfAborted();
-      const { shell, args } = shellConfiguration();
+      const { shell, args } = shellConfiguration(bashPath);
 
       return new Promise((resolve, reject) => {
         const child = spawn(shell, [...args, command], {

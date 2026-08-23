@@ -36,6 +36,7 @@ export interface ReplOptions {
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): AgentModel;
   listModels(): Promise<readonly string[]>;
+  saveModelId(id: string): Promise<void>;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
   showReasoning?: boolean;
@@ -157,9 +158,18 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             } else if (command.id === modelSettings.id) {
               console.log(ansi.dim(`Модель уже активна: ${formatModelStatus(modelSettings)}`));
             } else {
-              modelSettings = selectModel(modelSettings, command.id);
-              model = options.createAgentModel(modelSettings);
-              console.log(ansi.dim(`Модель переключена: ${formatModelStatus(modelSettings)}`));
+              try {
+                await options.saveModelId(command.id);
+                modelSettings = selectModel(modelSettings, command.id);
+                model = options.createAgentModel(modelSettings);
+                console.log(ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`));
+              } catch (error) {
+                console.error(
+                  ansi.red(
+                    `Не удалось сохранить модель: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+                );
+              }
             }
             continue;
 

@@ -1,7 +1,13 @@
-const enabled = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+let colorEnabled = true;
+
+export function configureAnsi(enabled: boolean): void {
+  colorEnabled = enabled;
+}
 
 function style(code: number, text: string): string {
-  return enabled ? `\u001B[${code}m${text}\u001B[0m` : text;
+  return colorEnabled && Boolean(process.stdout.isTTY)
+    ? `\u001B[${code}m${text}\u001B[0m`
+    : text;
 }
 
 export const ansi = {

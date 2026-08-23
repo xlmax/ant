@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -19,6 +19,13 @@ export interface AppSettings {
   model: ModelSettings;
   ui: {
     showReasoning: boolean;
+    color: boolean;
+  };
+  prompts: {
+    additionalPaths: string[];
+  };
+  tools: {
+    bashPath?: string;
   };
 }
 
@@ -40,6 +47,13 @@ type PartialSettings = {
   };
   ui?: {
     showReasoning?: boolean;
+    color?: boolean;
+  };
+  prompts?: {
+    additionalPaths?: string[];
+  };
+  tools?: {
+    bashPath?: string;
   };
 };
 
@@ -56,7 +70,12 @@ const defaults: AppSettings = {
   },
   ui: {
     showReasoning: false,
+    color: true,
   },
+  prompts: {
+    additionalPaths: [],
+  },
+  tools: {},
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,10 +94,7 @@ function assertKnownKeys(
   }
 }
 
-function optionalString(
-  value: unknown,
-  path: string,
-): string | undefined {
+function optionalString(value: unknown, path: string): string | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -90,10 +106,7 @@ function optionalString(
   return value;
 }
 
-function optionalBoolean(
-  value: unknown,
-  path: string,
-): boolean | undefined {
+function optionalBoolean(value: unknown, path: string): boolean | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -133,12 +146,27 @@ function optionalEffort(value: unknown): ReasoningEffort | undefined {
   return value;
 }
 
+function optionalStringArray(value: unknown, path: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "string" || item.trim() === "")
+  ) {
+    throw new Error(`Настройка ${path} должна быть массивом непустых строк`);
+  }
+
+  return [...value];
+}
+
 function parseSettings(value: unknown, source: string): PartialSettings {
   if (!isRecord(value)) {
     throw new Error(`Файл настроек ${source} должен содержать JSON-объект`);
   }
 
-  assertKnownKeys(value, ["model", "ui"], "");
+  assertKnownKeys(value, ["model", "ui", "prompts", "tools"], "");
   const result: PartialSettings = {};
 
   if (value.model !== undefined) {
@@ -204,15 +232,44 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка ui должна быть объектом");
     }
 
-    assertKnownKeys(value.ui, ["showReasoning"], "ui.");
+    assertKnownKeys(value.ui, ["showReasoning", "color"], "ui.");
     const showReasoning = optionalBoolean(value.ui.showReasoning, "ui.showReasoning");
-    result.ui = showReasoning === undefined ? {} : { showReasoning };
+    const color = optionalBoolean(value.ui.color, "ui.color");
+    result.ui = {
+      ...(showReasoning === undefined ? {} : { showReasoning }),
+      ...(color === undefined ? {} : { color }),
+    };
+  }
+
+  if (value.prompts !== undefined) {
+    if (!isRecord(value.prompts)) {
+      throw new Error("Настройка prompts должна быть объектом");
+    }
+
+    assertKnownKeys(value.prompts, ["additionalPaths"], "prompts.");
+    const additionalPaths = optionalStringArray(
+      value.prompts.additionalPaths,
+      "prompts.additionalPaths",
+    );
+    result.prompts = additionalPaths === undefined ? {} : { additionalPaths };
+  }
+
+  if (value.tools !== undefined) {
+    if (!isRecord(value.tools)) {
+      throw new Error("Настройка tools должна быть объектом");
+    }
+
+    assertKnownKeys(value.tools, ["bashPath"], "tools.");
+    const bashPath = optionalString(value.tools.bashPath, "tools.bashPath");
+    result.tools = bashPath === undefined ? {} : { bashPath };
   }
 
   return result;
 }
 
 function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings {
+  const bashPath = partial.tools?.bashPath ?? base.tools.bashPath;
+
   return {
     model: {
       provider: partial.model?.provider ?? base.model.provider,
@@ -226,7 +283,12 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
     },
     ui: {
       showReasoning: partial.ui?.showReasoning ?? base.ui.showReasoning,
+      color: partial.ui?.color ?? base.ui.color,
     },
+    prompts: {
+      additionalPaths: partial.prompts?.additionalPaths ?? base.prompts.additionalPaths,
+    },
+    tools: bashPath === undefined ? {} : { bashPath },
   };
 }
 
@@ -252,75 +314,18 @@ async function readSettingsFile(path: string): Promise<PartialSettings | undefin
   return parseSettings(value, path);
 }
 
-function parseEnvironmentBoolean(
-  value: string | undefined,
-  name: string,
-): boolean | undefined {
-  if (value === undefined || value.trim() === "") {
-    return undefined;
-  }
-
-  if (value === "1" || value === "true") {
-    return true;
-  }
-
-  if (value === "0" || value === "false") {
-    return false;
-  }
-
-  throw new Error(`Переменная ${name} должна быть 1, 0, true или false`);
-}
-
-function environmentSettings(environment: NodeJS.ProcessEnv): PartialSettings {
-  const model: NonNullable<PartialSettings["model"]> = {};
-  const thinking: NonNullable<NonNullable<PartialSettings["model"]>["thinking"]> = {};
-  const id = environment.DEEPSEEK_MODEL?.trim();
-  const baseUrl = environment.DEEPSEEK_BASE_URL?.trim();
-  const contextWindow = environment.DEEPSEEK_CONTEXT_WINDOW?.trim();
-  const effort = environment.DEEPSEEK_REASONING_EFFORT?.trim();
-  const thinkingEnabled = parseEnvironmentBoolean(
-    environment.DEEPSEEK_THINKING,
-    "DEEPSEEK_THINKING",
-  );
-  const showReasoning = parseEnvironmentBoolean(
-    environment.AGENT_SHOW_REASONING,
-    "AGENT_SHOW_REASONING",
-  );
-
-  if (id) {
-    model.id = id;
-  }
-  if (baseUrl) {
-    model.baseUrl = baseUrl;
-  }
-  if (contextWindow) {
-    model.contextWindow = optionalContextWindow(Number(contextWindow)) as number;
-  }
-  if (thinkingEnabled !== undefined) {
-    thinking.enabled = thinkingEnabled;
-  }
-  if (effort) {
-    thinking.effort = optionalEffort(effort) as ReasoningEffort;
-  }
-  if (Object.keys(thinking).length > 0) {
-    model.thinking = thinking;
-  }
-
-  return {
-    ...(Object.keys(model).length > 0 ? { model } : {}),
-    ...(showReasoning === undefined ? {} : { ui: { showReasoning } }),
-  };
+function userSettingsPath(homeDirectory: string): string {
+  return resolve(homeDirectory, ".minimal-ai-agent", "settings.json");
 }
 
 export async function loadSettings(
   workspace: string,
-  environment: NodeJS.ProcessEnv = process.env,
   homeDirectory: string = homedir(),
 ): Promise<LoadedSettings> {
   const sources: string[] = [];
   let settings = defaults;
   const paths = [
-    resolve(homeDirectory, ".minimal-ai-agent", "settings.json"),
+    userSettingsPath(homeDirectory),
     resolve(workspace, ".agent", "settings.json"),
   ];
 
@@ -332,8 +337,27 @@ export async function loadSettings(
     }
   }
 
-  return {
-    settings: mergeSettings(settings, environmentSettings(environment)),
-    sources,
+  return { settings, sources };
+}
+
+export async function saveUserModelId(
+  id: string,
+  homeDirectory: string = homedir(),
+): Promise<void> {
+  const normalizedId = id.trim();
+  if (normalizedId === "") {
+    throw new Error("Настройка model.id должна быть непустой строкой");
+  }
+  const path = userSettingsPath(homeDirectory);
+  const current = await readSettingsFile(path);
+  const next: PartialSettings = {
+    ...current,
+    model: {
+      ...current?.model,
+      id: normalizedId,
+    },
   };
+
+  await mkdir(resolve(homeDirectory, ".minimal-ai-agent"), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }

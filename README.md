@@ -37,8 +37,6 @@ npm run dev -- --resume <session-id> "теперь запусти тесты"
 
 ```dotenv
 DEEPSEEK_API_KEY=ваш_временный_ключ
-DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
 Файл загружается автоматически при `npm run dev` и `npm start` и игнорируется Git.
@@ -50,7 +48,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 1. `prompts/SYSTEM.md` — базовые инструкции агента;
 2. `~/.minimal-ai-agent/SYSTEM.md` — глобальные инструкции пользователя, если файл существует;
 3. `.agent/SYSTEM.md` в рабочей директории — инструкции конкретного проекта, если файл существует;
-4. пути из `AGENT_SYSTEM_PROMPT_PATHS` через `;` на Windows или `:` на Unix.
+4. пути из `prompts.additionalPaths` в настройках.
 
 Поздние файлы дополняют ранние. Промпт применяется ко всем обращениям модели в текущем процессе, поэтому после изменения файла перезапустите REPL.
 
@@ -67,11 +65,13 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
     "contextWindow": 1000000,
     "thinking": { "enabled": true, "effort": "high" }
   },
-  "ui": { "showReasoning": false }
+  "ui": { "showReasoning": false, "color": true },
+  "prompts": { "additionalPaths": ["prompts/local.md"] },
+  "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" }
 }
 ```
 
-Поддерживается только `deepseek`. Переменные окружения имеют более высокий приоритет: `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_CONTEXT_WINDOW`, `DEEPSEEK_THINKING`, `DEEPSEEK_REASONING_EFFORT`, `AGENT_SHOW_REASONING`. `DEEPSEEK_API_KEY` храните только в `.env.local`.
+Поддерживается только `deepseek`. Все настройки приложения хранятся в JSON; в `.env.local` храните только `DEEPSEEK_API_KEY`. `contextWindow` по умолчанию равен 1 000 000.
 
 > В экспериментальном режиме инструменты не ограничены рабочей директорией и могут прочитать `.env.local`. `bash` выполняет произвольные команды с правами текущего пользователя. Не используйте ключ с важным балансом и не запускайте агент в каталоге с чувствительными данными.
 
@@ -81,9 +81,9 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 npm run dev
 ```
 
-Введите `/help`, чтобы увидеть локальные команды REPL: `/new`, `/session`, `/clear`, `/model`, `/think`, `/reasoning`, `/exit` и справку по отдельной команде. Вывод разделён цветными блоками; для отключения ANSI-стилей задайте `NO_COLOR=1`.
+Введите `/help`, чтобы увидеть локальные команды REPL: `/new`, `/session`, `/clear`, `/model`, `/think`, `/reasoning`, `/exit` и справку по отдельной команде. Вывод разделён цветными блоками; для их отключения задайте `ui.color: false` в настройках.
 
-Во время REPL можно сменить конфигурацию только до завершения текущего процесса:
+Во время REPL можно сменить модель и режим размышлений:
 
 ```text
 /model                     # показать текущую DeepSeek-модель
@@ -94,7 +94,7 @@ npm run dev
 /reasoning on|off          # показать или скрыть reasoning в UI
 ```
 
-`/model list` обращается к DeepSeek API только по явной команде и не меняет выбранную модель. `/model` и `/think` не изменяют `settings.json` и применяются к следующему сообщению. Пока поддерживается только provider `deepseek`: можно указать идентификатор другой модели этого же provider, доступной вашему API-ключу. `baseUrl` и `contextWindow` при этом остаются из исходных настроек.
+`/model list` обращается к DeepSeek API только по явной команде и не меняет выбранную модель. `/model <id>` сохраняет выбранный ID в `~/.minimal-ai-agent/settings.json` и применяет его к следующему сообщению; файлы проекта при этом не изменяются. `/think` действует только до завершения процесса. Пока поддерживается только provider `deepseek`: можно указать идентификатор другой модели этого же provider, доступной вашему API-ключу. `baseUrl` и `contextWindow` остаются из настроек.
 
 ### Ввод в REPL
 
@@ -108,7 +108,7 @@ npm run dev
 
 На других платформах используется стандартный `readline` без многострочного редактора. Редактор корректно рассчитан для обычного одноколоночного текста; emoji и широкие Unicode-символы пока могут неверно влиять на позицию курсора.
 
-Чтобы показать reasoning content DeepSeek отдельным приглушённым блоком, задайте `AGENT_SHOW_REASONING=1` в `.env.local` либо используйте `/reasoning on` в REPL. `/reasoning off` скрывает блок, но не прекращает сохранение reasoning в сессии и его передачу обратно модели.
+Чтобы показать reasoning content DeepSeek отдельным приглушённым блоком, задайте `ui.showReasoning: true` в настройках либо используйте `/reasoning on` в REPL. `/reasoning off` скрывает блок, но не прекращает сохранение reasoning в сессии и его передачу обратно модели.
 
 Одноразовая задача:
 

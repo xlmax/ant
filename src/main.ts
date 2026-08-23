@@ -7,7 +7,7 @@ import {
   type AgentState,
 } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
-import { loadSettings } from "./config/settings.js";
+import { loadSettings, saveUserModelId } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
 import {
@@ -15,6 +15,7 @@ import {
   type AgentSession,
 } from "./core/session-store.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
+import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
 
@@ -76,8 +77,11 @@ async function createModel(workspace: string): Promise<{
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): DeepSeekModel;
   listModels(): Promise<readonly string[]>;
+  saveModelId(id: string): Promise<void>;
   promptSources: string[];
   showReasoning: boolean;
+  color: boolean;
+  bashPath?: string;
 }> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
@@ -87,10 +91,11 @@ async function createModel(workspace: string): Promise<{
     );
   }
 
-  const [systemPrompt, loadedSettings] = await Promise.all([
-    loadSystemPrompt(workspace),
-    loadSettings(workspace),
-  ]);
+  const loadedSettings = await loadSettings(workspace);
+  const systemPrompt = await loadSystemPrompt(
+    workspace,
+    loadedSettings.settings.prompts.additionalPaths,
+  );
 
   const modelSettings = loadedSettings.settings.model;
   const createConfiguredModel = (settings: ModelSettings): DeepSeekModel =>
@@ -103,8 +108,13 @@ async function createModel(workspace: string): Promise<{
     modelSettings,
     createAgentModel: createConfiguredModel,
     listModels: () => model.listModels(),
+    saveModelId: saveUserModelId,
     promptSources: systemPrompt.sources,
     showReasoning: loadedSettings.settings.ui.showReasoning,
+    color: loadedSettings.settings.ui.color,
+    ...(loadedSettings.settings.tools.bashPath === undefined
+      ? {}
+      : { bashPath: loadedSettings.settings.tools.bashPath }),
   };
 }
 
@@ -166,10 +176,17 @@ async function main(): Promise<void> {
     modelSettings,
     createAgentModel: createConfiguredModel,
     listModels,
+    saveModelId,
     promptSources,
     showReasoning,
+    color,
+    bashPath,
   } = await createModel(workspace);
-  const environment = new ToolEnvironment(createCodingTools(workspace));
+  configureAnsi(color);
+  const environment = new ToolEnvironment(createCodingTools(
+    workspace,
+    bashPath === undefined ? {} : { bashPath },
+  ));
   const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
 
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
@@ -180,6 +197,7 @@ async function main(): Promise<void> {
       modelSettings,
       createAgentModel: createConfiguredModel,
       listModels,
+      saveModelId,
       environment,
       store,
       showReasoning,
