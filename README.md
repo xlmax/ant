@@ -6,8 +6,16 @@
 
 ### Готовая сборка
 
+Linux/macOS (или Git Bash на Windows):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xlmax/ant/master/install.sh | sh
+```
+
+PowerShell (Windows):
+
+```powershell
+irm https://raw.githubusercontent.com/xlmax/ant/master/install.ps1 | iex
 ```
 
 Или вручную из GitHub Releases:
