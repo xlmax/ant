@@ -95,6 +95,30 @@ test("grep reports an invalid regular expression as an error", async () => {
   }
 });
 
+test("grep bounds catastrophic regex backtracking", async () => {
+  const workspace = await createWorkspace();
+
+  try {
+    await writeFile(join(workspace, "adversarial.txt"), `${"a".repeat(200)}!\n`, "utf8");
+    const environment = new ToolEnvironment([createGrepTool(workspace)]);
+
+    const observation = await environment.execute({
+      id: "grep-4",
+      name: "grep",
+      input: { pattern: "(a+)+$" },
+    });
+
+    assert.equal(observation.ok, true);
+    assert.ok(typeof observation.value === "object" && observation.value !== null);
+    const value = observation.value as Record<string, unknown>;
+    assert.equal(value.regexTimedOut, true);
+    assert.equal(value.truncated, true);
+    assert.equal(value.regexTimeoutPath, "adversarial.txt");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("glob finds files matching a pattern", async () => {
   const workspace = await createWorkspace();
 

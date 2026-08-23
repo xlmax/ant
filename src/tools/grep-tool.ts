@@ -5,11 +5,13 @@ import { minimatch } from "minimatch";
 import type { Tool } from "../core/environment.js";
 import { walkFiles } from "./file-search.js";
 import { resolveToolPath } from "./path-utils.js";
+import { RegexMatcher } from "./regex-matcher.js";
 
 const DEFAULT_MAX_RESULTS = 100;
 const MAX_RESULTS = 500;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_LINE_CHARS = 500;
+const REGEX_TIMEOUT_MS = 500;
 
 interface GrepInput {
   pattern: string;
@@ -135,6 +137,12 @@ export function createGrepTool(workspaceDirectory: string): Tool {
 
       const include = options.include;
       const maxResults = options.maxResults ?? DEFAULT_MAX_RESULTS;
+      const matcher = new RegexMatcher({
+        pattern: regex.source,
+        flags: regex.flags,
+        maxResults,
+        timeoutMs: REGEX_TIMEOUT_MS,
+      });
       const { files, truncated: walkTruncated } = await walkFiles(root, signal);
       const matches: GrepMatch[] = [];
       let filesSearched = 0;
@@ -180,21 +188,31 @@ export function createGrepTool(workspaceDirectory: string): Tool {
         }
 
         filesSearched += 1;
+        const outcome = matcher.match(content);
+        if (outcome.timedOut) {
+          return {
+            matches,
+            truncated: true,
+            filesSearched,
+            skippedFiles,
+            regexTimedOut: true,
+            regexTimeoutPath: relativePath,
+          };
+        }
+
         const lines = content.split("\n");
-        for (let index = 0; index < lines.length; index += 1) {
+        for (const lineNumber of outcome.lineNumbers) {
           if (matches.length >= maxResults) {
             truncated = true;
             break;
           }
 
-          const line = lines[index] ?? "";
-          if (regex.test(line)) {
-            matches.push({
-              path: relativePath,
-              line: index + 1,
-              text: truncateLine(line),
-            });
-          }
+          const line = lines[lineNumber - 1] ?? "";
+          matches.push({
+            path: relativePath,
+            line: lineNumber,
+            text: truncateLine(line),
+          });
         }
       }
 
