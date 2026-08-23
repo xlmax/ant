@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { displayWidth } from "../src/ui/display-width.js";
 import { StreamingMarkdownRenderer } from "../src/ui/markdown.js";
 
 test("streaming markdown renderer buffers incomplete lines", () => {
@@ -52,6 +53,16 @@ test("streaming markdown renderer aligns a completed table", () => {
       "  deepseek-v4-pro          1M",
     ].join("\n"),
   );
+});
+
+test("streaming markdown renderer aligns wide Unicode table cells", () => {
+  const renderer = new StreamingMarkdownRenderer();
+
+  renderer.push("| Иконка | Значение |\n| --- | --- |\n| 🧠 | готово |\n");
+  const lines = renderer.finish().split("\n");
+
+  assert.equal(displayWidth(lines[0] ?? ""), displayWidth(lines[1] ?? ""));
+  assert.equal(displayWidth(lines[1] ?? ""), displayWidth(lines[2] ?? ""));
 });
 
 test("table-like text without a separator remains ordinary text", () => {

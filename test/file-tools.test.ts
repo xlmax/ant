@@ -45,9 +45,63 @@ test("write creates parent directories and edit applies replacements atomically"
     });
     assert.deepEqual(editResult, {
       ok: true,
-      value: { path, editsApplied: 2, bytesWritten: 8 },
+      value: { path, editsApplied: 2, bytesChanged: 11 },
     });
     assert.equal(await readFile(join(workspace, path), "utf8"), "one\ntwo\n");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("edit reports duplicate oldText separately from overlap", async () => {
+  const workspace = await createWorkspace();
+
+  try {
+    const path = join(workspace, "example.txt");
+    await writeFile(path, "first\nsecond\n", "utf8");
+    const environment = new ToolEnvironment([createEditTool(workspace)]);
+
+    const observation = await environment.execute({
+      id: "edit-duplicate-call",
+      name: "edit",
+      input: {
+        path: "example.txt",
+        edits: [
+          { oldText: "first", newText: "one" },
+          { oldText: "first", newText: "two" },
+        ],
+      },
+    });
+
+    assert.equal(observation.ok, false);
+    assert.ok(typeof observation.error === "string");
+    assert.match(observation.error, /повторяет oldText/u);
+    assert.equal(await readFile(path, "utf8"), "first\nsecond\n");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("edit reports Russian message for ambiguous oldText", async () => {
+  const workspace = await createWorkspace();
+
+  try {
+    const path = join(workspace, "example.txt");
+    await writeFile(path, "first\nfirst\n", "utf8");
+    const environment = new ToolEnvironment([createEditTool(workspace)]);
+
+    const observation = await environment.execute({
+      id: "edit-duplicate-message",
+      name: "edit",
+      input: {
+        path: "example.txt",
+        edits: [{ oldText: "first", newText: "one" }],
+      },
+    });
+
+    assert.equal(observation.ok, false);
+    assert.ok(typeof observation.error === "string");
+    assert.match(observation.error, /уникальным/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

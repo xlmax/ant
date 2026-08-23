@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-import type { ModelSettings, RuntimeLimits } from "../config/settings.js";
+import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
 import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
@@ -21,6 +21,7 @@ export interface ReplOptions {
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
+  projectOverrides: ProjectSettingsOverrides;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
   showReasoning?: boolean;
@@ -111,6 +112,13 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                     `Рассуждения ${command.enabled ? "включены" : "выключены"} и сохранены.`,
                   ),
                 );
+                if (options.projectOverrides.showReasoning) {
+                  console.warn(
+                    ansi.yellow(
+                      "⚠ Проектная настройка ui.showReasoning перекроет это значение после перезапуска.",
+                    ),
+                  );
+                }
               } catch (error) {
                 console.error(
                   ansi.red(
@@ -151,6 +159,13 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 console.log(
                   ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`),
                 );
+                if (options.projectOverrides.modelId) {
+                  console.warn(
+                    ansi.yellow(
+                      "⚠ Проектная настройка model.id перекроет это значение после перезапуска.",
+                    ),
+                  );
+                }
               } catch (error) {
                 console.error(
                   ansi.red(
@@ -184,6 +199,13 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                       : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(modelSettings)}`,
                   ),
                 );
+                if (options.projectOverrides.modelThinking) {
+                  console.warn(
+                    ansi.yellow(
+                      "⚠ Проектная настройка model.thinking перекроет это значение после перезапуска.",
+                    ),
+                  );
+                }
               } catch (error) {
                 console.error(
                   ansi.red(
@@ -222,18 +244,34 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       }
 
       renderer.beginTurn();
-      const result = await runAgent(state, {
-        model,
-        environment: options.environment,
-        observers: [session.observer, renderer],
-        onTextDelta: renderer.onTextDelta,
-        onReasoningDelta: renderer.onReasoningDelta,
-        signal: AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
-        modelRequestTimeoutMs: options.limits.modelRequestTimeoutSeconds * 1_000,
-        modelMaxAttempts: options.limits.modelMaxAttempts,
-      });
+      const cancelTurn = new AbortController();
+      const onSigint = (): void => {
+        if (!cancelTurn.signal.aborted) {
+          console.log(ansi.yellow("\nОтмена текущего хода…"));
+          cancelTurn.abort();
+        }
+      };
+      process.on("SIGINT", onSigint);
 
-      renderer.printResult(result);
+      try {
+        const result = await runAgent(state, {
+          model,
+          environment: options.environment,
+          observers: [session.observer, renderer],
+          onTextDelta: renderer.onTextDelta,
+          onReasoningDelta: renderer.onReasoningDelta,
+          signal: AbortSignal.any([
+            cancelTurn.signal,
+            AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
+          ]),
+          modelRequestTimeoutMs: options.limits.modelRequestTimeoutSeconds * 1_000,
+          modelMaxAttempts: options.limits.modelMaxAttempts,
+        });
+
+        renderer.printResult(result);
+      } finally {
+        process.removeListener("SIGINT", onSigint);
+      }
     }
   } finally {
     terminal?.close();

@@ -39,9 +39,16 @@ export interface AppSettings {
   limits: RuntimeLimits;
 }
 
+export interface ProjectSettingsOverrides {
+  modelId: boolean;
+  modelThinking: boolean;
+  showReasoning: boolean;
+}
+
 export interface LoadedSettings {
   settings: AppSettings;
   sources: string[];
+  projectOverrides: ProjectSettingsOverrides;
 }
 
 type PartialSettings = {
@@ -370,16 +377,29 @@ export async function loadSettings(
   const sources: string[] = [];
   let settings = defaults;
   const paths = [userSettingsPath(homeDirectory), resolve(workspace, ".ant", "settings.json")];
+  const projectOverrides: ProjectSettingsOverrides = {
+    modelId: false,
+    modelThinking: false,
+    showReasoning: false,
+  };
 
-  for (const path of paths) {
+  for (const [index, path] of paths.entries()) {
     const partial = await readSettingsFile(path);
     if (partial) {
       settings = mergeSettings(settings, partial);
       sources.push(path);
+
+      if (index === 1) {
+        projectOverrides.modelId = partial.model?.id !== undefined;
+        projectOverrides.modelThinking =
+          partial.model?.thinking?.enabled !== undefined ||
+          partial.model?.thinking?.effort !== undefined;
+        projectOverrides.showReasoning = partial.ui?.showReasoning !== undefined;
+      }
     }
   }
 
-  return { settings, sources };
+  return { settings, sources, projectOverrides };
 }
 
 export interface UserSettingsUpdate {

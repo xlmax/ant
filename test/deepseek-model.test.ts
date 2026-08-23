@@ -4,8 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { AgentEvent, ModelInput } from "../src/core/agent.js";
+import { ModelRequestError, type AgentEvent, type ModelInput } from "../src/core/agent.js";
 import { DeepSeekModel } from "../src/models/deepseek-model.js";
+
+test("DeepSeekModel classifies fetch TypeError as retryable transport failure", async () => {
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "You are a test assistant.",
+    fetch: async () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+
+  await assert.rejects(
+    model.decide({ events: [{ type: "task", content: "Проверь сеть" }], tools: [] }),
+    (error: unknown) =>
+      error instanceof ModelRequestError &&
+      error.retryable &&
+      /Сетевая ошибка: fetch failed/u.test(error.message),
+  );
+});
 
 test("DeepSeekModel maps tool calls and observations to the API protocol", async () => {
   const responses = [

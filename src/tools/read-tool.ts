@@ -1,6 +1,8 @@
-import { mkdir, open, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, open, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import type { ImageAttachment } from "../core/agent.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
@@ -128,26 +130,133 @@ async function detectImage(path: string): Promise<ImageReadResult | undefined> {
   return { path, kind: "image", mediaType, bytes: metadata.size };
 }
 
-function takeOutputLines(lines: readonly string[]): {
-  lines: string[];
-  truncatedByLimit: boolean;
-} {
-  const output: string[] = [];
-  let bytes = 0;
-
-  for (const line of lines) {
-    const separatorBytes = output.length === 0 ? 0 : 1;
-    const lineBytes = Buffer.byteLength(line, "utf8");
-
-    if (output.length >= MAX_LINES || bytes + separatorBytes + lineBytes > MAX_BYTES) {
-      return { lines: output, truncatedByLimit: true };
-    }
-
-    output.push(line);
-    bytes += separatorBytes + lineBytes;
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (maxBytes <= 0 || value === "") {
+    return "";
   }
 
-  return { lines: output, truncatedByLimit: false };
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.length <= maxBytes) {
+    return value;
+  }
+
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] ?? 0) >> 6 === 0b10) {
+    end -= 1;
+  }
+  return bytes.subarray(0, end).toString("utf8");
+}
+
+interface StreamedTextResult {
+  content: string;
+  totalLines: number;
+  endLine: number;
+  truncatedByLimit: boolean;
+}
+
+async function readTextFile(
+  path: string,
+  offset: number,
+  limit: number | undefined,
+  signal: AbortSignal | undefined,
+): Promise<StreamedTextResult> {
+  const stream = createReadStream(path);
+  const decoder = new StringDecoder("utf8");
+  const lines: string[] = [];
+  let bytes = 0;
+  let lineNumber = 1;
+  let totalLines = 0;
+  let endLine = offset - 1;
+  let sawData = false;
+  let truncatedByLimit = false;
+  let includeLine = false;
+  let line = "";
+  let lineBytes = 0;
+
+  const isRequestedLine = (): boolean =>
+    lineNumber >= offset && (limit === undefined || lineNumber < offset + limit);
+
+  const startLine = (): void => {
+    line = "";
+    lineBytes = 0;
+    const separatorBytes = lines.length === 0 ? 0 : 1;
+    includeLine =
+      isRequestedLine() && lines.length < MAX_LINES && bytes + separatorBytes <= MAX_BYTES;
+
+    if (isRequestedLine() && !includeLine) {
+      truncatedByLimit = true;
+    }
+  };
+
+  const appendLinePart = (part: string): void => {
+    if (!includeLine || part === "") {
+      return;
+    }
+
+    const separatorBytes = lines.length === 0 ? 0 : 1;
+    const remainingBytes = MAX_BYTES - bytes - separatorBytes - lineBytes;
+    const prefix = truncateUtf8(part, remainingBytes);
+    line += prefix;
+    lineBytes += Buffer.byteLength(prefix, "utf8");
+    if (prefix.length !== part.length) {
+      truncatedByLimit = true;
+    }
+  };
+
+  const finishLine = (): void => {
+    if (isRequestedLine() && includeLine) {
+      const separatorBytes = lines.length === 0 ? 0 : 1;
+      lines.push(line);
+      bytes += separatorBytes + lineBytes;
+      endLine = lineNumber;
+    }
+    totalLines += 1;
+    lineNumber += 1;
+    startLine();
+  };
+
+  startLine();
+  const abort = (): void => {
+    stream.destroy(signal?.reason instanceof Error ? signal.reason : undefined);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+
+  try {
+    for await (const chunk of stream) {
+      signal?.throwIfAborted();
+      sawData = true;
+      const text = decoder.write(chunk as Buffer);
+      let start = 0;
+      let newline = text.indexOf("\n");
+
+      while (newline !== -1) {
+        appendLinePart(text.slice(start, newline));
+        finishLine();
+        start = newline + 1;
+        newline = text.indexOf("\n", start);
+      }
+      appendLinePart(text.slice(start));
+    }
+
+    const remaining = decoder.end();
+    if (remaining !== "") {
+      sawData = true;
+      appendLinePart(remaining);
+    }
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+
+  if (sawData) {
+    finishLine();
+  }
+
+  return {
+    content: lines.join("\n"),
+    totalLines,
+    endLine,
+    truncatedByLimit,
+  };
 }
 
 export function createReadTool(workspaceDirectory: string): Tool {
@@ -191,13 +300,13 @@ export function createReadTool(workspaceDirectory: string): Tool {
         return result;
       }
 
-      const content = await readFile(resolvedPath, "utf8");
+      const text = await readTextFile(resolvedPath, offset, limit, signal);
       signal?.throwIfAborted();
 
-      if (content === "") {
+      if (text.totalLines === 0) {
         return {
           path,
-          content,
+          content: "",
           totalLines: 0,
           startLine: 0,
           endLine: 0,
@@ -205,29 +314,23 @@ export function createReadTool(workspaceDirectory: string): Tool {
         };
       }
 
-      const allLines = content.split("\n");
-
-      if (offset > allLines.length) {
+      if (offset > text.totalLines) {
         throw new Error(
-          `read offset ${offset} is beyond the end of file (${allLines.length} lines total)`,
+          `read offset ${offset} is beyond the end of file (${text.totalLines} lines total)`,
         );
       }
 
-      const availableLines = allLines.slice(offset - 1);
-      const requestedLines = limit === undefined ? availableLines : availableLines.slice(0, limit);
-      const { lines, truncatedByLimit } = takeOutputLines(requestedLines);
-      const endLine = offset + lines.length - 1;
-      const hasMoreLines = endLine < allLines.length;
-      const truncated = truncatedByLimit || hasMoreLines;
+      const hasMoreLines = text.endLine < text.totalLines;
+      const truncated = text.truncatedByLimit || hasMoreLines;
 
       return {
         path,
-        content: lines.join("\n"),
-        totalLines: allLines.length,
+        content: text.content,
+        totalLines: text.totalLines,
         startLine: offset,
-        endLine,
+        endLine: text.endLine,
         truncated,
-        ...(truncated ? { nextOffset: endLine + 1 } : {}),
+        ...(truncated ? { nextOffset: text.endLine + 1 } : {}),
       };
     },
   };

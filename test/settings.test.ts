@@ -67,6 +67,11 @@ test("settings merge global and project layers without environment overrides", a
       },
     });
     assert.equal(loaded.sources.length, 2);
+    assert.deepEqual(loaded.projectOverrides, {
+      modelId: false,
+      modelThinking: true,
+      showReasoning: true,
+    });
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

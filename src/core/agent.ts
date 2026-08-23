@@ -147,16 +147,23 @@ function retryReason(error: unknown, requestTimedOut: boolean): string | undefin
     return error.message;
   }
 
-  if (error instanceof TypeError) {
-    return `Сетевая ошибка: ${error.message}`;
-  }
-
   return undefined;
 }
 
 async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   signal?.throwIfAborted();
+
+  await new Promise<void>((resolve, reject) => {
+    const handle = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = (): void => {
+      clearTimeout(handle);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function createRequestTimeout(

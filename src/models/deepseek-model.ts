@@ -19,8 +19,7 @@ import type {
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
-const MAX_INLINE_IMAGE_BYTES = 32 * 1024 * 1024;
-const MAX_REQUEST_IMAGE_BYTES = 32 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 
 interface DeepSeekModelOptions {
   apiKey: string;
@@ -97,7 +96,7 @@ async function imagePart(
 ): Promise<DeepSeekContentPart> {
   signal?.throwIfAborted();
   const content = await readFile(attachment.path, { signal });
-  if (content.length > MAX_INLINE_IMAGE_BYTES) {
+  if (content.length > MAX_IMAGE_BYTES) {
     throw new Error(`Image ${attachment.path} exceeds the 32 MiB vision limit`);
   }
   return {
@@ -173,7 +172,7 @@ async function createMessages(
       const imageParts: DeepSeekContentPart[] = [];
       for (const attachment of attachments) {
         totalBytes += attachment.bytes;
-        if (totalBytes > MAX_REQUEST_IMAGE_BYTES) {
+        if (totalBytes > MAX_IMAGE_BYTES) {
           throw new Error("Image attachments exceed the 32 MiB request budget");
         }
         imageParts.push(await imagePart(attachment, signal));
@@ -539,7 +538,7 @@ export class DeepSeekModel implements AgentModel {
       headers: { Authorization: `Bearer ${this.#apiKey}` },
       ...(signal === undefined ? {} : { signal }),
     };
-    const response = await this.#fetch(`${this.#baseUrl}/models`, request);
+    const response = await this.#fetchResponse(`${this.#baseUrl}/models`, request);
     const responseText = await response.text();
 
     if (!response.ok) {
@@ -604,7 +603,7 @@ export class DeepSeekModel implements AgentModel {
       request.signal = signal;
     }
 
-    const response = await this.#fetch(`${this.#baseUrl}/chat/completions`, request);
+    const response = await this.#fetchResponse(`${this.#baseUrl}/chat/completions`, request);
     if (!response.ok) {
       const responseText = await response.text();
       throw new ModelRequestError(
@@ -642,5 +641,16 @@ export class DeepSeekModel implements AgentModel {
     }
 
     return parseDecision(payload);
+  }
+
+  async #fetchResponse(url: string, request: RequestInit): Promise<Response> {
+    try {
+      return await this.#fetch(url, request);
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new ModelRequestError(`Сетевая ошибка: ${error.message}`, true);
+      }
+      throw error;
+    }
   }
 }

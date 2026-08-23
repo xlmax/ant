@@ -86,6 +86,34 @@ test("read reports an empty file as zero lines", async () => {
   }
 });
 
+test("read truncates a single long line at the byte limit", async () => {
+  const workspace = await createWorkspace();
+
+  try {
+    const file = join(workspace, "long.txt");
+    await writeFile(file, "€".repeat(20_000), "utf8");
+    const environment = new ToolEnvironment([createReadTool(workspace)]);
+
+    const observation = await environment.execute({
+      id: "read-long-line",
+      name: "read",
+      input: { path: file },
+    });
+
+    assert.equal(observation.ok, true);
+    if (!observation.ok) {
+      return;
+    }
+    const result = observation.value as { content: string; truncated: boolean; endLine: number };
+    assert.ok(Buffer.byteLength(result.content, "utf8") <= 50 * 1024);
+    assert.equal(result.content.includes("�"), false);
+    assert.equal(result.truncated, true);
+    assert.equal(result.endLine, 1);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("read supports line ranges and absolute paths", async () => {
   const workspace = await createWorkspace();
 

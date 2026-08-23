@@ -47,28 +47,50 @@ function parseInput(input: unknown): { path: string; edits: Edit[] } {
   return { path, edits };
 }
 
-function findUniqueReplacement(content: string, edit: Edit, editIndex: number): Replacement {
-  const index = content.indexOf(edit.oldText);
+function findReplacements(content: string, edits: readonly Edit[]): Replacement[] {
+  const seenOldText = new Set<string>();
 
-  if (index === -1) {
-    throw new Error(
-      `Could not find edits[${editIndex}].oldText. It must match exactly including whitespace and newlines.`,
+  return edits
+    .map((edit, index) => {
+      if (seenOldText.has(edit.oldText)) {
+        throw new Error(
+          `edits[${index}].oldText повторяет oldText из предыдущей правки. Объедините изменения или сделайте каждый oldText уникальным.`,
+        );
+      }
+      seenOldText.add(edit.oldText);
+
+      const replacementIndex = content.indexOf(edit.oldText);
+      if (replacementIndex === -1) {
+        throw new Error(
+          `Для edits[${index}].oldText не найдено совпадение. Текст должен совпадать точно, включая пробелы и переводы строк.`,
+        );
+      }
+      if (content.indexOf(edit.oldText, replacementIndex + 1) !== -1) {
+        throw new Error(
+          `Для edits[${index}].oldText найдено несколько совпадений. Уточните oldText, чтобы совпадение было уникальным.`,
+        );
+      }
+
+      return { ...edit, index: replacementIndex };
+    })
+    .sort((left, right) => left.index - right.index);
+}
+
+function calculateBytesChanged(edits: readonly Edit[]): number {
+  return edits.reduce((sum, edit) => {
+    if (edit.oldText === edit.newText) {
+      return sum;
+    }
+
+    return (
+      sum +
+      Math.max(Buffer.byteLength(edit.oldText, "utf8"), Buffer.byteLength(edit.newText, "utf8"))
     );
-  }
-
-  if (content.indexOf(edit.oldText, index + 1) !== -1) {
-    throw new Error(
-      `Found multiple occurrences of edits[${editIndex}].oldText. Provide more context so it is unique.`,
-    );
-  }
-
-  return { ...edit, index };
+  }, 0);
 }
 
 function applyEdits(content: string, edits: readonly Edit[]): string {
-  const replacements = edits
-    .map((edit, index) => findUniqueReplacement(content, edit, index))
-    .sort((left, right) => left.index - right.index);
+  const replacements = findReplacements(content, edits);
 
   for (let index = 1; index < replacements.length; index += 1) {
     const previous = replacements[index - 1];
@@ -127,8 +149,7 @@ export function createEditTool(workspaceDirectory: string): Tool {
       signal?.throwIfAborted();
       const { path, edits } = parseInput(input);
       const target = resolveToolPath(path, workspaceDirectory);
-      const originalContent = await readFile(target, "utf8");
-      const updatedContent = applyEdits(originalContent, edits);
+      const updatedContent = applyEdits(await readFile(target, "utf8"), edits);
       signal?.throwIfAborted();
 
       await writeFileAtomically(target, updatedContent);
@@ -137,7 +158,7 @@ export function createEditTool(workspaceDirectory: string): Tool {
       return {
         path,
         editsApplied: edits.length,
-        bytesWritten: Buffer.byteLength(updatedContent, "utf8"),
+        bytesChanged: calculateBytesChanged(edits),
       };
     },
   };

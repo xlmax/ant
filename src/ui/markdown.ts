@@ -1,6 +1,7 @@
 import { Lexer, type Token } from "marked";
 
 import { ansi } from "./ansi.js";
+import { displayWidth } from "./display-width.js";
 import { highlightCode } from "./syntax-highlight.js";
 
 type TableAlignment = "left" | "center" | "right";
@@ -81,7 +82,7 @@ function parseTableSeparator(line: string): TableAlignment[] | undefined {
 }
 
 function visibleWidth(text: string): number {
-  return Array.from(text.replaceAll("`", "").replaceAll("**", "").replaceAll("*", "")).length;
+  return displayWidth(text.replaceAll("`", "").replaceAll("**", "").replaceAll("*", ""));
 }
 
 function padCell(cell: string, width: number, alignment: TableAlignment): string {

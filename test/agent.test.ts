@@ -74,6 +74,27 @@ test("the agent retries a retryable model request and records every attempt", as
   ]);
 });
 
+test("the agent does not retry an unclassified TypeError", async () => {
+  let attempts = 0;
+  const model: AgentModel = {
+    async decide() {
+      attempts += 1;
+      throw new TypeError("Cannot read properties of undefined");
+    },
+  };
+
+  await assert.rejects(
+    runAgent(createAgentState("Проверь TypeError"), {
+      model,
+      environment: new ToolEnvironment([]),
+      modelMaxAttempts: 3,
+      retryDelayMs: 0,
+    }),
+    /Cannot read properties/u,
+  );
+  assert.equal(attempts, 1);
+});
+
 test("the agent retries a timed out model request", async () => {
   let attempts = 0;
   const model: AgentModel = {
@@ -96,6 +117,37 @@ test("the agent retries a timed out model request", async () => {
     /Попытки исчерпаны \(2\/2\)/u,
   );
   assert.equal(attempts, 2);
+});
+
+test("the agent cancels immediately while waiting to retry", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  const model: AgentModel = {
+    async decide() {
+      attempts += 1;
+      throw new ModelRequestError("Временная ошибка провайдера", true);
+    },
+  };
+
+  const result = await runAgent(createAgentState("Отмени повтор"), {
+    model,
+    environment: new ToolEnvironment([]),
+    signal: controller.signal,
+    modelMaxAttempts: 3,
+    retryDelayMs: 10_000,
+    observers: [
+      {
+        onEvent: (event) => {
+          if (event.type === "model.retry") {
+            controller.abort();
+          }
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, "cancelled");
+  assert.equal(attempts, 1);
 });
 
 test("the model request timeout resets while streaming reasoning", async () => {

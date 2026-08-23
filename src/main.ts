@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
-import type { ModelSettings, RuntimeLimits } from "./config/settings.js";
+import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
 import { createAgentState, runAgent, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
 import {
@@ -44,6 +44,7 @@ async function createModel(workspace: string): Promise<{
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
   promptSources: string[];
+  projectOverrides: ProjectSettingsOverrides;
   showReasoning: boolean;
   color: boolean;
   limits: RuntimeLimits;
@@ -76,6 +77,7 @@ async function createModel(workspace: string): Promise<{
     saveThinking: saveUserModelThinking,
     saveShowReasoning: saveUserShowReasoning,
     promptSources: systemPrompt.sources,
+    projectOverrides: loadedSettings.projectOverrides,
     showReasoning: loadedSettings.settings.ui.showReasoning,
     color: loadedSettings.settings.ui.color,
     limits: loadedSettings.settings.limits,
@@ -200,6 +202,7 @@ async function main(): Promise<void> {
     saveThinking,
     saveShowReasoning,
     promptSources,
+    projectOverrides,
     showReasoning,
     color,
     limits,
@@ -220,6 +223,7 @@ async function main(): Promise<void> {
       saveModelId,
       saveThinking,
       saveShowReasoning,
+      projectOverrides,
       environment,
       store,
       showReasoning,
