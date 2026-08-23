@@ -20,7 +20,11 @@ test("JSONL session store persists and resumes agent events", async () => {
     await session.observer.onEvent({ type: "model.requested" });
     await session.observer.onEvent({
       type: "decision",
-      decision: { type: "finish", answer: "Первый ответ" },
+      decision: {
+        type: "finish",
+        answer: "Первый ответ",
+        reasoning: "Внутреннее рассуждение",
+      },
     });
 
     const resumed = await store.resume(session.id);
@@ -31,6 +35,7 @@ test("JSONL session store persists and resumes agent events", async () => {
       ["task", "model.requested", "decision"],
     );
     assert.equal(content.trim().split("\n").length, 3);
+    assert.match(content, /Внутреннее рассуждение/u);
     assert.match(content, /"version":1/u);
     assert.match(content, new RegExp(session.id, "u"));
   } finally {

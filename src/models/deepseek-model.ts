@@ -3,7 +3,10 @@ import type {
   AgentModel,
   Decision,
   ModelInput,
+  ModelUsage,
+  ModelUsageHandler,
   Observation,
+  ReasoningDeltaHandler,
   ToolCall,
   ToolSpec,
   TextDeltaHandler,
@@ -11,11 +14,13 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 
 interface DeepSeekModelOptions {
   apiKey: string;
   systemPrompt: string;
   model?: string;
+  contextWindow?: number;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
 }
@@ -37,9 +42,17 @@ type DeepSeekMessage =
   | {
       role: "assistant";
       content: string | null;
+      reasoning_content?: string;
       tool_calls?: DeepSeekToolCall[];
     }
   | { role: "tool"; tool_call_id: string; content: string };
+
+interface ModelMetadata {
+  provider: string;
+  model: string;
+  reasoning: string;
+  contextWindow: number;
+}
 
 interface DeepSeekTool {
   type: "function";
@@ -67,11 +80,17 @@ function observationContent(observation: Observation): string {
 }
 
 function decisionMessage(decision: Decision): DeepSeekMessage {
+  const reasoning =
+    decision.reasoning === undefined
+      ? {}
+      : { reasoning_content: decision.reasoning };
+
   switch (decision.type) {
     case "tools":
       return {
         role: "assistant",
         content: null,
+        ...reasoning,
         tool_calls: decision.calls.map((call) => ({
           id: call.id,
           type: "function",
@@ -83,10 +102,10 @@ function decisionMessage(decision: Decision): DeepSeekMessage {
       };
 
     case "ask":
-      return { role: "assistant", content: decision.question };
+      return { role: "assistant", content: decision.question, ...reasoning };
 
     case "finish":
-      return { role: "assistant", content: decision.answer };
+      return { role: "assistant", content: decision.answer, ...reasoning };
   }
 }
 
@@ -97,6 +116,7 @@ function eventMessages(event: AgentEvent): DeepSeekMessage[] {
       return [{ role: "user", content: event.content }];
 
     case "model.requested":
+    case "model.usage":
       return [];
 
     case "decision":
@@ -164,6 +184,38 @@ function parseToolCall(value: unknown): ToolCall {
   };
 }
 
+function parseUsage(
+  payload: unknown,
+  metadata: ModelMetadata,
+): ModelUsage | undefined {
+  if (!isRecord(payload) || !isRecord(payload.usage)) {
+    return undefined;
+  }
+
+  const inputTokens = payload.usage.prompt_tokens;
+  const outputTokens = payload.usage.completion_tokens;
+  const totalTokens = payload.usage.total_tokens;
+
+  if (
+    typeof inputTokens !== "number" ||
+    typeof outputTokens !== "number" ||
+    typeof totalTokens !== "number"
+  ) {
+    return undefined;
+  }
+
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
+    reasoning: metadata.reasoning,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    contextWindow: metadata.contextWindow,
+    source: "provider",
+  };
+}
+
 function parseDecision(payload: unknown): Decision {
   if (!isRecord(payload) || !Array.isArray(payload.choices)) {
     throw new Error("DeepSeek returned an invalid response");
@@ -176,6 +228,10 @@ function parseDecision(payload: unknown): Decision {
   }
 
   const toolCalls = firstChoice.message.tool_calls;
+  const reasoning =
+    typeof firstChoice.message.reasoning_content === "string"
+      ? firstChoice.message.reasoning_content
+      : undefined;
 
   if (Array.isArray(toolCalls) && toolCalls.length > 0) {
     const [firstToolCall, ...remainingToolCalls] = toolCalls;
@@ -186,6 +242,7 @@ function parseDecision(payload: unknown): Decision {
         parseToolCall(firstToolCall),
         ...remainingToolCalls.map(parseToolCall),
       ],
+      ...(reasoning === undefined ? {} : { reasoning }),
     };
   }
 
@@ -202,12 +259,16 @@ function parseDecision(payload: unknown): Decision {
   return {
     type: "finish",
     answer: content,
+    ...(reasoning === undefined ? {} : { reasoning }),
   };
 }
 
 async function parseStreamingDecision(
   response: Response,
   onTextDelta: TextDeltaHandler,
+  onReasoningDelta: ReasoningDeltaHandler | undefined,
+  onUsage: ModelUsageHandler | undefined,
+  metadata: ModelMetadata,
 ): Promise<Decision> {
   if (!response.body) {
     throw new Error("DeepSeek returned an empty streaming response");
@@ -221,6 +282,7 @@ async function parseStreamingDecision(
     function: { name: string; arguments: string };
   }> = [];
   let content = "";
+  let reasoning = "";
   let buffer = "";
 
   const processEvent = (event: string): void => {
@@ -245,6 +307,11 @@ async function parseStreamingDecision(
         throw new Error("DeepSeek returned invalid streaming JSON");
       }
 
+      const usage = parseUsage(payload, metadata);
+      if (usage) {
+        onUsage?.(usage);
+      }
+
       if (!isRecord(payload) || !Array.isArray(payload.choices)) {
         continue;
       }
@@ -255,8 +322,13 @@ async function parseStreamingDecision(
         continue;
       }
 
-      const deltaContent = choice.delta.content;
+      const deltaReasoning = choice.delta.reasoning_content;
+      if (typeof deltaReasoning === "string") {
+        reasoning += deltaReasoning;
+        onReasoningDelta?.(deltaReasoning);
+      }
 
+      const deltaContent = choice.delta.content;
       if (typeof deltaContent === "string") {
         content += deltaContent;
         onTextDelta(deltaContent);
@@ -323,6 +395,10 @@ async function parseStreamingDecision(
 
   const message: Record<string, unknown> = { content };
 
+  if (reasoning) {
+    message.reasoning_content = reasoning;
+  }
+
   if (toolCalls.length > 0) {
     message.tool_calls = toolCalls;
   }
@@ -334,6 +410,7 @@ export class DeepSeekModel implements AgentModel {
   readonly #apiKey: string;
   readonly #systemPrompt: string;
   readonly #model: string;
+  readonly #contextWindow: number;
   readonly #baseUrl: string;
   readonly #fetch: typeof globalThis.fetch;
 
@@ -346,9 +423,14 @@ export class DeepSeekModel implements AgentModel {
       throw new Error("System prompt must not be empty");
     }
 
+    if ((options.contextWindow ?? DEFAULT_CONTEXT_WINDOW) <= 0) {
+      throw new Error("Context window must be greater than zero");
+    }
+
     this.#apiKey = options.apiKey;
     this.#systemPrompt = options.systemPrompt;
     this.#model = options.model ?? DEFAULT_MODEL;
+    this.#contextWindow = options.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
@@ -357,14 +439,21 @@ export class DeepSeekModel implements AgentModel {
     input: ModelInput,
     signal?: AbortSignal,
     onTextDelta?: TextDeltaHandler,
+    onReasoningDelta?: ReasoningDeltaHandler,
+    onUsage?: ModelUsageHandler,
   ): Promise<Decision> {
     const tools = createTools(input.tools);
     const body: Record<string, unknown> = {
       model: this.#model,
       messages: createMessages(input.events, this.#systemPrompt),
-      thinking: { type: "disabled" },
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
       stream: onTextDelta !== undefined,
     };
+
+    if (onTextDelta) {
+      body.stream_options = { include_usage: true };
+    }
 
     if (tools.length > 0) {
       body.tools = tools;
@@ -396,7 +485,18 @@ export class DeepSeekModel implements AgentModel {
     }
 
     if (onTextDelta) {
-      return parseStreamingDecision(response, onTextDelta);
+      return parseStreamingDecision(
+        response,
+        onTextDelta,
+        onReasoningDelta,
+        onUsage,
+        {
+          provider: "deepseek",
+          model: this.#model,
+          reasoning: "high",
+          contextWindow: this.#contextWindow,
+        },
+      );
     }
 
     const responseText = await response.text();
@@ -406,6 +506,16 @@ export class DeepSeekModel implements AgentModel {
       payload = JSON.parse(responseText);
     } catch {
       throw new Error("DeepSeek returned invalid JSON");
+    }
+
+    const usage = parseUsage(payload, {
+      provider: "deepseek",
+      model: this.#model,
+      reasoning: "high",
+      contextWindow: this.#contextWindow,
+    });
+    if (usage) {
+      onUsage?.(usage);
     }
 
     return parseDecision(payload);

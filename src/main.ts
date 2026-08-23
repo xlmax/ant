@@ -94,6 +94,7 @@ async function runOneShot(
   model: DeepSeekModel,
   environment: ToolEnvironment,
   store: JsonlSessionStore,
+  showReasoning: boolean,
 ): Promise<void> {
   let state: AgentState;
   let session: AgentSession;
@@ -108,7 +109,7 @@ async function runOneShot(
     session = await store.create(state);
   }
 
-  const renderer = new ConsoleRenderer();
+  const renderer = new ConsoleRenderer({ showReasoning });
   console.log(`Сессия: ${session.id}`);
   renderer.beginTurn();
 
@@ -117,6 +118,7 @@ async function runOneShot(
     environment,
     observers: [session.observer, renderer],
     onTextDelta: renderer.onTextDelta,
+    onReasoningDelta: renderer.onReasoningDelta,
     signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
   });
 
@@ -133,6 +135,7 @@ async function main(): Promise<void> {
   const { model, promptSources } = await createModel(workspace);
   const environment = new ToolEnvironment(createCodingTools(workspace));
   const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
+  const showReasoning = process.env.AGENT_SHOW_REASONING === "1";
 
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
 
@@ -141,12 +144,13 @@ async function main(): Promise<void> {
       model,
       environment,
       store,
+      showReasoning,
       ...(options.resume === undefined ? {} : { resume: options.resume }),
     });
     return;
   }
 
-  await runOneShot(options, model, environment, store);
+  await runOneShot(options, model, environment, store, showReasoning);
 }
 
 main().catch((error: unknown) => {

@@ -29,6 +29,7 @@ export interface ReplOptions {
   model: AgentModel;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
+  showReasoning?: boolean;
   resume?: string;
 }
 
@@ -47,7 +48,11 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     process.platform === "win32" && stdin.isTTY
       ? undefined
       : createInterface({ input: stdin, output: stdout });
-  const renderer = new ConsoleRenderer();
+  const renderer = new ConsoleRenderer(
+    options.showReasoning === undefined
+      ? {}
+      : { showReasoning: options.showReasoning },
+  );
   const inputHistory = new InputHistory();
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
@@ -99,6 +104,23 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             process.stdout.write("\u001B[2J\u001B[H");
             continue;
 
+          case "reasoning":
+            if (command.enabled === undefined) {
+              console.log(
+                ansi.dim(
+                  `Рассуждения: ${renderer.showReasoning ? "включены" : "выключены"}.`,
+                ),
+              );
+            } else {
+              renderer.setShowReasoning(command.enabled);
+              console.log(
+                ansi.dim(
+                  `Рассуждения ${command.enabled ? "включены" : "выключены"}.`,
+                ),
+              );
+            }
+            continue;
+
           case "help":
             if (command.command) {
               console.log(
@@ -136,6 +158,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         environment: options.environment,
         observers: [session.observer, renderer],
         onTextDelta: renderer.onTextDelta,
+        onReasoningDelta: renderer.onReasoningDelta,
         signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
       });
 

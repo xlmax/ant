@@ -15,6 +15,18 @@ test("command registry exposes the built-in help command", () => {
   });
 });
 
+test("reasoning command supports querying and changing its setting", () => {
+  assert.deepEqual(parseReplCommand("/reasoning"), { type: "reasoning" });
+  assert.deepEqual(parseReplCommand("/reasoning on"), {
+    type: "reasoning",
+    enabled: true,
+  });
+  assert.deepEqual(parseReplCommand("/reasoning off"), {
+    type: "reasoning",
+    enabled: false,
+  });
+});
+
 test("command parser suggests a similar command", () => {
   assert.deepEqual(parseReplCommand("/sesion"), {
     type: "error",

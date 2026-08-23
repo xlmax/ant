@@ -13,9 +13,9 @@ export interface ToolCall {
 export type ToolCalls = [ToolCall, ...ToolCall[]];
 
 export type Decision =
-  | { type: "tools"; calls: ToolCalls }
-  | { type: "ask"; question: string }
-  | { type: "finish"; answer: string };
+  | { type: "tools"; calls: ToolCalls; reasoning?: string }
+  | { type: "ask"; question: string; reasoning?: string }
+  | { type: "finish"; answer: string; reasoning?: string };
 
 export interface Observation {
   ok: boolean;
@@ -27,6 +27,7 @@ export type AgentEvent =
   | { type: "task"; content: string }
   | { type: "user"; content: string }
   | { type: "model.requested" }
+  | { type: "model.usage"; usage: ModelUsage }
   | { type: "decision"; decision: Decision }
   | {
       type: "observation";
@@ -43,13 +44,28 @@ export interface ModelInput {
   tools: readonly ToolSpec[];
 }
 
+export interface ModelUsage {
+  provider: string;
+  model: string;
+  reasoning: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
+  source: "provider" | "estimated";
+}
+
 export type TextDeltaHandler = (text: string) => void;
+export type ReasoningDeltaHandler = (text: string) => void;
+export type ModelUsageHandler = (usage: ModelUsage) => void;
 
 export interface AgentModel {
   decide(
     input: ModelInput,
     signal?: AbortSignal,
     onTextDelta?: TextDeltaHandler,
+    onReasoningDelta?: ReasoningDeltaHandler,
+    onUsage?: ModelUsageHandler,
   ): Promise<Decision>;
 }
 
@@ -72,6 +88,7 @@ export interface AgentDependencies {
   environment: Environment;
   observers?: readonly AgentObserver[];
   onTextDelta?: TextDeltaHandler;
+  onReasoningDelta?: ReasoningDeltaHandler;
   signal?: AbortSignal;
 }
 
@@ -97,10 +114,18 @@ export async function runAgent(
   state: AgentState,
   dependencies: AgentDependencies,
 ): Promise<AgentResult> {
-  const { model, environment, observers = [], onTextDelta, signal } = dependencies;
+  const {
+    model,
+    environment,
+    observers = [],
+    onTextDelta,
+    onReasoningDelta,
+    signal,
+  } = dependencies;
 
   while (!signal?.aborted) {
     let decision: Decision;
+    let usage: ModelUsage | undefined;
 
     await appendEvent(state, { type: "model.requested" }, observers);
 
@@ -112,6 +137,10 @@ export async function runAgent(
         },
         signal,
         onTextDelta,
+        onReasoningDelta,
+        (reportedUsage) => {
+          usage = reportedUsage;
+        },
       );
     } catch (error) {
       if (signal?.aborted) {
@@ -119,6 +148,10 @@ export async function runAgent(
       }
 
       throw error;
+    }
+
+    if (usage) {
+      await appendEvent(state, { type: "model.usage", usage }, observers);
     }
 
     await appendEvent(state, { type: "decision", decision }, observers);

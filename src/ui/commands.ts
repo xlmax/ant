@@ -9,6 +9,7 @@ export type CommandAction =
   | { type: "new" }
   | { type: "session" }
   | { type: "clear" }
+  | { type: "reasoning"; enabled?: boolean }
   | { type: "exit" }
   | { type: "error"; message: string };
 
@@ -32,6 +33,11 @@ const commands: readonly ReplCommand[] = [
     name: "clear",
     usage: "/clear",
     description: "Очистить экран терминала.",
+  },
+  {
+    name: "reasoning",
+    usage: "/reasoning [on|off]",
+    description: "Показать или скрыть блок рассуждений модели.",
   },
   {
     name: "exit",
@@ -122,6 +128,15 @@ export function parseReplCommand(input: string): CommandAction | undefined {
             message: `Команда /${requestedName.replace(/^\//u, "")} не найдена.`,
           };
     }
+
+    case "reasoning":
+      if (args.length === 0) {
+        return { type: "reasoning" };
+      }
+      if (args.length === 1 && (args[0] === "on" || args[0] === "off")) {
+        return { type: "reasoning", enabled: args[0] === "on" };
+      }
+      return { type: "error", message: "Использование: /reasoning [on|off]" };
 
     case "new":
     case "session":

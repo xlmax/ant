@@ -12,6 +12,7 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
           message: {
             role: "assistant",
             content: null,
+            reasoning_content: "Нужно вызвать echo.",
             tool_calls: [
               {
                 id: "call-42",
@@ -87,6 +88,7 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
 
   assert.deepEqual(toolDecision, {
     type: "tools",
+    reasoning: "Нужно вызвать echo.",
     calls: [
       {
         id: "call-42",
@@ -136,6 +138,7 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
     {
       role: "assistant",
       content: null,
+      reasoning_content: "Нужно вызвать echo.",
       tool_calls: [
         {
           id: "call-42",
@@ -174,12 +177,27 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
     start(controller) {
       controller.enqueue(
         encoder.encode(
+          'data: {"choices":[{"delta":{"reasoning_content":"Сначала "}}]}\n\n',
+        ),
+      );
+      controller.enqueue(
+        encoder.encode(
+          'data: {"choices":[{"delta":{"reasoning_content":"подумаю."}}]}\n\n',
+        ),
+      );
+      controller.enqueue(
+        encoder.encode(
           'data: {"choices":[{"delta":{"content":"Гото"}}]}\n\n',
         ),
       );
       controller.enqueue(
         encoder.encode(
           'data: {"choices":[{"delta":{"content":"во"}}]}\n\n',
+        ),
+      );
+      controller.enqueue(
+        encoder.encode(
+          'data: {"choices":[],"usage":{"prompt_tokens":24100,"completion_tokens":1040,"total_tokens":25140}}\n\n',
         ),
       );
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -200,6 +218,8 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
     fetch: fetchMock,
   });
   const deltas: string[] = [];
+  const reasoningDeltas: string[] = [];
+  const usages: unknown[] = [];
 
   const decision = await model.decide(
     {
@@ -208,9 +228,32 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
     },
     undefined,
     (text) => deltas.push(text),
+    (text) => reasoningDeltas.push(text),
+    (usage) => usages.push(usage),
   );
 
   assert.deepEqual(deltas, ["Гото", "во"]);
-  assert.deepEqual(decision, { type: "finish", answer: "Готово" });
-  assert.equal(JSON.parse(String(request?.body)).stream, true);
+  assert.deepEqual(reasoningDeltas, ["Сначала ", "подумаю."]);
+  assert.deepEqual(usages, [
+    {
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      reasoning: "high",
+      inputTokens: 24100,
+      outputTokens: 1040,
+      totalTokens: 25140,
+      contextWindow: 1_000_000,
+      source: "provider",
+    },
+  ]);
+  assert.deepEqual(decision, {
+    type: "finish",
+    answer: "Готово",
+    reasoning: "Сначала подумаю.",
+  });
+  const requestBody = JSON.parse(String(request?.body));
+  assert.equal(requestBody.stream, true);
+  assert.deepEqual(requestBody.thinking, { type: "enabled" });
+  assert.equal(requestBody.reasoning_effort, "high");
+  assert.deepEqual(requestBody.stream_options, { include_usage: true });
 });
