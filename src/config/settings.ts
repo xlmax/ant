@@ -382,6 +382,43 @@ export async function loadSettings(
   return { settings, sources };
 }
 
+export interface UserSettingsUpdate {
+  model?: {
+    id?: string;
+  };
+  ui?: {
+    showReasoning?: boolean;
+  };
+}
+
+export async function saveUserSettings(
+  update: UserSettingsUpdate,
+  homeDirectory: string = homedir(),
+): Promise<void> {
+  const path = userSettingsPath(homeDirectory);
+  const current = await readSettingsValue(path);
+  const next: Record<string, unknown> = { ...current };
+
+  if (update.model !== undefined) {
+    const currentModel = current?.model;
+    if (currentModel !== undefined && !isRecord(currentModel)) {
+      throw new Error("Настройка model должна быть объектом");
+    }
+    next.model = { ...currentModel, ...update.model };
+  }
+
+  if (update.ui !== undefined) {
+    const currentUi = current?.ui;
+    if (currentUi !== undefined && !isRecord(currentUi)) {
+      throw new Error("Настройка ui должна быть объектом");
+    }
+    next.ui = { ...currentUi, ...update.ui };
+  }
+
+  await mkdir(resolve(homeDirectory, ".ant"), { recursive: true });
+  await writeFileAtomically(path, `${JSON.stringify(next, null, 2)}\n`);
+}
+
 export async function saveUserModelId(
   id: string,
   homeDirectory: string = homedir(),
@@ -390,20 +427,13 @@ export async function saveUserModelId(
   if (normalizedId === "") {
     throw new Error("Настройка model.id должна быть непустой строкой");
   }
-  const path = userSettingsPath(homeDirectory);
-  const current = await readSettingsValue(path);
-  const currentModel = current?.model;
-  if (currentModel !== undefined && !isRecord(currentModel)) {
-    throw new Error("Настройка model должна быть объектом");
-  }
-  const next = {
-    ...current,
-    model: {
-      ...currentModel,
-      id: normalizedId,
-    },
-  };
 
-  await mkdir(resolve(homeDirectory, ".ant"), { recursive: true });
-  await writeFileAtomically(path, `${JSON.stringify(next, null, 2)}\n`);
+  await saveUserSettings({ model: { id: normalizedId } }, homeDirectory);
+}
+
+export async function saveUserShowReasoning(
+  showReasoning: boolean,
+  homeDirectory: string = homedir(),
+): Promise<void> {
+  await saveUserSettings({ ui: { showReasoning } }, homeDirectory);
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadSettings, saveUserModelId } from "../src/config/settings.js";
+import { loadSettings, saveUserModelId, saveUserShowReasoning } from "../src/config/settings.js";
 
 async function temporaryDirectories(): Promise<{ workspace: string; home: string }> {
   const root = await mkdtemp(join(tmpdir(), "ant-settings-"));
@@ -94,6 +94,43 @@ test("saving a selected model updates the global user settings only", async () =
       future: { setting: true },
     });
     assert.equal((await loadSettings(workspace, home)).settings.model.id, "deepseek-v4-pro");
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saving reasoning visibility uses the global layer", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await saveUserShowReasoning(true, home);
+
+    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
+      ui: { showReasoning: true },
+    });
+    assert.equal((await loadSettings(workspace, home)).settings.ui.showReasoning, true);
+
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ ui: { showReasoning: false } }),
+      "utf8",
+    );
+
+    assert.equal((await loadSettings(workspace, home)).settings.ui.showReasoning, false);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saving reasoning visibility reports malformed global settings", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(join(home, ".ant", "settings.json"), "{", "utf8");
+
+    await assert.rejects(saveUserShowReasoning(true, home), /некорректный JSON/u);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

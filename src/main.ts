@@ -4,7 +4,7 @@ import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import type { ModelSettings, RuntimeLimits } from "./config/settings.js";
 import { createAgentState, runAgent, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
-import { loadSettings, saveUserModelId } from "./config/settings.js";
+import { loadSettings, saveUserModelId, saveUserShowReasoning } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
@@ -36,6 +36,7 @@ async function createModel(workspace: string): Promise<{
   createAgentModel(settings: ModelSettings): DeepSeekModel;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
+  saveShowReasoning(enabled: boolean): Promise<void>;
   promptSources: string[];
   showReasoning: boolean;
   color: boolean;
@@ -66,6 +67,7 @@ async function createModel(workspace: string): Promise<{
     createAgentModel: createConfiguredModel,
     listModels: () => model.listModels(),
     saveModelId: saveUserModelId,
+    saveShowReasoning: saveUserShowReasoning,
     promptSources: systemPrompt.sources,
     showReasoning: loadedSettings.settings.ui.showReasoning,
     color: loadedSettings.settings.ui.color,
@@ -188,6 +190,7 @@ async function main(): Promise<void> {
     createAgentModel: createConfiguredModel,
     listModels,
     saveModelId,
+    saveShowReasoning,
     promptSources,
     showReasoning,
     color,
@@ -207,6 +210,7 @@ async function main(): Promise<void> {
       createAgentModel: createConfiguredModel,
       listModels,
       saveModelId,
+      saveShowReasoning,
       environment,
       store,
       showReasoning,

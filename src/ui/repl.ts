@@ -19,6 +19,7 @@ export interface ReplOptions {
   createAgentModel(settings: ModelSettings): AgentModel;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
+  saveShowReasoning(enabled: boolean): Promise<void>;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
   showReasoning?: boolean;
@@ -102,7 +103,20 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               );
             } else {
               renderer.setShowReasoning(command.enabled);
-              console.log(ansi.dim(`Рассуждения ${command.enabled ? "включены" : "выключены"}.`));
+              try {
+                await options.saveShowReasoning(command.enabled);
+                console.log(
+                  ansi.dim(
+                    `Рассуждения ${command.enabled ? "включены" : "выключены"} и сохранены.`,
+                  ),
+                );
+              } catch (error) {
+                console.error(
+                  ansi.red(
+                    `Не удалось сохранить настройку рассуждений: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+                );
+              }
             }
             continue;
 
