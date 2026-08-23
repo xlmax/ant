@@ -17,9 +17,17 @@ export type Decision =
   | { type: "ask"; question: string; reasoning?: string }
   | { type: "finish"; answer: string; reasoning?: string };
 
+export interface ImageAttachment {
+  type: "image";
+  path: string;
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  bytes: number;
+}
+
 export interface Observation {
   ok: boolean;
   value?: unknown;
+  attachments?: readonly ImageAttachment[];
   error?: string;
 }
 

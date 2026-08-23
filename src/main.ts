@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import type { ModelSettings } from "./config/settings.js";
 import {
   createAgentState,
   runAgent,
@@ -54,8 +55,27 @@ function parseCliOptions(args: readonly string[]): CliOptions {
   };
 }
 
+function createDeepSeekModel(
+  apiKey: string,
+  systemPrompt: string,
+  settings: ModelSettings,
+): DeepSeekModel {
+  return new DeepSeekModel({
+    apiKey,
+    systemPrompt,
+    model: settings.id,
+    baseUrl: settings.baseUrl,
+    contextWindow: settings.contextWindow,
+    thinkingEnabled: settings.thinking.enabled,
+    reasoningEffort: settings.thinking.effort,
+  });
+}
+
 async function createModel(workspace: string): Promise<{
   model: DeepSeekModel;
+  modelSettings: ModelSettings;
+  createAgentModel(settings: ModelSettings): DeepSeekModel;
+  listModels(): Promise<readonly string[]>;
   promptSources: string[];
   showReasoning: boolean;
 }> {
@@ -72,16 +92,17 @@ async function createModel(workspace: string): Promise<{
     loadSettings(workspace),
   ]);
 
+  const modelSettings = loadedSettings.settings.model;
+  const createConfiguredModel = (settings: ModelSettings): DeepSeekModel =>
+    createDeepSeekModel(apiKey, systemPrompt.content, settings);
+
+  const model = createConfiguredModel(modelSettings);
+
   return {
-    model: new DeepSeekModel({
-      apiKey,
-      systemPrompt: systemPrompt.content,
-      model: loadedSettings.settings.model.id,
-      baseUrl: loadedSettings.settings.model.baseUrl,
-      contextWindow: loadedSettings.settings.model.contextWindow,
-      thinkingEnabled: loadedSettings.settings.model.thinking.enabled,
-      reasoningEffort: loadedSettings.settings.model.thinking.effort,
-    }),
+    model,
+    modelSettings,
+    createAgentModel: createConfiguredModel,
+    listModels: () => model.listModels(),
     promptSources: systemPrompt.sources,
     showReasoning: loadedSettings.settings.ui.showReasoning,
   };
@@ -140,7 +161,14 @@ async function runOneShot(
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
   const workspace = process.cwd();
-  const { model, promptSources, showReasoning } = await createModel(workspace);
+  const {
+    model,
+    modelSettings,
+    createAgentModel: createConfiguredModel,
+    listModels,
+    promptSources,
+    showReasoning,
+  } = await createModel(workspace);
   const environment = new ToolEnvironment(createCodingTools(workspace));
   const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
 
@@ -149,6 +177,9 @@ async function main(): Promise<void> {
   if (!options.task) {
     await runRepl({
       model,
+      modelSettings,
+      createAgentModel: createConfiguredModel,
+      listModels,
       environment,
       store,
       showReasoning,

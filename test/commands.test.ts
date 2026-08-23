@@ -27,6 +27,39 @@ test("reasoning command supports querying and changing its setting", () => {
   });
 });
 
+test("model and think commands support querying and runtime selection", () => {
+  assert.deepEqual(parseReplCommand("/model"), { type: "model" });
+  assert.deepEqual(parseReplCommand("/think"), { type: "think" });
+  assert.deepEqual(parseReplCommand("/model list"), {
+    type: "model",
+    list: true,
+  });
+  assert.deepEqual(parseReplCommand("/model deepseek-v4-pro"), {
+    type: "model",
+    id: "deepseek-v4-pro",
+  });
+  assert.deepEqual(parseReplCommand("/think max"), {
+    type: "think",
+    selection: "max",
+  });
+  assert.deepEqual(parseReplCommand("/think off"), {
+    type: "think",
+    selection: "off",
+  });
+  assert.deepEqual(parseReplCommand("/think fast"), {
+    type: "error",
+    message: "Использование: /think [off|low|high|max]",
+  });
+  assert.deepEqual(parseReplCommand("/model first second"), {
+    type: "error",
+    message: "Использование: /model [list|id]",
+  });
+  assert.deepEqual(parseReplCommand("/think low extra"), {
+    type: "error",
+    message: "Использование: /think [off|low|high|max]",
+  });
+});
+
 test("command parser suggests a similar command", () => {
   assert.deepEqual(parseReplCommand("/sesion"), {
     type: "error",

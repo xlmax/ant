@@ -4,17 +4,19 @@ import { resolve } from "node:path";
 
 export type ReasoningEffort = "low" | "high" | "max";
 
-export interface AppSettings {
-  model: {
-    provider: "deepseek";
-    id: string;
-    baseUrl: string;
-    contextWindow: number;
-    thinking: {
-      enabled: boolean;
-      effort: ReasoningEffort;
-    };
+export interface ModelSettings {
+  provider: "deepseek";
+  id: string;
+  baseUrl: string;
+  contextWindow: number;
+  thinking: {
+    enabled: boolean;
+    effort: ReasoningEffort;
   };
+}
+
+export interface AppSettings {
+  model: ModelSettings;
   ui: {
     showReasoning: boolean;
   };

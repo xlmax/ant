@@ -43,6 +43,47 @@ test("JSONL session store persists and resumes agent events", async () => {
   }
 });
 
+test("JSONL session store preserves image attachments", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));
+
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Опиши изображение"));
+    await session.observer.onEvent({
+      type: "observation",
+      call: { id: "read-image", name: "read", input: { path: "screen.png" } },
+      observation: {
+        ok: true,
+        value: { kind: "image" },
+        attachments: [{
+          type: "image",
+          path: "C:\\workspace\\.agent\\attachments\\hash.png",
+          mediaType: "image/png",
+          bytes: 12,
+        }],
+      },
+    });
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events.at(-1), {
+      type: "observation",
+      call: { id: "read-image", name: "read", input: { path: "screen.png" } },
+      observation: {
+        ok: true,
+        value: { kind: "image" },
+        attachments: [{
+          type: "image",
+          path: "C:\\workspace\\.agent\\attachments\\hash.png",
+          mediaType: "image/png",
+          bytes: 12,
+        }],
+      },
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("session observer records the complete agent loop", async () => {
   const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));
 

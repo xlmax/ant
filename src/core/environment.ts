@@ -1,13 +1,32 @@
 import type {
   Environment,
+  ImageAttachment,
   Observation,
   ToolCall,
   ToolSpec,
 } from "./agent.js";
 
+export interface ToolExecutionResult {
+  kind: "tool-result";
+  value: unknown;
+  attachments: readonly ImageAttachment[];
+}
+
 export interface Tool {
   spec: ToolSpec;
-  execute(input: unknown, signal?: AbortSignal): Promise<unknown>;
+  execute(input: unknown, signal?: AbortSignal): Promise<unknown | ToolExecutionResult>;
+}
+
+function isToolExecutionResult(value: unknown): value is ToolExecutionResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    value.kind === "tool-result" &&
+    "value" in value &&
+    "attachments" in value &&
+    Array.isArray(value.attachments)
+  );
 }
 
 export class ToolEnvironment implements Environment {
@@ -43,8 +62,15 @@ export class ToolEnvironment implements Environment {
     }
 
     try {
-      const value = await tool.execute(call.input, signal);
-      return { ok: true, value };
+      const result = await tool.execute(call.input, signal);
+      if (isToolExecutionResult(result)) {
+        return {
+          ok: true,
+          value: result.value,
+          ...(result.attachments === undefined ? {} : { attachments: result.attachments }),
+        };
+      }
+      return { ok: true, value: result };
     } catch (error) {
       if (signal?.aborted) {
         throw error;

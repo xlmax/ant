@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
+import type { ModelSettings } from "../config/settings.js";
 import {
   createAgentState,
   runAgent,
@@ -18,6 +19,11 @@ import { ConsoleRenderer } from "./console-renderer.js";
 import { InputHistory } from "./input-history.js";
 import { readTerminalInput } from "./terminal-input.js";
 import {
+  formatModelStatus,
+  selectEffort,
+  selectModel,
+} from "./runtime-model.js";
+import {
   closeUserInputFrame,
   openUserInputFrame,
   userInputPrompt,
@@ -27,6 +33,9 @@ const TURN_TIMEOUT_MS = 60_000;
 
 export interface ReplOptions {
   model: AgentModel;
+  modelSettings: ModelSettings;
+  createAgentModel(settings: ModelSettings): AgentModel;
+  listModels(): Promise<readonly string[]>;
   environment: ToolEnvironment;
   store: JsonlSessionStore;
   showReasoning?: boolean;
@@ -54,6 +63,8 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       : { showReasoning: options.showReasoning },
   );
   const inputHistory = new InputHistory();
+  let model = options.model;
+  let modelSettings = options.modelSettings;
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
 
@@ -121,6 +132,55 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             }
             continue;
 
+          case "model":
+            if (command.list) {
+              try {
+                const models = await options.listModels();
+                console.log(ansi.bold("Доступные модели DeepSeek:"));
+                if (models.length === 0) {
+                  console.log(ansi.dim("Provider не вернул доступные модели."));
+                }
+                for (const id of models) {
+                  console.log(
+                    `${id === modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`,
+                  );
+                }
+              } catch (error) {
+                console.error(
+                  ansi.red(
+                    `Не удалось получить список моделей: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+                );
+              }
+            } else if (command.id === undefined) {
+              console.log(ansi.dim(`Модель: ${formatModelStatus(modelSettings)}`));
+            } else if (command.id === modelSettings.id) {
+              console.log(ansi.dim(`Модель уже активна: ${formatModelStatus(modelSettings)}`));
+            } else {
+              modelSettings = selectModel(modelSettings, command.id);
+              model = options.createAgentModel(modelSettings);
+              console.log(ansi.dim(`Модель переключена: ${formatModelStatus(modelSettings)}`));
+            }
+            continue;
+
+          case "think":
+            if (command.selection === undefined) {
+              console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(modelSettings)}`));
+            } else {
+              const nextSettings = selectEffort(modelSettings, command.selection);
+              if (
+                nextSettings.thinking.enabled === modelSettings.thinking.enabled &&
+                nextSettings.thinking.effort === modelSettings.thinking.effort
+              ) {
+                console.log(ansi.dim(`Рассуждения модели уже настроены: ${formatModelStatus(modelSettings)}`));
+              } else {
+                modelSettings = nextSettings;
+                model = options.createAgentModel(modelSettings);
+                console.log(ansi.dim(`Рассуждения модели переключены: ${formatModelStatus(modelSettings)}`));
+              }
+            }
+            continue;
+
           case "help":
             if (command.command) {
               console.log(
@@ -154,7 +214,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
       renderer.beginTurn();
       const result = await runAgent(state, {
-        model: options.model,
+        model,
         environment: options.environment,
         observers: [session.observer, renderer],
         onTextDelta: renderer.onTextDelta,

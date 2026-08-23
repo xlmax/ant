@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import type { AgentEvent, ModelInput } from "../src/core/agent.js";
@@ -297,4 +300,184 @@ test("DeepSeekModel drops an interrupted tool turn when resuming a session", asy
     { role: "user", content: "Сделай работу" },
     { role: "user", content: "Продолжай" },
   ]);
+});
+
+test("DeepSeekModel omits saved reasoning when thinking is disabled", async () => {
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    request = init;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Готово" } }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    thinkingEnabled: false,
+    fetch: fetchMock,
+  });
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Начни" },
+      {
+        type: "decision",
+        decision: { type: "finish", answer: "Первый ответ", reasoning: "Скрытая цепочка" },
+      },
+      { type: "user", content: "Продолжай" },
+    ],
+    tools: [],
+  });
+
+  const body = JSON.parse(String(request?.body));
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.deepEqual(body.messages[2], {
+    role: "assistant",
+    content: "Первый ответ",
+  });
+});
+
+test("DeepSeekModel forwards image tool results to a vision model", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-image-"));
+  const imagePath = join(directory, "screen.png");
+  const image = Buffer.from("89504e470d0a1a0a00000000", "hex");
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    request = init;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "На изображении экран." } }],
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await writeFile(imagePath, image);
+    const model = new DeepSeekModel({
+      apiKey: "test-key",
+      systemPrompt: "Тестовая системная инструкция.",
+      model: "deepseek-v4-flash-vision-exp",
+      fetch: fetchMock,
+    });
+    const call = { id: "read-image", name: "read", input: { path: imagePath } };
+
+    await model.decide({
+      events: [
+        { type: "task", content: "Опиши изображение" },
+        { type: "decision", decision: { type: "tools", calls: [call] } },
+        {
+          type: "observation",
+          call,
+          observation: {
+            ok: true,
+            value: { path: imagePath, kind: "image" },
+            attachments: [{
+              type: "image",
+              path: imagePath,
+              mediaType: "image/png",
+              bytes: image.length,
+            }],
+          },
+        },
+      ],
+      tools: [],
+    });
+
+    const body = JSON.parse(String(request?.body));
+    assert.deepEqual(body.messages.at(-1), {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "The preceding tool result includes image attachments. Inspect the images to answer the request.",
+        },
+        {
+          type: "image_url",
+          image_url: { url: `data:image/png;base64,${image.toString("base64")}` },
+        },
+      ],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeekModel keeps image observations textual for a non-vision model", async () => {
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    request = init;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Не могу просмотреть изображение." } }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    model: "deepseek-v4-flash",
+    fetch: fetchMock,
+  });
+  const call = { id: "read-image", name: "read", input: { path: "missing.png" } };
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Опиши изображение" },
+      { type: "decision", decision: { type: "tools", calls: [call] } },
+      {
+        type: "observation",
+        call,
+        observation: {
+          ok: true,
+          value: { kind: "image" },
+          attachments: [{
+            type: "image",
+            path: "missing.png",
+            mediaType: "image/png",
+            bytes: 1,
+          }],
+        },
+      },
+    ],
+    tools: [],
+  });
+
+  const body = JSON.parse(String(request?.body));
+  assert.equal(
+    body.messages.some((message: { content: unknown }) => Array.isArray(message.content)),
+    false,
+  );
+});
+
+test("DeepSeekModel lists provider models without starting a completion", async () => {
+  let url = "";
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    url = String(input);
+    request = init;
+    return new Response(JSON.stringify({
+      data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-v4-flash" }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    fetch: fetchMock,
+  });
+
+  assert.deepEqual(await model.listModels(), [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+  ]);
+  assert.equal(url, "https://api.deepseek.com/models");
+  assert.equal(request?.method, "GET");
+  assert.deepEqual(request?.headers, { Authorization: "Bearer test-key" });
 });

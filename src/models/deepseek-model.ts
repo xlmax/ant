@@ -1,7 +1,10 @@
+import { readFile } from "node:fs/promises";
+
 import type {
   AgentEvent,
   AgentModel,
   Decision,
+  ImageAttachment,
   ModelInput,
   ModelUsage,
   ModelUsageHandler,
@@ -15,6 +18,9 @@ import type {
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
+const MAX_INLINE_IMAGE_BYTES = 32 * 1024 * 1024;
+const MAX_REQUEST_IMAGE_BYTES = 32 * 1024 * 1024;
+const VISION_MODEL_ID = "deepseek-v4-flash-vision-exp";
 
 interface DeepSeekModelOptions {
   apiKey: string;
@@ -38,9 +44,13 @@ interface DeepSeekToolCall {
   function: DeepSeekFunctionCall;
 }
 
+type DeepSeekContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 type DeepSeekMessage =
   | { role: "system"; content: string }
-  | { role: "user"; content: string }
+  | { role: "user"; content: string | DeepSeekContentPart[] }
   | {
       role: "assistant";
       content: string | null;
@@ -81,9 +91,33 @@ function observationContent(observation: Observation): string {
   return stringify(observation);
 }
 
-function decisionMessage(decision: Decision): DeepSeekMessage {
+function modelSupportsImages(model: string): boolean {
+  return model === VISION_MODEL_ID;
+}
+
+async function imagePart(
+  attachment: ImageAttachment,
+  signal?: AbortSignal,
+): Promise<DeepSeekContentPart> {
+  signal?.throwIfAborted();
+  const content = await readFile(attachment.path, { signal });
+  if (content.length > MAX_INLINE_IMAGE_BYTES) {
+    throw new Error(`Image ${attachment.path} exceeds the 32 MiB vision limit`);
+  }
+  return {
+    type: "image_url",
+    image_url: {
+      url: `data:${attachment.mediaType};base64,${content.toString("base64")}`,
+    },
+  };
+}
+
+function decisionMessage(
+  decision: Decision,
+  includeReasoning: boolean,
+): DeepSeekMessage {
   const reasoning =
-    decision.reasoning === undefined
+    !includeReasoning || decision.reasoning === undefined
       ? {}
       : { reasoning_content: decision.reasoning };
 
@@ -111,45 +145,25 @@ function decisionMessage(decision: Decision): DeepSeekMessage {
   }
 }
 
-function eventMessages(event: AgentEvent): DeepSeekMessage[] {
-  switch (event.type) {
-    case "task":
-    case "user":
-      return [{ role: "user", content: event.content }];
-
-    case "model.requested":
-    case "model.usage":
-      return [];
-
-    case "decision":
-      return [decisionMessage(event.decision)];
-
-    case "observation":
-      return [
-        {
-          role: "tool",
-          tool_call_id: event.call.id,
-          content: observationContent(event.observation),
-        },
-      ];
-  }
-}
-
-function createMessages(
+async function createMessages(
   events: readonly AgentEvent[],
   systemPrompt: string,
-): DeepSeekMessage[] {
+  includeReasoning: boolean,
+  includeImages: boolean,
+  signal?: AbortSignal,
+): Promise<DeepSeekMessage[]> {
   const messages: DeepSeekMessage[] = [{ role: "system", content: systemPrompt }];
   let pending:
     | { decision: Extract<Decision, { type: "tools" }>; observations: Map<string, Observation> }
     | undefined;
 
-  const flushPending = (): void => {
+  const flushPending = async (): Promise<void> => {
     if (!pending || pending.observations.size !== pending.decision.calls.length) {
       return;
     }
 
-    messages.push(decisionMessage(pending.decision));
+    messages.push(decisionMessage(pending.decision, includeReasoning));
+    const attachments: ImageAttachment[] = [];
     for (const call of pending.decision.calls) {
       const observation = pending.observations.get(call.id);
       if (observation) {
@@ -158,7 +172,29 @@ function createMessages(
           tool_call_id: call.id,
           content: observationContent(observation),
         });
+        attachments.push(...(observation.attachments ?? []));
       }
+    }
+    if (attachments.length > 0 && includeImages) {
+      let totalBytes = 0;
+      const imageParts: DeepSeekContentPart[] = [];
+      for (const attachment of attachments) {
+        totalBytes += attachment.bytes;
+        if (totalBytes > MAX_REQUEST_IMAGE_BYTES) {
+          throw new Error("Image attachments exceed the 32 MiB request budget");
+        }
+        imageParts.push(await imagePart(attachment, signal));
+      }
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "The preceding tool result includes image attachments. Inspect the images to answer the request.",
+          },
+          ...imageParts,
+        ],
+      });
     }
     pending = undefined;
   };
@@ -178,14 +214,14 @@ function createMessages(
         if (event.decision.type === "tools") {
           pending = { decision: event.decision, observations: new Map() };
         } else {
-          messages.push(decisionMessage(event.decision));
+          messages.push(decisionMessage(event.decision, includeReasoning));
         }
         break;
 
       case "observation":
         if (pending && pending.decision.calls.some((call) => call.id === event.call.id)) {
           pending.observations.set(event.call.id, event.observation);
-          flushPending();
+          await flushPending();
         }
         break;
 
@@ -271,6 +307,18 @@ function parseUsage(
     contextWindow: metadata.contextWindow,
     source: "provider",
   };
+}
+
+function parseModelList(payload: unknown): string[] {
+  if (!isRecord(payload) || !Array.isArray(payload.data)) {
+    throw new Error("DeepSeek returned an invalid model list");
+  }
+
+  return payload.data
+    .filter(isRecord)
+    .map((model) => model.id)
+    .filter((id): id is string => typeof id === "string" && id.trim() !== "")
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function parseDecision(payload: unknown): Decision {
@@ -496,6 +544,31 @@ export class DeepSeekModel implements AgentModel {
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
+  async listModels(signal?: AbortSignal): Promise<readonly string[]> {
+    const request: RequestInit = {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.#apiKey}` },
+      ...(signal === undefined ? {} : { signal }),
+    };
+    const response = await this.#fetch(`${this.#baseUrl}/models`, request);
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error("DeepSeek returned invalid JSON");
+    }
+
+    return parseModelList(payload);
+  }
+
   async decide(
     input: ModelInput,
     signal?: AbortSignal,
@@ -504,9 +577,16 @@ export class DeepSeekModel implements AgentModel {
     onUsage?: ModelUsageHandler,
   ): Promise<Decision> {
     const tools = createTools(input.tools);
+    const messages = await createMessages(
+      input.events,
+      this.#systemPrompt,
+      this.#thinkingEnabled,
+      modelSupportsImages(this.#model),
+      signal,
+    );
     const body: Record<string, unknown> = {
       model: this.#model,
-      messages: createMessages(input.events, this.#systemPrompt),
+      messages,
       thinking: { type: this.#thinkingEnabled ? "enabled" : "disabled" },
       stream: onTextDelta !== undefined,
     };

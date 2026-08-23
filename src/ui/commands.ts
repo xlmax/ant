@@ -1,3 +1,5 @@
+import type { EffortSelection } from "./runtime-model.js";
+
 export interface ReplCommand {
   name: string;
   usage: string;
@@ -10,6 +12,8 @@ export type CommandAction =
   | { type: "session" }
   | { type: "clear" }
   | { type: "reasoning"; enabled?: boolean }
+  | { type: "model"; id?: string; list?: true }
+  | { type: "think"; selection?: EffortSelection }
   | { type: "exit" }
   | { type: "error"; message: string };
 
@@ -38,6 +42,16 @@ const commands: readonly ReplCommand[] = [
     name: "reasoning",
     usage: "/reasoning [on|off]",
     description: "Показать или скрыть блок рассуждений модели.",
+  },
+  {
+    name: "model",
+    usage: "/model [list|id]",
+    description: "Показать, запросить список или сменить модель до перезапуска."
+  },
+  {
+    name: "think",
+    usage: "/think [off|low|high|max]",
+    description: "Показать или сменить режим и глубину размышлений до перезапуска.",
   },
   {
     name: "exit",
@@ -137,6 +151,29 @@ export function parseReplCommand(input: string): CommandAction | undefined {
         return { type: "reasoning", enabled: args[0] === "on" };
       }
       return { type: "error", message: "Использование: /reasoning [on|off]" };
+
+    case "model":
+      if (args.length === 0) {
+        return { type: "model" };
+      }
+      if (args.length === 1 && args[0] === "list") {
+        return { type: "model", list: true };
+      }
+      return args.length === 1
+        ? { type: "model", id: args[0]! }
+        : { type: "error", message: "Использование: /model [list|id]" };
+
+    case "think":
+      if (args.length === 0) {
+        return { type: "think" };
+      }
+      if (
+        args.length === 1 &&
+        (args[0] === "off" || args[0] === "low" || args[0] === "high" || args[0] === "max")
+      ) {
+        return { type: "think", selection: args[0] };
+      }
+      return { type: "error", message: "Использование: /think [off|low|high|max]" };
 
     case "new":
     case "session":
