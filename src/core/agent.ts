@@ -14,7 +14,6 @@ export type ToolCalls = [ToolCall, ...ToolCall[]];
 
 export type Decision =
   | { type: "tools"; calls: ToolCalls; reasoning?: string }
-  | { type: "ask"; question: string; reasoning?: string }
   | { type: "finish"; answer: string; reasoning?: string };
 
 export interface ImageAttachment {
@@ -101,7 +100,6 @@ export interface Environment {
 
 export type AgentResult =
   | { status: "completed"; answer: string; state: AgentState }
-  | { status: "waiting"; question: string; state: AgentState }
   | { status: "cancelled"; state: AgentState };
 
 export interface AgentObserver {
@@ -325,13 +323,6 @@ export async function runAgent(
         return {
           status: "completed",
           answer: decision.answer,
-          state,
-        };
-
-      case "ask":
-        return {
-          status: "waiting",
-          question: decision.question,
           state,
         };
 

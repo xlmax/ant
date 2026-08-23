@@ -153,13 +153,6 @@ export class ConsoleRenderer implements AgentObserver {
         this.printUsage();
         break;
 
-      case "waiting":
-        console.log(sectionHeader("Агент?", (text) => ansi.bold(ansi.yellow(text))));
-        console.log(result.question);
-        console.log(sectionFooter());
-        this.printUsage();
-        break;
-
       case "cancelled":
         console.error(ansi.red("Агент: работа отменена"));
         break;

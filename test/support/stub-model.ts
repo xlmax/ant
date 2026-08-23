@@ -35,10 +35,7 @@ export class StubModel implements AgentModel {
     );
 
     if (!task) {
-      return {
-        type: "ask",
-        question: "Какую задачу нужно выполнить?",
-      };
+      throw new Error("Заглушке не передана задача");
     }
 
     return {

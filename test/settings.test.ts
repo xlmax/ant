@@ -77,6 +77,29 @@ test("settings merge global and project layers without environment overrides", a
   }
 });
 
+test("project settings can clear an inherited bash path", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ tools: { bashPath: "/global/bash" } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ tools: { bashPath: null } }),
+      "utf8",
+    );
+
+    assert.deepEqual((await loadSettings(workspace, home)).settings.tools, {});
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
 test("saving a selected model updates the global user settings only", async () => {
   const { workspace, home } = await temporaryDirectories();
 

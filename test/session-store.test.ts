@@ -73,6 +73,25 @@ test("JSONL session store lists saved sessions and their tasks", async () => {
   }
 });
 
+test("JSONL session store refreshes stale sidecar metadata from JSONL", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Задача из метаданных"));
+    assert.equal((await store.list()).sessions[0]?.task, "Задача из метаданных");
+
+    await writeFile(session.filePath, "{", "utf8");
+    const listed = await store.list();
+
+    assert.equal(listed.sessions.length, 0);
+    assert.match(listed.warnings[0] ?? "", /некорректный JSON/u);
+    await assert.rejects(store.resume(session.id), /некорректный JSON/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL session store preserves image attachments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 

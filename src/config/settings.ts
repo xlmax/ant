@@ -71,7 +71,7 @@ type PartialSettings = {
     additionalPaths?: string[];
   };
   tools?: {
-    bashPath?: string;
+    bashPath?: string | null;
   };
   limits?: Partial<RuntimeLimits>;
 };
@@ -272,8 +272,12 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка tools должна быть объектом");
     }
 
-    const bashPath = optionalString(value.tools.bashPath, "tools.bashPath");
-    result.tools = bashPath === undefined ? {} : { bashPath };
+    if (value.tools.bashPath === null) {
+      result.tools = { bashPath: null };
+    } else {
+      const bashPath = optionalString(value.tools.bashPath, "tools.bashPath");
+      result.tools = bashPath === undefined ? {} : { bashPath };
+    }
   }
 
   if (value.limits !== undefined) {
@@ -304,7 +308,8 @@ function parseSettings(value: unknown, source: string): PartialSettings {
 }
 
 function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings {
-  const bashPath = partial.tools?.bashPath ?? base.tools.bashPath;
+  const bashPath =
+    partial.tools?.bashPath === null ? undefined : (partial.tools?.bashPath ?? base.tools.bashPath);
 
   return {
     model: {

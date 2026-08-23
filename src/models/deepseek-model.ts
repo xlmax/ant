@@ -129,9 +129,6 @@ function decisionMessage(decision: Decision, includeReasoning: boolean): DeepSee
         })),
       };
 
-    case "ask":
-      return { role: "assistant", content: decision.question, ...reasoning };
-
     case "finish":
       return { role: "assistant", content: decision.answer, ...reasoning };
   }
