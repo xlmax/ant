@@ -5,4 +5,5 @@ dist/
 .env.*
 !.env.example
 .agent/sessions/
+.agent/input-debug.jsonl
 research/evaluation/results/

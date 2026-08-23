@@ -13,7 +13,10 @@ import {
   type AgentSession,
 } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
+import { getReplCommands, parseReplCommand } from "./commands.js";
 import { ConsoleRenderer } from "./console-renderer.js";
+import { InputHistory } from "./input-history.js";
+import { readTerminalInput } from "./terminal-input.js";
 import {
   closeUserInputFrame,
   openUserInputFrame,
@@ -40,8 +43,12 @@ async function appendUserMessage(
 }
 
 export async function runRepl(options: ReplOptions): Promise<void> {
-  const terminal = createInterface({ input: stdin, output: stdout });
+  const terminal =
+    process.platform === "win32" && stdin.isTTY
+      ? undefined
+      : createInterface({ input: stdin, output: stdout });
   const renderer = new ConsoleRenderer();
+  const inputHistory = new InputHistory();
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
 
@@ -52,39 +59,68 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     console.log(ansi.dim(`Продолжена сессия: ${session.id}`));
   } else {
     console.log(
-      ansi.dim("Интерактивный режим. Команды: /new, /session, /exit"),
+      ansi.dim("Интерактивный режим. Введите /help, чтобы увидеть команды."),
     );
   }
 
   try {
     while (true) {
       openUserInputFrame();
-      const input = (await terminal.question(userInputPrompt())).trim();
+      stdout.write(userInputPrompt());
+      const input = await readTerminalInput(inputHistory, terminal);
       closeUserInputFrame();
 
-      if (!input) {
+      if (input.trim() === "") {
         continue;
       }
 
-      if (input === "/exit") {
-        return;
+      const command = parseReplCommand(input.trim());
+
+      if (command) {
+        switch (command.type) {
+          case "exit":
+            return;
+
+          case "new":
+            state = undefined;
+            session = undefined;
+            console.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
+            continue;
+
+          case "session":
+            console.log(
+              session
+                ? ansi.dim(`Сессия: ${session.id}\nФайл: ${session.filePath}`)
+                : ansi.dim("Сессия ещё не создана."),
+            );
+            continue;
+
+          case "clear":
+            process.stdout.write("\u001B[2J\u001B[H");
+            continue;
+
+          case "help":
+            if (command.command) {
+              console.log(
+                `${ansi.bold(command.command.usage)}\n${command.command.description}`,
+              );
+            } else {
+              console.log(ansi.bold("Доступные команды:"));
+              for (const available of getReplCommands()) {
+                console.log(
+                  `  ${ansi.cyan(available.usage.padEnd(20))} ${available.description}`,
+                );
+              }
+            }
+            continue;
+
+          case "error":
+            console.error(ansi.red(command.message));
+            continue;
+        }
       }
 
-      if (input === "/new") {
-        state = undefined;
-        session = undefined;
-        console.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
-        continue;
-      }
-
-      if (input === "/session") {
-        console.log(
-          session
-            ? ansi.dim(`Сессия: ${session.id}\nФайл: ${session.filePath}`)
-            : ansi.dim("Сессия ещё не создана."),
-        );
-        continue;
-      }
+      inputHistory.add(input);
 
       if (!state || !session) {
         state = createAgentState(input);
@@ -106,6 +142,6 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       renderer.printResult(result);
     }
   } finally {
-    terminal.close();
+    terminal?.close();
   }
 }
