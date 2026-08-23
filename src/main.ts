@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
@@ -180,14 +181,21 @@ async function printSessionList(store: JsonlSessionStore): Promise<void> {
   }
 }
 
-function loadLocalEnv(workspace: string): void {
+function loadOptionalEnv(path: string): void {
   try {
-    loadEnvFile(resolve(workspace, ".env.local"));
+    loadEnvFile(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error;
     }
   }
+}
+
+function loadLocalEnv(workspace: string): void {
+  // Project first so it wins over the global fallback: loadEnvFile does not
+  // overwrite already-set variables, and the real environment wins over both.
+  loadOptionalEnv(resolve(workspace, ".env.local"));
+  loadOptionalEnv(resolve(homedir(), ".ant", ".env.local"));
 }
 
 async function main(): Promise<void> {
