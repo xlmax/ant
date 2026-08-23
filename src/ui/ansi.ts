@@ -5,9 +5,7 @@ export function configureAnsi(enabled: boolean): void {
 }
 
 function style(code: number, text: string): string {
-  return colorEnabled && Boolean(process.stdout.isTTY)
-    ? `\u001B[${code}m${text}\u001B[0m`
-    : text;
+  return colorEnabled && Boolean(process.stdout.isTTY) ? `\u001B[${code}m${text}\u001B[0m` : text;
 }
 
 export const ansi = {

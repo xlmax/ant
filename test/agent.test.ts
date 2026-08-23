@@ -24,20 +24,10 @@ test("the model can call a tool and finish with its observation", async () => {
     return;
   }
 
-  assert.equal(
-    result.answer,
-    'Заглушка получила результат: {"text":"Привет"}',
-  );
+  assert.equal(result.answer, 'Заглушка получила результат: {"text":"Привет"}');
   assert.deepEqual(
     result.state.events.map((event) => event.type),
-    [
-      "task",
-      "model.requested",
-      "decision",
-      "observation",
-      "model.requested",
-      "decision",
-    ],
+    ["task", "model.requested", "decision", "observation", "model.requested", "decision"],
   );
 });
 
@@ -57,7 +47,13 @@ test("the agent retries a retryable model request and records every attempt", as
   const result = await runAgent(createAgentState("Проверь повтор"), {
     model,
     environment: new ToolEnvironment([]),
-    observers: [{ onEvent: (event) => { events.push(event); } }],
+    observers: [
+      {
+        onEvent: (event) => {
+          events.push(event);
+        },
+      },
+    ],
     modelMaxAttempts: 3,
     retryDelayMs: 0,
   });
@@ -154,9 +150,7 @@ test("the agent does not retry after streaming has started", async () => {
 test("the agent executes every tool call from one model turn", async () => {
   const model: AgentModel = {
     async decide({ events }) {
-      const observations = events.filter(
-        (event) => event.type === "observation",
-      );
+      const observations = events.filter((event) => event.type === "observation");
 
       if (observations.length === 0) {
         return {

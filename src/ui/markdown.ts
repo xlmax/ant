@@ -1,3 +1,5 @@
+import { Lexer, type Token } from "marked";
+
 import { ansi } from "./ansi.js";
 import { highlightCode } from "./syntax-highlight.js";
 
@@ -9,21 +11,44 @@ interface MarkdownTable {
   rows: string[][];
 }
 
+function renderInlineTokens(tokens: readonly Token[]): string {
+  return tokens
+    .map((token) => {
+      switch (token.type) {
+        case "text":
+        case "escape":
+          return token.text;
+
+        case "codespan":
+          return ansi.yellow(token.text);
+
+        case "strong":
+          return ansi.bold(renderInlineTokens(token.tokens ?? []));
+
+        case "em":
+          return ansi.dim(renderInlineTokens(token.tokens ?? []));
+
+        case "del":
+          return ansi.dim(renderInlineTokens(token.tokens ?? []));
+
+        case "link":
+        case "image":
+          return renderInlineTokens(token.tokens ?? []);
+
+        case "br":
+          return "\n";
+
+        default:
+          return "tokens" in token && Array.isArray(token.tokens)
+            ? renderInlineTokens(token.tokens)
+            : token.raw;
+      }
+    })
+    .join("");
+}
+
 function renderInline(text: string): string {
-  return text.replace(
-    /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/gu,
-    (token) => {
-      if (token.startsWith("`")) {
-        return ansi.yellow(token.slice(1, -1));
-      }
-
-      if (token.startsWith("**")) {
-        return ansi.bold(token.slice(2, -2));
-      }
-
-      return ansi.dim(token.slice(1, -1));
-    },
-  );
+  return renderInlineTokens(Lexer.lexInline(text));
 }
 
 function parseTableRow(line: string): string[] | undefined {
@@ -56,15 +81,10 @@ function parseTableSeparator(line: string): TableAlignment[] | undefined {
 }
 
 function visibleWidth(text: string): number {
-  return Array.from(text.replaceAll("`", "").replaceAll("**", "").replaceAll("*", ""))
-    .length;
+  return Array.from(text.replaceAll("`", "").replaceAll("**", "").replaceAll("*", "")).length;
 }
 
-function padCell(
-  cell: string,
-  width: number,
-  alignment: TableAlignment,
-): string {
+function padCell(cell: string, width: number, alignment: TableAlignment): string {
   const padding = Math.max(0, width - visibleWidth(cell));
 
   if (alignment === "right") {
@@ -179,10 +199,7 @@ export class StreamingMarkdownRenderer {
 
   private renderTable(table: MarkdownTable): string {
     const widths = table.header.map((header, index) =>
-      Math.max(
-        visibleWidth(header),
-        ...table.rows.map((row) => visibleWidth(row[index] ?? "")),
-      ),
+      Math.max(visibleWidth(header), ...table.rows.map((row) => visibleWidth(row[index] ?? ""))),
     );
     const renderRow = (row: readonly string[], header = false): string => {
       const cells = row.map((cell, index) => {
@@ -197,9 +214,7 @@ export class StreamingMarkdownRenderer {
 
       return `  ${cells.join("  ")}`;
     };
-    const separator = `  ${widths
-      .map((width) => "─".repeat(width))
-      .join("  ")}`;
+    const separator = `  ${widths.map((width) => "─".repeat(width)).join("  ")}`;
 
     return [
       renderRow(table.header, true),
@@ -234,9 +249,7 @@ export class StreamingMarkdownRenderer {
       const [, markers, content] = heading;
       const level = markers?.length ?? 1;
       const rendered = renderInline(content ?? "");
-      return level <= 2
-        ? ansi.bold(ansi.cyan(rendered))
-        : ansi.bold(rendered);
+      return level <= 2 ? ansi.bold(ansi.cyan(rendered)) : ansi.bold(rendered);
     }
 
     const bullet = line.match(/^\s*[-*+]\s+(.+)$/u);

@@ -179,25 +179,13 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(
-        encoder.encode(
-          'data: {"choices":[{"delta":{"reasoning_content":"Сначала "}}]}\n\n',
-        ),
+        encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"Сначала "}}]}\n\n'),
       );
       controller.enqueue(
-        encoder.encode(
-          'data: {"choices":[{"delta":{"reasoning_content":"подумаю."}}]}\n\n',
-        ),
+        encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"подумаю."}}]}\n\n'),
       );
-      controller.enqueue(
-        encoder.encode(
-          'data: {"choices":[{"delta":{"content":"Гото"}}]}\n\n',
-        ),
-      );
-      controller.enqueue(
-        encoder.encode(
-          'data: {"choices":[{"delta":{"content":"во"}}]}\n\n',
-        ),
-      );
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Гото"}}]}\n\n'));
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"во"}}]}\n\n'));
       controller.enqueue(
         encoder.encode(
           'data: {"choices":[],"usage":{"prompt_tokens":24100,"completion_tokens":1040,"total_tokens":25140}}\n\n',
@@ -268,9 +256,12 @@ test("DeepSeekModel drops an interrupted tool turn when resuming a session", asy
     init?: RequestInit,
   ): Promise<Response> => {
     request = init;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: "Продолжаем" } }],
-    }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: "Продолжаем" } }],
+      }),
+      { status: 200 },
+    );
   }) as typeof fetch;
   const model = new DeepSeekModel({
     apiKey: "test-key",
@@ -309,9 +300,12 @@ test("DeepSeekModel omits saved reasoning when thinking is disabled", async () =
     init?: RequestInit,
   ): Promise<Response> => {
     request = init;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: "Готово" } }],
-    }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: "Готово" } }],
+      }),
+      { status: 200 },
+    );
   }) as typeof fetch;
   const model = new DeepSeekModel({
     apiKey: "test-key",
@@ -350,9 +344,12 @@ test("DeepSeekModel forwards image tool results to a vision model", async () => 
     init?: RequestInit,
   ): Promise<Response> => {
     request = init;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: "На изображении экран." } }],
-    }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: "На изображении экран." } }],
+      }),
+      { status: 200 },
+    );
   }) as typeof fetch;
 
   try {
@@ -360,7 +357,8 @@ test("DeepSeekModel forwards image tool results to a vision model", async () => 
     const model = new DeepSeekModel({
       apiKey: "test-key",
       systemPrompt: "Тестовая системная инструкция.",
-      model: "deepseek-v4-flash-vision-exp",
+      model: "custom-vision-model",
+      supportsImages: true,
       fetch: fetchMock,
     });
     const call = { id: "read-image", name: "read", input: { path: imagePath } };
@@ -375,12 +373,14 @@ test("DeepSeekModel forwards image tool results to a vision model", async () => 
           observation: {
             ok: true,
             value: { path: imagePath, kind: "image" },
-            attachments: [{
-              type: "image",
-              path: imagePath,
-              mediaType: "image/png",
-              bytes: image.length,
-            }],
+            attachments: [
+              {
+                type: "image",
+                path: imagePath,
+                mediaType: "image/png",
+                bytes: image.length,
+              },
+            ],
           },
         },
       ],
@@ -413,9 +413,12 @@ test("DeepSeekModel keeps image observations textual for a non-vision model", as
     init?: RequestInit,
   ): Promise<Response> => {
     request = init;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: "Не могу просмотреть изображение." } }],
-    }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: "Не могу просмотреть изображение." } }],
+      }),
+      { status: 200 },
+    );
   }) as typeof fetch;
   const model = new DeepSeekModel({
     apiKey: "test-key",
@@ -435,12 +438,14 @@ test("DeepSeekModel keeps image observations textual for a non-vision model", as
         observation: {
           ok: true,
           value: { kind: "image" },
-          attachments: [{
-            type: "image",
-            path: "missing.png",
-            mediaType: "image/png",
-            bytes: 1,
-          }],
+          attachments: [
+            {
+              type: "image",
+              path: "missing.png",
+              mediaType: "image/png",
+              bytes: 1,
+            },
+          ],
         },
       },
     ],
@@ -463,9 +468,12 @@ test("DeepSeekModel lists provider models without starting a completion", async 
   ): Promise<Response> => {
     url = String(input);
     request = init;
-    return new Response(JSON.stringify({
-      data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-v4-flash" }],
-    }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-v4-flash" }],
+      }),
+      { status: 200 },
+    );
   }) as typeof fetch;
   const model = new DeepSeekModel({
     apiKey: "test-key",
@@ -473,10 +481,7 @@ test("DeepSeekModel lists provider models without starting a completion", async 
     fetch: fetchMock,
   });
 
-  assert.deepEqual(await model.listModels(), [
-    "deepseek-v4-flash",
-    "deepseek-v4-pro",
-  ]);
+  assert.deepEqual(await model.listModels(), ["deepseek-v4-flash", "deepseek-v4-pro"]);
   assert.equal(url, "https://api.deepseek.com/models");
   assert.equal(request?.method, "GET");
   assert.deepEqual(request?.headers, { Authorization: "Bearer test-key" });

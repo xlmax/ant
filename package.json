@@ -9,16 +9,24 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env.local dist/main.js",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.research.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "tsx --test test/*.test.ts",
     "eval": "node --env-file-if-exists=.env.local --import tsx research/evaluation/run.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
+    "eslint": "^10.9.0",
+    "prettier": "^3.9.6",
     "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",
+    "marked": "^18.0.10",
     "win32-api": "26.1.2"
   }
 }

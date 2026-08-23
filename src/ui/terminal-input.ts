@@ -36,9 +36,7 @@ async function loadWindowsConsoleApi() {
   const kernel32 = ffi.load("kernel32.dll");
 
   return {
-    getStdHandle: kernel32.func(
-      "void * __stdcall GetStdHandle(int32 nStdHandle)",
-    ),
+    getStdHandle: kernel32.func("void * __stdcall GetStdHandle(int32 nStdHandle)"),
     getConsoleMode: kernel32.func(
       "int32 __stdcall GetConsoleMode(void *hConsoleHandle, _Out_ uint32 *lpMode)",
     ),
@@ -80,10 +78,7 @@ function moveCursor(from: CursorPosition, to: CursorPosition): void {
   }
 }
 
-function redraw(
-  editor: TextEditor,
-  previousCursor: CursorPosition,
-): CursorPosition {
+function redraw(editor: TextEditor, previousCursor: CursorPosition): CursorPosition {
   stdout.write("\u001B[?25l");
 
   if (previousCursor.row > 0) {
@@ -101,10 +96,7 @@ function redraw(
   stdout.write("\r");
 
   if (rendered.cursor.column > 0) {
-    const column = Math.min(
-      Math.max(1, stdout.columns ?? 80),
-      rendered.cursor.column + 1,
-    );
+    const column = Math.min(Math.max(1, stdout.columns ?? 80), rendered.cursor.column + 1);
     stdout.write(`\u001B[${column}G`);
   }
 
@@ -112,9 +104,7 @@ function redraw(
   return rendered.cursor;
 }
 
-async function readWindowsConsoleInput(
-  history: InputHistory,
-): Promise<string> {
+async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
   const api = await getWindowsConsoleApi();
   const input = api.getStdHandle(STD_INPUT_HANDLE);
 
@@ -153,10 +143,7 @@ async function readWindowsConsoleInput(
         controlKeyState: key?.dwControlKeyState,
       });
 
-      if (
-        action.type === "up" &&
-        (editor.value === "" || history.isBrowsing)
-      ) {
+      if (action.type === "up" && (editor.value === "" || history.isBrowsing)) {
         const previous = history.previous(editor.value);
 
         if (previous !== undefined) {
@@ -204,9 +191,7 @@ async function readWindowsConsoleInput(
       const columns = Math.max(1, stdout.columns ?? 80);
       const cursorAtEnd = editor.cursorAtEnd;
       const renderedBefore = editor.render(columns);
-      const appendAtEnd =
-        cursorAtEnd &&
-        (action.type === "character" || action.type === "newline");
+      const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
       const eraseAtEnd =
         cursorAtEnd &&
         action.type === "backspace" &&
@@ -234,8 +219,6 @@ async function readWindowsConsoleInput(
       } else {
         cursor = redraw(editor, cursor);
       }
-
-
     }
   } finally {
     api.setConsoleMode(input, originalMode[0]);

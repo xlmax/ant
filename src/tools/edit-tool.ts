@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import type { Tool } from "../core/environment.js";
+import { writeFileAtomically } from "../fs/atomic-write.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 interface Edit {
@@ -46,11 +47,7 @@ function parseInput(input: unknown): { path: string; edits: Edit[] } {
   return { path, edits };
 }
 
-function findUniqueReplacement(
-  content: string,
-  edit: Edit,
-  editIndex: number,
-): Replacement {
+function findUniqueReplacement(content: string, edit: Edit, editIndex: number): Replacement {
   const index = content.indexOf(edit.oldText);
 
   if (index === -1) {
@@ -134,7 +131,7 @@ export function createEditTool(workspaceDirectory: string): Tool {
       const updatedContent = applyEdits(originalContent, edits);
       signal?.throwIfAborted();
 
-      await writeFile(target, updatedContent, "utf8");
+      await writeFileAtomically(target, updatedContent);
       signal?.throwIfAborted();
 
       return {

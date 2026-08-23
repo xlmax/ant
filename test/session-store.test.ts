@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -52,17 +52,22 @@ test("JSONL session store lists saved sessions and their tasks", async () => {
 
   try {
     const store = new JsonlSessionStore(directory);
-    assert.deepEqual(await store.list(), []);
+    assert.deepEqual(await store.list(), { sessions: [], warnings: [] });
 
     const first = await store.create(createAgentState("Первая задача"));
     const second = await store.create(createAgentState("Вторая задача"));
-    const sessions = await store.list();
+    const brokenId = "00000000-0000-0000-0000-000000000000";
+    await writeFile(join(directory, `${brokenId}.jsonl`), "\n{\n", "utf8");
+    const { sessions, warnings } = await store.list();
     const tasks = new Map(sessions.map((session) => [session.id, session.task]));
 
     assert.equal(sessions.length, 2);
     assert.equal(tasks.get(first.id), "Первая задача");
     assert.equal(tasks.get(second.id), "Вторая задача");
     assert.ok(sessions.every((session) => session.updatedAt.endsWith("Z")));
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", new RegExp(brokenId, "u"));
+    assert.match(warnings[0] ?? "", /строке 2/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -80,12 +85,14 @@ test("JSONL session store preserves image attachments", async () => {
       observation: {
         ok: true,
         value: { kind: "image" },
-        attachments: [{
-          type: "image",
-          path: "C:\\workspace\\.ant\\attachments\\hash.png",
-          mediaType: "image/png",
-          bytes: 12,
-        }],
+        attachments: [
+          {
+            type: "image",
+            path: "C:\\workspace\\.ant\\attachments\\hash.png",
+            mediaType: "image/png",
+            bytes: 12,
+          },
+        ],
       },
     });
 
@@ -96,12 +103,14 @@ test("JSONL session store preserves image attachments", async () => {
       observation: {
         ok: true,
         value: { kind: "image" },
-        attachments: [{
-          type: "image",
-          path: "C:\\workspace\\.ant\\attachments\\hash.png",
-          mediaType: "image/png",
-          bytes: 12,
-        }],
+        attachments: [
+          {
+            type: "image",
+            path: "C:\\workspace\\.ant\\attachments\\hash.png",
+            mediaType: "image/png",
+            bytes: 12,
+          },
+        ],
       },
     });
   } finally {

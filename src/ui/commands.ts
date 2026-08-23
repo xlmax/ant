@@ -46,7 +46,7 @@ const commands: readonly ReplCommand[] = [
   {
     name: "model",
     usage: "/model [list|id]",
-    description: "Показать, запросить список или сменить модель до перезапуска."
+    description: "Показать, запросить список или сменить модель до перезапуска.",
   },
   {
     name: "think",
@@ -71,8 +71,7 @@ function editDistance(left: string, right: string): number {
         Math.min(
           (previous[rightIndex] ?? 0) + 1,
           (current[rightIndex] ?? 0) + 1,
-          (previous[rightIndex] ?? 0) +
-            (left[leftIndex] === right[rightIndex] ? 0 : 1),
+          (previous[rightIndex] ?? 0) + (left[leftIndex] === right[rightIndex] ? 0 : 1),
         ),
       );
     }

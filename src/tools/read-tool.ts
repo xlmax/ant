@@ -1,8 +1,9 @@
-import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import type { ImageAttachment } from "../core/agent.js";
+import { writeFileAtomically } from "../fs/atomic-write.js";
 import type { Tool, ToolExecutionResult } from "../core/environment.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
@@ -38,11 +39,7 @@ function parsePositiveInteger(value: unknown, name: string): number | undefined 
     return undefined;
   }
 
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer`);
   }
 
@@ -74,10 +71,16 @@ function imageMediaType(header: Buffer): ImageReadResult["mediaType"] | undefine
   if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
     return "image/jpeg";
   }
-  if (header.subarray(0, 6).toString("ascii") === "GIF87a" || header.subarray(0, 6).toString("ascii") === "GIF89a") {
+  if (
+    header.subarray(0, 6).toString("ascii") === "GIF87a" ||
+    header.subarray(0, 6).toString("ascii") === "GIF89a"
+  ) {
     return "image/gif";
   }
-  if (header.subarray(0, 4).toString("ascii") === "RIFF" && header.subarray(8, 12).toString("ascii") === "WEBP") {
+  if (
+    header.subarray(0, 4).toString("ascii") === "RIFF" &&
+    header.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
     return "image/webp";
   }
   return undefined;
@@ -99,7 +102,7 @@ async function cacheImage(
   const directory = join(workspaceDirectory, ".ant", "attachments");
   const path = join(directory, `${hash}.${imageExtension(image.mediaType)}`);
   await mkdir(directory, { recursive: true });
-  await writeFile(path, content);
+  await writeFileAtomically(path, content);
   return { type: "image", path, mediaType: image.mediaType, bytes: content.length };
 }
 
@@ -136,10 +139,7 @@ function takeOutputLines(lines: readonly string[]): {
     const separatorBytes = output.length === 0 ? 0 : 1;
     const lineBytes = Buffer.byteLength(line, "utf8");
 
-    if (
-      output.length >= MAX_LINES ||
-      bytes + separatorBytes + lineBytes > MAX_BYTES
-    ) {
+    if (output.length >= MAX_LINES || bytes + separatorBytes + lineBytes > MAX_BYTES) {
       return { lines: output, truncatedByLimit: true };
     }
 
@@ -174,10 +174,7 @@ export function createReadTool(workspaceDirectory: string): Tool {
       },
     },
 
-    async execute(
-      input: unknown,
-      signal?: AbortSignal,
-    ): Promise<ReadResult | ToolExecutionResult> {
+    async execute(input: unknown, signal?: AbortSignal): Promise<ReadResult | ToolExecutionResult> {
       signal?.throwIfAborted();
       const { path, offset = 1, limit } = parseInput(input);
       const resolvedPath = resolveToolPath(path, workspaceDirectory);
@@ -197,6 +194,17 @@ export function createReadTool(workspaceDirectory: string): Tool {
       const content = await readFile(resolvedPath, "utf8");
       signal?.throwIfAborted();
 
+      if (content === "") {
+        return {
+          path,
+          content,
+          totalLines: 0,
+          startLine: 0,
+          endLine: 0,
+          truncated: false,
+        };
+      }
+
       const allLines = content.split("\n");
 
       if (offset > allLines.length) {
@@ -206,8 +214,7 @@ export function createReadTool(workspaceDirectory: string): Tool {
       }
 
       const availableLines = allLines.slice(offset - 1);
-      const requestedLines =
-        limit === undefined ? availableLines : availableLines.slice(0, limit);
+      const requestedLines = limit === undefined ? availableLines : availableLines.slice(0, limit);
       const { lines, truncatedByLimit } = takeOutputLines(requestedLines);
       const endLine = offset + lines.length - 1;
       const hasMoreLines = endLine < allLines.length;

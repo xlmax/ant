@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { Tool } from "../core/environment.js";
+import { writeFileAtomically } from "../fs/atomic-write.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 function parseInput(input: unknown): { path: string; content: string } {
@@ -43,7 +44,7 @@ export function createWriteTool(workspaceDirectory: string): Tool {
 
       await mkdir(dirname(target), { recursive: true });
       signal?.throwIfAborted();
-      await writeFile(target, content, "utf8");
+      await writeFileAtomically(target, content);
       signal?.throwIfAborted();
 
       return {

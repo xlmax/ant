@@ -1,9 +1,4 @@
-import type {
-  AgentEvent,
-  AgentObserver,
-  AgentResult,
-  ModelUsage,
-} from "../core/agent.js";
+import type { AgentEvent, AgentObserver, AgentResult, ModelUsage } from "../core/agent.js";
 import { ansi } from "./ansi.js";
 import { StreamingMarkdownRenderer } from "./markdown.js";
 import { sectionFooter, sectionHeader } from "./section.js";
@@ -27,10 +22,7 @@ function formatTokens(tokens: number): string {
 function formatUsage(usage: ModelUsage): string {
   const percentage = (usage.totalTokens / usage.contextWindow) * 100;
   const segments = 10;
-  const filled = Math.min(
-    segments,
-    Math.max(percentage > 0 ? 1 : 0, Math.round(percentage / 10)),
-  );
+  const filled = Math.min(segments, Math.max(percentage > 0 ? 1 : 0, Math.round(percentage / 10)));
   const meter = `${"●".repeat(filled)}${"○".repeat(segments - filled)}`;
   const statistics = `↑${formatTokens(usage.inputTokens)} ↓${formatTokens(usage.outputTokens)}  ${meter} ${percentage.toFixed(1)}%`;
   const model = `(${usage.provider}) ${usage.model} · ${usage.reasoning}`;
@@ -77,9 +69,7 @@ export class ConsoleRenderer implements AgentObserver {
     }
 
     if (!this.#reasoningBlockOpen) {
-      process.stdout.write(
-        `${sectionHeader("Рассуждения", (title) => ansi.dim(title))}\n`,
-      );
+      process.stdout.write(`${sectionHeader("Рассуждения", (title) => ansi.dim(title))}\n`);
       this.#reasoningBlockOpen = true;
     }
 
@@ -198,9 +188,7 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   private printAgentBlockStart(): void {
-    process.stdout.write(
-      `${sectionHeader("Агент", (text) => ansi.bold(ansi.green(text)))}\n`,
-    );
+    process.stdout.write(`${sectionHeader("Агент", (text) => ansi.bold(ansi.green(text)))}\n`);
   }
 
   private printAgentBlockEnd(): void {

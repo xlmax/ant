@@ -15,9 +15,7 @@ function expandHome(path: string): string {
 
 export function resolveToolPath(path: string, cwd: string): string {
   const expandedPath = expandHome(path);
-  return isAbsolute(expandedPath)
-    ? resolve(expandedPath)
-    : resolve(cwd, expandedPath);
+  return isAbsolute(expandedPath) ? resolve(expandedPath) : resolve(cwd, expandedPath);
 }
 
 export function parsePathInput(input: unknown, toolName: string): string {

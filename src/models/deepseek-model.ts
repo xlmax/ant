@@ -21,13 +21,13 @@ const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 const MAX_INLINE_IMAGE_BYTES = 32 * 1024 * 1024;
 const MAX_REQUEST_IMAGE_BYTES = 32 * 1024 * 1024;
-const VISION_MODEL_ID = "deepseek-v4-flash-vision-exp";
 
 interface DeepSeekModelOptions {
   apiKey: string;
   systemPrompt: string;
   model?: string;
   contextWindow?: number;
+  supportsImages?: boolean;
   thinkingEnabled?: boolean;
   reasoningEffort?: "low" | "high" | "max";
   baseUrl?: string;
@@ -46,8 +46,7 @@ interface DeepSeekToolCall {
 }
 
 type DeepSeekContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
 type DeepSeekMessage =
   | { role: "system"; content: string }
@@ -92,10 +91,6 @@ function observationContent(observation: Observation): string {
   return stringify(observation);
 }
 
-function modelSupportsImages(model: string): boolean {
-  return model === VISION_MODEL_ID;
-}
-
 async function imagePart(
   attachment: ImageAttachment,
   signal?: AbortSignal,
@@ -113,10 +108,7 @@ async function imagePart(
   };
 }
 
-function decisionMessage(
-  decision: Decision,
-  includeReasoning: boolean,
-): DeepSeekMessage {
+function decisionMessage(decision: Decision, includeReasoning: boolean): DeepSeekMessage {
   const reasoning =
     !includeReasoning || decision.reasoning === undefined
       ? {}
@@ -279,10 +271,7 @@ function parseToolCall(value: unknown): ToolCall {
   };
 }
 
-function parseUsage(
-  payload: unknown,
-  metadata: ModelMetadata,
-): ModelUsage | undefined {
+function parseUsage(payload: unknown, metadata: ModelMetadata): ModelUsage | undefined {
   if (!isRecord(payload) || !isRecord(payload.usage)) {
     return undefined;
   }
@@ -345,10 +334,7 @@ function parseDecision(payload: unknown): Decision {
 
     return {
       type: "tools",
-      calls: [
-        parseToolCall(firstToolCall),
-        ...remainingToolCalls.map(parseToolCall),
-      ],
+      calls: [parseToolCall(firstToolCall), ...remainingToolCalls.map(parseToolCall)],
       ...(reasoning === undefined ? {} : { reasoning }),
     };
   }
@@ -357,9 +343,10 @@ function parseDecision(payload: unknown): Decision {
 
   if (typeof content !== "string" || content.trim() === "") {
     throw new Error(
-      `DeepSeek response contains neither a tool call nor text: ${JSON.stringify(
-        firstChoice,
-      ).slice(0, 500)}`,
+      `DeepSeek response contains neither a tool call nor text: ${JSON.stringify(firstChoice).slice(
+        0,
+        500,
+      )}`,
     );
   }
 
@@ -451,9 +438,7 @@ async function parseStreamingDecision(
         }
 
         const index =
-          typeof partialCall.index === "number" && partialCall.index >= 0
-            ? partialCall.index
-            : 0;
+          typeof partialCall.index === "number" && partialCall.index >= 0 ? partialCall.index : 0;
         const current = toolCalls[index] ?? {
           id: "",
           type: "function" as const,
@@ -519,6 +504,7 @@ export class DeepSeekModel implements AgentModel {
   readonly #model: string;
   readonly #contextWindow: number;
   readonly #thinkingEnabled: boolean;
+  readonly #supportsImages: boolean;
   readonly #reasoningEffort: "low" | "high" | "max";
   readonly #baseUrl: string;
   readonly #fetch: typeof globalThis.fetch;
@@ -541,6 +527,7 @@ export class DeepSeekModel implements AgentModel {
     this.#model = options.model ?? DEFAULT_MODEL;
     this.#contextWindow = options.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
     this.#thinkingEnabled = options.thinkingEnabled ?? true;
+    this.#supportsImages = options.supportsImages ?? false;
     this.#reasoningEffort = options.reasoningEffort ?? "high";
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.#fetch = options.fetch ?? globalThis.fetch;
@@ -556,9 +543,7 @@ export class DeepSeekModel implements AgentModel {
     const responseText = await response.text();
 
     if (!response.ok) {
-      throw new Error(
-        `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
-      );
+      throw new Error(`DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`);
     }
 
     let payload: unknown;
@@ -583,7 +568,7 @@ export class DeepSeekModel implements AgentModel {
       input.events,
       this.#systemPrompt,
       this.#thinkingEnabled,
-      modelSupportsImages(this.#model),
+      this.#supportsImages,
       signal,
     );
     const body: Record<string, unknown> = {
@@ -619,10 +604,7 @@ export class DeepSeekModel implements AgentModel {
       request.signal = signal;
     }
 
-    const response = await this.#fetch(
-      `${this.#baseUrl}/chat/completions`,
-      request,
-    );
+    const response = await this.#fetch(`${this.#baseUrl}/chat/completions`, request);
     if (!response.ok) {
       const responseText = await response.text();
       throw new ModelRequestError(
@@ -632,18 +614,12 @@ export class DeepSeekModel implements AgentModel {
     }
 
     if (onTextDelta) {
-      return parseStreamingDecision(
-        response,
-        onTextDelta,
-        onReasoningDelta,
-        onUsage,
-        {
-          provider: "deepseek",
-          model: this.#model,
-          reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",
-          contextWindow: this.#contextWindow,
-        },
-      );
+      return parseStreamingDecision(response, onTextDelta, onReasoningDelta, onUsage, {
+        provider: "deepseek",
+        model: this.#model,
+        reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",
+        contextWindow: this.#contextWindow,
+      });
     }
 
     const responseText = await response.text();

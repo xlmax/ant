@@ -11,10 +11,7 @@ export interface RenderedEditor {
   end: CursorPosition;
 }
 
-function positionFor(
-  characters: readonly string[],
-  columns: number,
-): CursorPosition[] {
+function positionFor(characters: readonly string[], columns: number): CursorPosition[] {
   const positions: CursorPosition[] = [{ row: 0, column: 0 }];
   let row = 0;
   let column = 0;
@@ -95,10 +92,7 @@ export class TextEditor {
         return;
 
       case "end":
-        while (
-          this.#cursor < this.#characters.length &&
-          this.#characters[this.#cursor] !== "\n"
-        ) {
+        while (this.#cursor < this.#characters.length && this.#characters[this.#cursor] !== "\n") {
           this.#cursor += 1;
         }
         return;

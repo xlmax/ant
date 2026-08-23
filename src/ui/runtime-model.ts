@@ -2,17 +2,11 @@ import type { ModelSettings, ReasoningEffort } from "../config/settings.js";
 
 export type EffortSelection = ReasoningEffort | "off";
 
-export function selectModel(
-  current: ModelSettings,
-  id: string,
-): ModelSettings {
+export function selectModel(current: ModelSettings, id: string): ModelSettings {
   return { ...current, id };
 }
 
-export function selectEffort(
-  current: ModelSettings,
-  selection: EffortSelection,
-): ModelSettings {
+export function selectEffort(current: ModelSettings, selection: EffortSelection): ModelSettings {
   return {
     ...current,
     thinking: {

@@ -2,19 +2,12 @@ import { join } from "node:path";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import type { ModelSettings, RuntimeLimits } from "./config/settings.js";
-import {
-  createAgentState,
-  runAgent,
-  type AgentState,
-} from "./core/agent.js";
+import { createAgentState, runAgent, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
 import { loadSettings, saveUserModelId } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
-import {
-  JsonlSessionStore,
-  type AgentSession,
-} from "./core/session-store.js";
+import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
@@ -31,6 +24,7 @@ function createDeepSeekModel(
     model: settings.id,
     baseUrl: settings.baseUrl,
     contextWindow: settings.contextWindow,
+    supportsImages: settings.vision,
     thinkingEnabled: settings.thinking.enabled,
     reasoningEffort: settings.thinking.effort,
   });
@@ -51,9 +45,7 @@ async function createModel(workspace: string): Promise<{
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error(
-      "Для DeepSeek необходимо задать переменную DEEPSEEK_API_KEY",
-    );
+    throw new Error("Для DeepSeek необходимо задать переменную DEEPSEEK_API_KEY");
   }
 
   const loadedSettings = await loadSettings(workspace);
@@ -139,7 +131,8 @@ async function runOneShot(
 
 function formatSessionTask(task: string): string {
   const singleLine = task.replace(/\s+/gu, " ").trim();
-  return singleLine.length <= 80 ? singleLine : `${singleLine.slice(0, 77)}…`;
+  const characters = Array.from(singleLine);
+  return characters.length <= 80 ? singleLine : `${characters.slice(0, 77).join("")}…`;
 }
 
 async function resolveResumeId(
@@ -150,7 +143,7 @@ async function resolveResumeId(
     return options.resume;
   }
 
-  const latest = (await store.list())[0];
+  const latest = (await store.list()).sessions[0];
   if (!latest) {
     throw new Error("Нет сохранённых сессий для продолжения");
   }
@@ -159,7 +152,10 @@ async function resolveResumeId(
 }
 
 async function printSessionList(store: JsonlSessionStore): Promise<void> {
-  const sessions = await store.list();
+  const { sessions, warnings } = await store.list();
+  for (const warning of warnings) {
+    console.error(`Предупреждение: ${warning}`);
+  }
   if (sessions.length === 0) {
     console.log("Сохранённых сессий нет.");
     return;
@@ -199,10 +195,9 @@ async function main(): Promise<void> {
     bashPath,
   } = await createModel(workspace);
   configureAnsi(color);
-  const environment = new ToolEnvironment(createCodingTools(
-    workspace,
-    bashPath === undefined ? {} : { bashPath },
-  ));
+  const environment = new ToolEnvironment(
+    createCodingTools(workspace, bashPath === undefined ? {} : { bashPath }),
+  );
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
 
   if (!options.task) {

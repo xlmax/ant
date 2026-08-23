@@ -5,6 +5,7 @@ import type { Tool } from "../core/environment.js";
 
 const MAX_BYTES = 50 * 1024;
 const MAX_LINES = 2_000;
+const MAX_TIMEOUT_SECONDS = 3_600;
 
 interface BashInput {
   command: string;
@@ -27,11 +28,13 @@ function parseInput(input: unknown): BashInput {
 
   if (
     timeout !== undefined &&
-    (typeof timeout !== "number" ||
-      !Number.isFinite(timeout) ||
-      timeout <= 0)
+    (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0)
   ) {
     throw new Error("bash timeout must be a positive number of seconds");
+  }
+
+  if (timeout !== undefined && timeout > MAX_TIMEOUT_SECONDS) {
+    throw new Error(`bash timeout must not exceed ${MAX_TIMEOUT_SECONDS} seconds`);
   }
 
   return {
@@ -61,35 +64,87 @@ function shellConfiguration(bashPath?: string): { shell: string; args: string[] 
   throw new Error("bash executable was not found; configure tools.bashPath");
 }
 
-function truncateOutput(output: string): { output: string; truncated: boolean } {
-  let result = output;
-  let truncated = false;
-  const bytes = Buffer.byteLength(result, "utf8");
+function trimUtf8Boundary(buffer: Buffer, start: number): number {
+  while (start < buffer.length) {
+    const current = buffer[start];
+    if (current === undefined) {
+      return buffer.length;
+    }
 
-  if (bytes > MAX_BYTES) {
-    result = Buffer.from(result, "utf8").subarray(bytes - MAX_BYTES).toString("utf8");
+    if ((current & 0b10000000) === 0) {
+      return start;
+    }
+
+    if ((current & 0b11100000) === 0b11000000 && start + 1 < buffer.length) {
+      return start;
+    }
+
+    if ((current & 0b11110000) === 0b11100000 && start + 2 < buffer.length) {
+      return start;
+    }
+
+    if ((current & 0b11111000) === 0b11110000 && start + 3 < buffer.length) {
+      return start;
+    }
+
+    start += 1;
+  }
+
+  return buffer.length;
+}
+
+function truncateOutput(output: Buffer): { output: string; truncated: boolean } {
+  let resultBuffer = output;
+  let truncated = false;
+
+  if (resultBuffer.length > MAX_BYTES) {
+    const start = trimUtf8Boundary(resultBuffer, resultBuffer.length - MAX_BYTES);
+    resultBuffer = resultBuffer.subarray(start);
     truncated = true;
   }
 
+  const result = resultBuffer.toString("utf8");
   const lines = result.split("\n");
 
   if (lines.length > MAX_LINES) {
-    result = lines.slice(-MAX_LINES).join("\n");
-    truncated = true;
+    return {
+      output: lines.slice(-MAX_LINES).join("\n"),
+      truncated: true,
+    };
   }
 
   return { output: result, truncated };
 }
 
-export function createBashTool(
-  workspaceDirectory: string,
-  bashPath?: string,
-): Tool {
+function terminateProcessTree(pid: number): void {
+  if (process.platform === "win32") {
+    try {
+      const taskkill = spawn("taskkill", ["/T", "/F", "/PID", String(pid)], {
+        windowsHide: true,
+        stdio: ["ignore", "ignore", "ignore"],
+        detached: true,
+      });
+      taskkill.unref();
+    } catch {
+      // ignore
+    }
+
+    return;
+  }
+
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // ignore, process tree could already be dead
+  }
+}
+
+export function createBashTool(workspaceDirectory: string, bashPath?: string): Tool {
   return {
     spec: {
       name: "bash",
       description:
-        "Execute a bash command in the workspace. Returns combined stdout and stderr. Output is truncated to the last 2,000 lines or 50 KiB. Optionally provide timeout in seconds.",
+        "Execute a bash command in the workspace. Returns combined stdout and stderr. Output is truncated to the last 2,000 lines or 50 KiB. Optionally provide timeout in seconds, up to 3600.",
       inputSchema: {
         type: "object",
         properties: {
@@ -111,17 +166,11 @@ export function createBashTool(
           cwd: workspaceDirectory,
           windowsHide: true,
           stdio: ["ignore", "pipe", "pipe"],
+          detached: process.platform !== "win32",
         });
         const chunks: Buffer[] = [];
         let timedOut = false;
         let settled = false;
-        const timeoutHandle =
-          timeout === undefined
-            ? undefined
-            : setTimeout(() => {
-                timedOut = true;
-                child.kill();
-              }, timeout * 1_000);
 
         const cleanup = (): void => {
           if (timeoutHandle) {
@@ -141,8 +190,24 @@ export function createBashTool(
           callback();
         };
 
+        const terminate = (): void => {
+          if (!child.pid) {
+            return;
+          }
+
+          terminateProcessTree(child.pid);
+        };
+
+        const timeoutHandle =
+          timeout === undefined
+            ? undefined
+            : setTimeout(() => {
+                timedOut = true;
+                terminate();
+              }, timeout * 1_000);
+
         const onAbort = (): void => {
-          child.kill();
+          terminate();
           finish(() => reject(new Error("Operation aborted")));
         };
 
@@ -156,7 +221,7 @@ export function createBashTool(
               return;
             }
 
-            const result = truncateOutput(Buffer.concat(chunks).toString("utf8"));
+            const result = truncateOutput(Buffer.concat(chunks));
             resolve({
               exitCode,
               output: result.output,

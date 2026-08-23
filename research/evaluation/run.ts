@@ -125,11 +125,7 @@ function toolCalls(events: readonly AgentEvent[]): Array<{
   );
 }
 
-function containsToolCall(
-  events: readonly AgentEvent[],
-  name: string,
-  path?: string,
-): boolean {
+function containsToolCall(events: readonly AgentEvent[], name: string, path?: string): boolean {
   return toolCalls(events).some(
     (call) =>
       call.name === name &&
@@ -141,11 +137,7 @@ function containsToolCall(
   );
 }
 
-function hasFailedToolCall(
-  events: readonly AgentEvent[],
-  name: string,
-  path?: string,
-): boolean {
+function hasFailedToolCall(events: readonly AgentEvent[], name: string, path?: string): boolean {
   return events.some(
     (event) =>
       event.type === "observation" &&
@@ -292,7 +284,8 @@ const tasks: readonly EvalTask[] = [
         {
           name: "создана единственная строка done",
           passed: await isSingleDoneLine(join(workspace, "result.txt")),
-          details: "result.txt должен содержать только done и необязательный завершающий перевод строки",
+          details:
+            "result.txt должен содержать только done и необязательный завершающий перевод строки",
         },
       ];
     },
@@ -312,10 +305,7 @@ const tasks: readonly EvalTask[] = [
         },
         {
           name: "изменено только целевое значение",
-          passed: await fileEquals(
-            join(workspace, "config.txt"),
-            "name=fixture\nstatus=new\n",
-          ),
+          passed: await fileEquals(join(workspace, "config.txt"), "name=fixture\nstatus=new\n"),
           details: "config.txt должен содержать обновлённый status",
         },
       ];
@@ -417,18 +407,12 @@ const tasks: readonly EvalTask[] = [
         },
         {
           name: "сохранено содержимое first.txt",
-          passed: await fileEquals(
-            join(workspace, "first.txt"),
-            "name=first\nstatus=new\n",
-          ),
+          passed: await fileEquals(join(workspace, "first.txt"), "name=first\nstatus=new\n"),
           details: "first.txt должен содержать status=new",
         },
         {
           name: "сохранено содержимое second.txt",
-          passed: await fileEquals(
-            join(workspace, "second.txt"),
-            "name=second\nstatus=new\n",
-          ),
+          passed: await fileEquals(join(workspace, "second.txt"), "name=second\nstatus=new\n"),
           details: "second.txt должен содержать status=new",
         },
       ];
@@ -441,11 +425,7 @@ const tasks: readonly EvalTask[] = [
       "Запусти npm test. Исправь check.mjs точечным изменением, чтобы тест прошёл, затем снова запусти npm test. Используй относительный путь check.mjs.",
     async setup(workspace) {
       await Promise.all([
-        writeFile(
-          workspace + "/package.json",
-          '{"scripts":{"test":"node check.mjs"}}\n',
-          "utf8",
-        ),
+        writeFile(workspace + "/package.json", '{"scripts":{"test":"node check.mjs"}}\n', "utf8"),
         writeFile(
           workspace + "/check.mjs",
           'import assert from "node:assert/strict";\nassert.equal(2 + 2, 5);\n',
@@ -491,9 +471,7 @@ const tasks: readonly EvalTask[] = [
     },
     async run({ workspace, model, environment }) {
       const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
-      const initialState = createAgentState(
-        "Прочитай memory.txt и запомни контрольную фразу.",
-      );
+      const initialState = createAgentState("Прочитай memory.txt и запомни контрольную фразу.");
       const session = await store.create(initialState);
       const firstResult = await runAgent(initialState, {
         model,
@@ -509,8 +487,7 @@ const tasks: readonly EvalTask[] = [
       const resumed = await store.resume(session.id);
       const event = {
         type: "user" as const,
-        content:
-          "Назови контрольную фразу без повторного чтения memory.txt и без инструментов.",
+        content: "Назови контрольную фразу без повторного чтения memory.txt и без инструментов.",
       };
       resumed.state.events.push(event);
       await resumed.session.observer.onEvent(event);
@@ -543,10 +520,7 @@ const tasks: readonly EvalTask[] = [
 async function runTask(task: EvalTask): Promise<EvalTaskReport> {
   const workspace = await mkdtemp(join(tmpdir(), `ant-eval-${task.id}-`));
   const startedAt = performance.now();
-  const model = new CappedModel(
-    await createModel(),
-    task.maxModelCalls ?? MAX_MODEL_CALLS,
-  );
+  const model = new CappedModel(await createModel(), task.maxModelCalls ?? MAX_MODEL_CALLS);
 
   let result: AgentResult | undefined;
   let state: AgentState | undefined;
@@ -644,29 +618,25 @@ async function main(): Promise<void> {
   const passed = reports.filter((report) => report.passed).length;
   const modelCalls = reports.reduce((total, report) => total + report.modelCalls, 0);
   const toolCallsCount = reports.reduce((total, report) => total + report.toolCalls, 0);
-  const reportDirectory = join(
-    process.cwd(),
-    "research",
-    "evaluation",
-    "results",
-  );
-  const reportPath = join(
-    reportDirectory,
-    `${startedAt.toISOString().replaceAll(":", "-")}.json`,
-  );
+  const reportDirectory = join(process.cwd(), "research", "evaluation", "results");
+  const reportPath = join(reportDirectory, `${startedAt.toISOString().replaceAll(":", "-")}.json`);
 
   await mkdir(reportDirectory, { recursive: true });
   await writeFile(
     reportPath,
-    `${JSON.stringify({
-      startedAt: startedAt.toISOString(),
-      model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
-      passed,
-      total: reports.length,
-      modelCalls,
-      toolCalls: toolCallsCount,
-      reports,
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        startedAt: startedAt.toISOString(),
+        model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
+        passed,
+        total: reports.length,
+        modelCalls,
+        toolCalls: toolCallsCount,
+        reports,
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 

@@ -1,10 +1,4 @@
-import type {
-  Environment,
-  ImageAttachment,
-  Observation,
-  ToolCall,
-  ToolSpec,
-} from "./agent.js";
+import type { Environment, ImageAttachment, Observation, ToolCall, ToolSpec } from "./agent.js";
 
 export interface ToolExecutionResult {
   kind: "tool-result";
@@ -48,10 +42,7 @@ export class ToolEnvironment implements Environment {
     return [...this.#tools.values()].map((tool) => tool.spec);
   }
 
-  async execute(
-    call: ToolCall,
-    signal?: AbortSignal,
-  ): Promise<Observation> {
+  async execute(call: ToolCall, signal?: AbortSignal): Promise<Observation> {
     const tool = this.#tools.get(call.name);
 
     if (!tool) {

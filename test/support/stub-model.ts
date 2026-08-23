@@ -1,16 +1,10 @@
-import type {
-  AgentEvent,
-  AgentModel,
-  Decision,
-  ModelInput,
-} from "../../src/core/agent.js";
+import type { AgentEvent, AgentModel, Decision, ModelInput } from "../../src/core/agent.js";
 
 function findLastObservation(
   events: readonly AgentEvent[],
 ): Extract<AgentEvent, { type: "observation" }> | undefined {
   return events.findLast(
-    (event): event is Extract<AgentEvent, { type: "observation" }> =>
-      event.type === "observation",
+    (event): event is Extract<AgentEvent, { type: "observation" }> => event.type === "observation",
   );
 }
 
@@ -32,15 +26,12 @@ export class StubModel implements AgentModel {
 
       return {
         type: "finish",
-        answer: `Заглушка получила результат: ${formatValue(
-          observation.observation.value,
-        )}`,
+        answer: `Заглушка получила результат: ${formatValue(observation.observation.value)}`,
       };
     }
 
     const task = input.events.find(
-      (event): event is Extract<AgentEvent, { type: "task" }> =>
-        event.type === "task",
+      (event): event is Extract<AgentEvent, { type: "task" }> => event.type === "task",
     );
 
     if (!task) {

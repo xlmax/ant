@@ -28,18 +28,12 @@ test("short CLI keys select help, listing and session resume modes", () => {
 });
 
 test("CLI keys reject invalid session selection combinations", () => {
-  assert.throws(
-    () => parseCliOptions(["-s"]),
-    /Для -s нужно указать идентификатор сессии/u,
-  );
+  assert.throws(() => parseCliOptions(["-s"]), /Для -s нужно указать идентификатор сессии/u);
   assert.throws(
     () => parseCliOptions(["-c", "-s", "session-id"]),
     /только один способ выбрать сессию/u,
   );
-  assert.throws(
-    () => parseCliOptions(["-r", "Задача"]),
-    /Ключ -r нельзя сочетать/u,
-  );
+  assert.throws(() => parseCliOptions(["-r", "Задача"]), /Ключ -r нельзя сочетать/u);
 });
 
 test("CLI help documents every short key", () => {

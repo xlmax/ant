@@ -1,8 +1,9 @@
-import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { AgentEvent, AgentObserver, AgentState } from "./agent.js";
+import { writeFileAtomically } from "../fs/atomic-write.js";
 
 const SESSION_VERSION = 1;
 
@@ -25,6 +26,11 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   task: string;
+}
+
+export interface SessionList {
+  sessions: SessionSummary[];
+  warnings: string[];
 }
 
 function sessionFilePath(sessionDirectory: string, sessionId: string): string {
@@ -74,10 +80,12 @@ function serializeRecord(sessionId: string, event: AgentEvent): string {
 
 async function readSessionRecords(filePath: string): Promise<SessionRecord[]> {
   const content = await readFile(filePath, "utf8");
-  const records = content
-    .split(/\r?\n/u)
-    .filter(Boolean)
-    .map((line, index) => parseRecord(line, index + 1));
+  const records: SessionRecord[] = [];
+  for (const [index, line] of content.split(/\r?\n/u).entries()) {
+    if (line) {
+      records.push(parseRecord(line, index + 1));
+    }
+  }
 
   if (records.length === 0) {
     throw new Error("Невозможно продолжить пустую сессию");
@@ -112,10 +120,9 @@ export class JsonlSessionStore {
     const filePath = sessionFilePath(this.#sessionDirectory, id);
 
     await mkdir(this.#sessionDirectory, { recursive: true });
-    await writeFile(
+    await writeFileAtomically(
       filePath,
       state.events.map((event) => serializeRecord(id, event)).join(""),
-      "utf8",
     );
 
     return {
@@ -125,7 +132,7 @@ export class JsonlSessionStore {
     };
   }
 
-  async list(): Promise<SessionSummary[]> {
+  async list(): Promise<SessionList> {
     let entries: Array<{ name: string; isFile(): boolean }>;
 
     try {
@@ -135,12 +142,13 @@ export class JsonlSessionStore {
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return [];
+        return { sessions: [], warnings: [] };
       }
       throw error;
     }
 
     const sessions: SessionSummary[] = [];
+    const warnings: string[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
         continue;
@@ -152,21 +160,34 @@ export class JsonlSessionStore {
       }
 
       const filePath = sessionFilePath(this.#sessionDirectory, id);
-      const records = await readSessionRecords(filePath);
-      const first = records[0]!;
-      const last = records.at(-1)!;
-      const task = records.find((record) => record.event.type === "task")?.event;
 
-      sessions.push({
-        id,
-        filePath,
-        createdAt: first.timestamp,
-        updatedAt: last.timestamp,
-        task: task?.type === "task" ? task.content : "Без исходной задачи",
-      });
+      try {
+        const records = await readSessionRecords(filePath);
+        if (records.some((record) => record.sessionId !== id)) {
+          throw new Error("Идентификатор сессии не совпадает с содержимым файла");
+        }
+        const first = records[0]!;
+        const last = records.at(-1)!;
+        const task = records.find((record) => record.event.type === "task")?.event;
+
+        sessions.push({
+          id,
+          filePath,
+          createdAt: first.timestamp,
+          updatedAt: last.timestamp,
+          task: task?.type === "task" ? task.content : "Без исходной задачи",
+        });
+      } catch (error) {
+        warnings.push(
+          `Сессия ${id} пропущена: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
-    return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return {
+      sessions: sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+      warnings,
+    };
   }
 
   async resume(sessionId: string): Promise<{

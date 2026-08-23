@@ -1,6 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+
+import { writeFileAtomically } from "../fs/atomic-write.js";
 
 export type ReasoningEffort = "low" | "high" | "max";
 
@@ -9,6 +11,7 @@ export interface ModelSettings {
   id: string;
   baseUrl: string;
   contextWindow: number;
+  vision: boolean;
   thinking: {
     enabled: boolean;
     effort: ReasoningEffort;
@@ -47,6 +50,7 @@ type PartialSettings = {
     id?: string;
     baseUrl?: string;
     contextWindow?: number;
+    vision?: boolean;
     thinking?: {
       enabled?: boolean;
       effort?: ReasoningEffort;
@@ -71,6 +75,7 @@ const defaults: AppSettings = {
     id: "deepseek-v4-flash",
     baseUrl: "https://api.deepseek.com",
     contextWindow: 1_000_000,
+    vision: false,
     thinking: {
       enabled: true,
       effort: "high",
@@ -93,18 +98,6 @@ const defaults: AppSettings = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function assertKnownKeys(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-  path: string,
-): void {
-  for (const key of Object.keys(value)) {
-    if (!keys.includes(key)) {
-      throw new Error(`Неизвестная настройка: ${path}${key}`);
-    }
-  }
 }
 
 function optionalString(value: unknown, path: string): string | undefined {
@@ -136,11 +129,7 @@ function optionalContextWindow(value: unknown): number | undefined {
     return undefined;
   }
 
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value <= 0
-  ) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new Error("Настройка model.contextWindow должна быть положительным целым числом");
   }
 
@@ -191,7 +180,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     throw new Error(`Файл настроек ${source} должен содержать JSON-объект`);
   }
 
-  assertKnownKeys(value, ["model", "ui", "prompts", "tools", "limits"], "");
   const result: PartialSettings = {};
 
   if (value.model !== undefined) {
@@ -199,11 +187,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка model должна быть объектом");
     }
 
-    assertKnownKeys(
-      value.model,
-      ["provider", "id", "baseUrl", "contextWindow", "thinking"],
-      "model.",
-    );
     const provider = optionalString(value.model.provider, "model.provider");
 
     if (provider !== undefined && provider !== "deepseek") {
@@ -213,6 +196,7 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     const id = optionalString(value.model.id, "model.id");
     const baseUrl = optionalString(value.model.baseUrl, "model.baseUrl");
     const contextWindow = optionalContextWindow(value.model.contextWindow);
+    const vision = optionalBoolean(value.model.vision, "model.vision");
     const model: NonNullable<PartialSettings["model"]> = {};
 
     if (provider !== undefined) {
@@ -227,17 +211,16 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     if (contextWindow !== undefined) {
       model.contextWindow = contextWindow;
     }
+    if (vision !== undefined) {
+      model.vision = vision;
+    }
 
     if (value.model.thinking !== undefined) {
       if (!isRecord(value.model.thinking)) {
         throw new Error("Настройка model.thinking должна быть объектом");
       }
 
-      assertKnownKeys(value.model.thinking, ["enabled", "effort"], "model.thinking.");
-      const enabled = optionalBoolean(
-        value.model.thinking.enabled,
-        "model.thinking.enabled",
-      );
+      const enabled = optionalBoolean(value.model.thinking.enabled, "model.thinking.enabled");
       const effort = optionalEffort(value.model.thinking.effort);
       const thinking: NonNullable<NonNullable<PartialSettings["model"]>["thinking"]> = {};
       if (enabled !== undefined) {
@@ -257,7 +240,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка ui должна быть объектом");
     }
 
-    assertKnownKeys(value.ui, ["showReasoning", "color"], "ui.");
     const showReasoning = optionalBoolean(value.ui.showReasoning, "ui.showReasoning");
     const color = optionalBoolean(value.ui.color, "ui.color");
     result.ui = {
@@ -271,7 +253,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка prompts должна быть объектом");
     }
 
-    assertKnownKeys(value.prompts, ["additionalPaths"], "prompts.");
     const additionalPaths = optionalStringArray(
       value.prompts.additionalPaths,
       "prompts.additionalPaths",
@@ -284,7 +265,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка tools должна быть объектом");
     }
 
-    assertKnownKeys(value.tools, ["bashPath"], "tools.");
     const bashPath = optionalString(value.tools.bashPath, "tools.bashPath");
     result.tools = bashPath === undefined ? {} : { bashPath };
   }
@@ -294,11 +274,6 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка limits должна быть объектом");
     }
 
-    assertKnownKeys(
-      value.limits,
-      ["turnTimeoutSeconds", "modelRequestTimeoutSeconds", "modelMaxAttempts"],
-      "limits.",
-    );
     const turnTimeoutSeconds = optionalPositiveInteger(
       value.limits.turnTimeoutSeconds,
       "limits.turnTimeoutSeconds",
@@ -330,6 +305,7 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       id: partial.model?.id ?? base.model.id,
       baseUrl: partial.model?.baseUrl ?? base.model.baseUrl,
       contextWindow: partial.model?.contextWindow ?? base.model.contextWindow,
+      vision: partial.model?.vision ?? base.model.vision,
       thinking: {
         enabled: partial.model?.thinking?.enabled ?? base.model.thinking.enabled,
         effort: partial.model?.thinking?.effort ?? base.model.thinking.effort,
@@ -344,17 +320,15 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
     },
     tools: bashPath === undefined ? {} : { bashPath },
     limits: {
-      turnTimeoutSeconds:
-        partial.limits?.turnTimeoutSeconds ?? base.limits.turnTimeoutSeconds,
+      turnTimeoutSeconds: partial.limits?.turnTimeoutSeconds ?? base.limits.turnTimeoutSeconds,
       modelRequestTimeoutSeconds:
         partial.limits?.modelRequestTimeoutSeconds ?? base.limits.modelRequestTimeoutSeconds,
-      modelMaxAttempts:
-        partial.limits?.modelMaxAttempts ?? base.limits.modelMaxAttempts,
+      modelMaxAttempts: partial.limits?.modelMaxAttempts ?? base.limits.modelMaxAttempts,
     },
   };
 }
 
-async function readSettingsFile(path: string): Promise<PartialSettings | undefined> {
+async function readSettingsValue(path: string): Promise<Record<string, unknown> | undefined> {
   let content: string;
 
   try {
@@ -373,7 +347,16 @@ async function readSettingsFile(path: string): Promise<PartialSettings | undefin
     throw new Error(`Файл настроек ${path} содержит некорректный JSON`);
   }
 
-  return parseSettings(value, path);
+  if (!isRecord(value)) {
+    throw new Error(`Файл настроек ${path} должен содержать JSON-объект`);
+  }
+
+  return value;
+}
+
+async function readSettingsFile(path: string): Promise<PartialSettings | undefined> {
+  const value = await readSettingsValue(path);
+  return value === undefined ? undefined : parseSettings(value, path);
 }
 
 function userSettingsPath(homeDirectory: string): string {
@@ -386,10 +369,7 @@ export async function loadSettings(
 ): Promise<LoadedSettings> {
   const sources: string[] = [];
   let settings = defaults;
-  const paths = [
-    userSettingsPath(homeDirectory),
-    resolve(workspace, ".ant", "settings.json"),
-  ];
+  const paths = [userSettingsPath(homeDirectory), resolve(workspace, ".ant", "settings.json")];
 
   for (const path of paths) {
     const partial = await readSettingsFile(path);
@@ -411,15 +391,19 @@ export async function saveUserModelId(
     throw new Error("Настройка model.id должна быть непустой строкой");
   }
   const path = userSettingsPath(homeDirectory);
-  const current = await readSettingsFile(path);
-  const next: PartialSettings = {
+  const current = await readSettingsValue(path);
+  const currentModel = current?.model;
+  if (currentModel !== undefined && !isRecord(currentModel)) {
+    throw new Error("Настройка model должна быть объектом");
+  }
+  const next = {
     ...current,
     model: {
-      ...current?.model,
+      ...currentModel,
       id: normalizedId,
     },
   };
 
   await mkdir(resolve(homeDirectory, ".ant"), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFileAtomically(path, `${JSON.stringify(next, null, 2)}\n`);
 }

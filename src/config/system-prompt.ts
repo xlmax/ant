@@ -3,9 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_PROMPT_PATH = fileURLToPath(
-  new URL("../../prompts/SYSTEM.md", import.meta.url),
-);
+const DEFAULT_PROMPT_PATH = fileURLToPath(new URL("../../prompts/SYSTEM.md", import.meta.url));
 
 export interface SystemPrompt {
   content: string;

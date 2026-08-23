@@ -271,10 +271,14 @@ export async function runAgent(
           throw error;
         }
         if (receivedText) {
-          throw new Error(`${reason}. Текст ответа уже начал выводиться, повтор не выполнен.`);
+          throw new Error(`${reason}. Текст ответа уже начал выводиться, повтор не выполнен.`, {
+            cause: error,
+          });
         }
         if (attempt === modelMaxAttempts) {
-          throw new Error(`${reason}. Попытки исчерпаны (${attempt}/${modelMaxAttempts}).`);
+          throw new Error(`${reason}. Попытки исчерпаны (${attempt}/${modelMaxAttempts}).`, {
+            cause: error,
+          });
         }
 
         const delayMs = retryDelayMs * 2 ** (attempt - 1);

@@ -14,9 +14,7 @@ test("system prompt loads the bundled default", async () => {
 
     assert.match(prompt.content, /компонент принятия решений coding-агента/u);
     assert.ok(
-      prompt.sources.some((path) =>
-        path.replaceAll("\\", "/").endsWith("prompts/SYSTEM.md"),
-      ),
+      prompt.sources.some((path) => path.replaceAll("\\", "/").endsWith("prompts/SYSTEM.md")),
     );
   } finally {
     await rm(workspace, { recursive: true, force: true });

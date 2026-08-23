@@ -24,11 +24,7 @@ function styleToken(className: string, text: string): string {
     return ansi.magenta(text);
   }
 
-  if (
-    className.includes("string") ||
-    className.includes("regexp") ||
-    className.includes("attr")
-  ) {
+  if (className.includes("string") || className.includes("regexp") || className.includes("attr")) {
     return ansi.yellow(text);
   }
 

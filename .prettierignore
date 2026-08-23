@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.ant/
+.agent/
+research/evaluation/results/
+package-lock.json

@@ -42,12 +42,44 @@ test("read returns supported images as multimodal attachments", async () => {
         mediaType: "image/png",
         bytes: content.length,
       },
-      attachments: [{
-        type: "image",
-        path: cachedPath,
-        mediaType: "image/png",
-        bytes: content.length,
-      }],
+      attachments: [
+        {
+          type: "image",
+          path: cachedPath,
+          mediaType: "image/png",
+          bytes: content.length,
+        },
+      ],
+    });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("read reports an empty file as zero lines", async () => {
+  const workspace = await createWorkspace();
+
+  try {
+    const file = join(workspace, "empty.txt");
+    await writeFile(file, "", "utf8");
+    const environment = new ToolEnvironment([createReadTool(workspace)]);
+
+    const observation = await environment.execute({
+      id: "read-empty",
+      name: "read",
+      input: { path: file },
+    });
+
+    assert.deepEqual(observation, {
+      ok: true,
+      value: {
+        path: file,
+        content: "",
+        totalLines: 0,
+        startLine: 0,
+        endLine: 0,
+        truncated: false,
+      },
     });
   } finally {
     await rm(workspace, { recursive: true, force: true });

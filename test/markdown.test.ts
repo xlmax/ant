@@ -19,6 +19,12 @@ test("streaming markdown renderer formats inline markdown", () => {
   );
 });
 
+test("streaming markdown renderer supports nested inline markdown", () => {
+  const renderer = new StreamingMarkdownRenderer();
+
+  assert.equal(renderer.push("**bold *italic*** and `a*b`\n"), "bold italic and a*b\n");
+});
+
 test("streaming markdown renderer formats code fences", () => {
   const renderer = new StreamingMarkdownRenderer();
 
@@ -51,5 +57,8 @@ test("streaming markdown renderer aligns a completed table", () => {
 test("table-like text without a separator remains ordinary text", () => {
   const renderer = new StreamingMarkdownRenderer();
 
-  assert.equal(renderer.push("значение | комментарий\nобычная строка\n"), "значение | комментарий\nобычная строка\n");
+  assert.equal(
+    renderer.push("значение | комментарий\nобычная строка\n"),
+    "значение | комментарий\nобычная строка\n",
+  );
 });

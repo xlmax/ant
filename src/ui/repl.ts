@@ -2,32 +2,16 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, RuntimeLimits } from "../config/settings.js";
-import {
-  createAgentState,
-  runAgent,
-  type AgentModel,
-  type AgentState,
-} from "../core/agent.js";
+import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
 import type { ToolEnvironment } from "../core/environment.js";
-import {
-  JsonlSessionStore,
-  type AgentSession,
-} from "../core/session-store.js";
+import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
 import { getReplCommands, parseReplCommand } from "./commands.js";
 import { ConsoleRenderer } from "./console-renderer.js";
 import { InputHistory } from "./input-history.js";
 import { readTerminalInput } from "./terminal-input.js";
-import {
-  formatModelStatus,
-  selectEffort,
-  selectModel,
-} from "./runtime-model.js";
-import {
-  closeUserInputFrame,
-  openUserInputFrame,
-  userInputPrompt,
-} from "./input-frame.js";
+import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
+import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
 
 export interface ReplOptions {
   model: AgentModel;
@@ -58,9 +42,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       ? undefined
       : createInterface({ input: stdin, output: stdout });
   const renderer = new ConsoleRenderer(
-    options.showReasoning === undefined
-      ? {}
-      : { showReasoning: options.showReasoning },
+    options.showReasoning === undefined ? {} : { showReasoning: options.showReasoning },
   );
   const inputHistory = new InputHistory();
   let model = options.model;
@@ -74,9 +56,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     session = resumed.session;
     console.log(ansi.dim(`Продолжена сессия: ${session.id}`));
   } else {
-    console.log(
-      ansi.dim("Интерактивный режим. Введите /help, чтобы увидеть команды."),
-    );
+    console.log(ansi.dim("Интерактивный режим. Введите /help, чтобы увидеть команды."));
   }
 
   try {
@@ -118,17 +98,11 @@ export async function runRepl(options: ReplOptions): Promise<void> {
           case "reasoning":
             if (command.enabled === undefined) {
               console.log(
-                ansi.dim(
-                  `Рассуждения: ${renderer.showReasoning ? "включены" : "выключены"}.`,
-                ),
+                ansi.dim(`Рассуждения: ${renderer.showReasoning ? "включены" : "выключены"}.`),
               );
             } else {
               renderer.setShowReasoning(command.enabled);
-              console.log(
-                ansi.dim(
-                  `Рассуждения ${command.enabled ? "включены" : "выключены"}.`,
-                ),
-              );
+              console.log(ansi.dim(`Рассуждения ${command.enabled ? "включены" : "выключены"}.`));
             }
             continue;
 
@@ -141,9 +115,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                   console.log(ansi.dim("Provider не вернул доступные модели."));
                 }
                 for (const id of models) {
-                  console.log(
-                    `${id === modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`,
-                  );
+                  console.log(`${id === modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`);
                 }
               } catch (error) {
                 console.error(
@@ -161,7 +133,9 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 await options.saveModelId(command.id);
                 modelSettings = selectModel(modelSettings, command.id);
                 model = options.createAgentModel(modelSettings);
-                console.log(ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`));
+                console.log(
+                  ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`),
+                );
               } catch (error) {
                 console.error(
                   ansi.red(
@@ -181,26 +155,26 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 nextSettings.thinking.enabled === modelSettings.thinking.enabled &&
                 nextSettings.thinking.effort === modelSettings.thinking.effort
               ) {
-                console.log(ansi.dim(`Рассуждения модели уже настроены: ${formatModelStatus(modelSettings)}`));
+                console.log(
+                  ansi.dim(`Рассуждения модели уже настроены: ${formatModelStatus(modelSettings)}`),
+                );
               } else {
                 modelSettings = nextSettings;
                 model = options.createAgentModel(modelSettings);
-                console.log(ansi.dim(`Рассуждения модели переключены: ${formatModelStatus(modelSettings)}`));
+                console.log(
+                  ansi.dim(`Рассуждения модели переключены: ${formatModelStatus(modelSettings)}`),
+                );
               }
             }
             continue;
 
           case "help":
             if (command.command) {
-              console.log(
-                `${ansi.bold(command.command.usage)}\n${command.command.description}`,
-              );
+              console.log(`${ansi.bold(command.command.usage)}\n${command.command.description}`);
             } else {
               console.log(ansi.bold("Доступные команды:"));
               for (const available of getReplCommands()) {
-                console.log(
-                  `  ${ansi.cyan(available.usage.padEnd(20))} ${available.description}`,
-                );
+                console.log(`  ${ansi.cyan(available.usage.padEnd(20))} ${available.description}`);
               }
             }
             continue;

@@ -49,6 +49,7 @@ test("settings merge global and project layers without environment overrides", a
         id: "deepseek-v4-pro",
         baseUrl: "https://api.deepseek.com",
         contextWindow: 1_000_000,
+        vision: false,
         thinking: { enabled: false, effort: "max" },
       },
       ui: { showReasoning: true, color: false },
@@ -77,22 +78,21 @@ test("saving a selected model updates the global user settings only", async () =
       JSON.stringify({
         model: { baseUrl: "https://proxy.example" },
         ui: { showReasoning: true },
+        future: { setting: true },
       }),
       "utf8",
     );
 
     await saveUserModelId("deepseek-v4-pro", home);
 
-    assert.deepEqual(
-      JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")),
-      {
-        model: {
-          baseUrl: "https://proxy.example",
-          id: "deepseek-v4-pro",
-        },
-        ui: { showReasoning: true },
+    assert.deepEqual(JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")), {
+      model: {
+        baseUrl: "https://proxy.example",
+        id: "deepseek-v4-pro",
       },
-    );
+      ui: { showReasoning: true },
+      future: { setting: true },
+    });
     assert.equal((await loadSettings(workspace, home)).settings.model.id, "deepseek-v4-pro");
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
@@ -110,16 +110,10 @@ test("settings reject unsupported providers and invalid JSON", async () => {
       "utf8",
     );
 
-    await assert.rejects(
-      loadSettings(workspace, home),
-      /Неподдерживаемый provider: other/u,
-    );
+    await assert.rejects(loadSettings(workspace, home), /Неподдерживаемый provider: other/u);
 
     await writeFile(join(workspace, ".ant", "settings.json"), "{", "utf8");
-    await assert.rejects(
-      loadSettings(workspace, home),
-      /некорректный JSON/u,
-    );
+    await assert.rejects(loadSettings(workspace, home), /некорректный JSON/u);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
