@@ -139,10 +139,65 @@ function createMessages(
   events: readonly AgentEvent[],
   systemPrompt: string,
 ): DeepSeekMessage[] {
-  return [
-    { role: "system", content: systemPrompt },
-    ...events.flatMap(eventMessages),
-  ];
+  const messages: DeepSeekMessage[] = [{ role: "system", content: systemPrompt }];
+  let pending:
+    | { decision: Extract<Decision, { type: "tools" }>; observations: Map<string, Observation> }
+    | undefined;
+
+  const flushPending = (): void => {
+    if (!pending || pending.observations.size !== pending.decision.calls.length) {
+      return;
+    }
+
+    messages.push(decisionMessage(pending.decision));
+    for (const call of pending.decision.calls) {
+      const observation = pending.observations.get(call.id);
+      if (observation) {
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: observationContent(observation),
+        });
+      }
+    }
+    pending = undefined;
+  };
+
+  for (const event of events) {
+    switch (event.type) {
+      case "task":
+      case "user":
+        // An interrupted tool turn cannot be submitted to the provider: it
+        // requires a tool response for every call. Drop that incomplete turn.
+        pending = undefined;
+        messages.push({ role: "user", content: event.content });
+        break;
+
+      case "decision":
+        pending = undefined;
+        if (event.decision.type === "tools") {
+          pending = { decision: event.decision, observations: new Map() };
+        } else {
+          messages.push(decisionMessage(event.decision));
+        }
+        break;
+
+      case "observation":
+        if (pending && pending.decision.calls.some((call) => call.id === event.call.id)) {
+          pending.observations.set(event.call.id, event.observation);
+          flushPending();
+        }
+        break;
+
+      case "model.requested":
+      case "model.usage":
+        break;
+    }
+  }
+
+  // Do not flush an incomplete tool turn. This is possible when an old
+  // session was interrupted after persisting the assistant tool call.
+  return messages;
 }
 
 function createTools(tools: readonly ToolSpec[]): DeepSeekTool[] {

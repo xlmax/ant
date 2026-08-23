@@ -257,3 +257,44 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
   assert.equal(requestBody.reasoning_effort, "high");
   assert.deepEqual(requestBody.stream_options, { include_usage: true });
 });
+
+test("DeepSeekModel drops an interrupted tool turn when resuming a session", async () => {
+  let request: RequestInit | undefined;
+  const fetchMock = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    request = init;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Продолжаем" } }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    fetch: fetchMock,
+  });
+  const firstCall = { id: "call-completed", name: "echo", input: { text: "x" } };
+  const secondCall = { id: "call-interrupted", name: "echo", input: { text: "y" } };
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Сделай работу" },
+      { type: "decision", decision: { type: "tools", calls: [firstCall, secondCall] } },
+      {
+        type: "observation",
+        call: firstCall,
+        observation: { ok: true, value: { text: "x" } },
+      },
+      { type: "user", content: "Продолжай" },
+    ],
+    tools: [],
+  });
+
+  const body = JSON.parse(String(request?.body));
+  assert.deepEqual(body.messages, [
+    { role: "system", content: "Тестовая системная инструкция." },
+    { role: "user", content: "Сделай работу" },
+    { role: "user", content: "Продолжай" },
+  ]);
+});
