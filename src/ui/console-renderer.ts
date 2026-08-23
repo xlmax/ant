@@ -40,6 +40,7 @@ export class ConsoleRenderer implements AgentObserver {
   #streamedText = false;
   #streamedReasoningForDecision = false;
   #reasoningBlockOpen = false;
+  #reasoningMarkdown = new StreamingMarkdownRenderer();
   #markdown = new StreamingMarkdownRenderer();
   #usage: ModelUsage | undefined;
 
@@ -59,6 +60,7 @@ export class ConsoleRenderer implements AgentObserver {
     this.#streamedText = false;
     this.#streamedReasoningForDecision = false;
     this.#reasoningBlockOpen = false;
+    this.#reasoningMarkdown = new StreamingMarkdownRenderer();
     this.#markdown = new StreamingMarkdownRenderer();
     this.#usage = undefined;
   }
@@ -74,7 +76,7 @@ export class ConsoleRenderer implements AgentObserver {
     }
 
     this.#streamedReasoningForDecision = true;
-    process.stdout.write(ansi.dim(text));
+    process.stdout.write(ansi.dimPreservingStyles(this.#reasoningMarkdown.push(text)));
   };
 
   onTextDelta = (text: string): void => {
@@ -166,6 +168,7 @@ export class ConsoleRenderer implements AgentObserver {
 
   private closeReasoningBlock(): void {
     if (this.#reasoningBlockOpen) {
+      process.stdout.write(ansi.dimPreservingStyles(this.#reasoningMarkdown.finish()));
       process.stdout.write(`\n${sectionFooter()}\n`);
       this.#reasoningBlockOpen = false;
     }
@@ -176,8 +179,11 @@ export class ConsoleRenderer implements AgentObserver {
       return;
     }
 
+    const markdown = new StreamingMarkdownRenderer();
+    const formatted = `${markdown.push(reasoning)}${markdown.finish()}`;
+
     console.log(sectionHeader("Рассуждения", (title) => ansi.dim(title)));
-    console.log(ansi.dim(reasoning));
+    process.stdout.write(`${ansi.dimPreservingStyles(formatted)}\n`);
     console.log(sectionFooter());
   }
 
