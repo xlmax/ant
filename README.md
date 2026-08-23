@@ -1,6 +1,6 @@
-# Minimal AI Agent
+# ANT — Agentic Native Tool
 
-Минимальное событийное ядро coding-агента на TypeScript с DeepSeek в качестве модели.
+Минимальное событийное ядро coding-агента (Ant) на TypeScript с DeepSeek в качестве модели.
 
 ## Установка
 
