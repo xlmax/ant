@@ -101,13 +101,12 @@ export class ConsoleRenderer implements AgentObserver {
   async onEvent(event: AgentEvent): Promise<void> {
     switch (event.type) {
       case "model.requested":
-        console.log(ansi.dim(`Модель: попытка ${event.attempt}/${event.maxAttempts}`));
         break;
 
       case "model.retry":
         console.log(
           ansi.yellow(
-            `Модель: ${event.reason}; повтор ${event.nextAttempt}/${event.maxAttempts} через ${event.delayMs / 1_000} с.`,
+            `⚠ Повтор запроса к модели: ${event.reason}. Попытка ${event.nextAttempt}/${event.maxAttempts} начнётся через ${event.delayMs / 1_000} с.`,
           ),
         );
         break;

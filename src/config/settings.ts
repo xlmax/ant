@@ -85,7 +85,7 @@ const defaults: AppSettings = {
   },
   tools: {},
   limits: {
-    turnTimeoutSeconds: 600,
+    turnTimeoutSeconds: 900,
     modelRequestTimeoutSeconds: 90,
     modelMaxAttempts: 3,
   },
