@@ -122,23 +122,29 @@ async function writeSessionMetadata(
   sessionDirectory: string,
   summary: SessionSummary,
 ): Promise<void> {
-  const fileStat = await stat(summary.filePath);
-  await writeFileAtomically(
-    sessionMetadataPath(sessionDirectory, summary.id),
-    `${JSON.stringify(
-      {
-        version: SESSION_METADATA_VERSION,
-        id: summary.id,
-        createdAt: summary.createdAt,
-        updatedAt: summary.updatedAt,
-        task: summary.task,
-        fileSize: fileStat.size,
-        modifiedAtMs: fileStat.mtimeMs,
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  try {
+    const fileStat = await stat(summary.filePath);
+    await writeFileAtomically(
+      sessionMetadataPath(sessionDirectory, summary.id),
+      `${JSON.stringify(
+        {
+          version: SESSION_METADATA_VERSION,
+          id: summary.id,
+          createdAt: summary.createdAt,
+          updatedAt: summary.updatedAt,
+          task: summary.task,
+          fileSize: fileStat.size,
+          modifiedAtMs: fileStat.mtimeMs,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  } catch {
+    // The sidecar is a best-effort cache; the JSONL journal remains the
+    // source of truth. A transient failure here (for example EPERM on
+    // Windows) must not fail the agent turn or the session lifecycle.
+  }
 }
 
 async function readSessionMetadata(
