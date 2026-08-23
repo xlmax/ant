@@ -1,6 +1,7 @@
 {
-  "name": "minimal-ai-agent",
+  "name": "ant",
   "version": "0.1.0",
+  "description": "ANT — Agentic Native Tool",
   "private": true,
   "type": "module",
   "scripts": {

@@ -7,7 +7,7 @@ import test from "node:test";
 import { loadSettings, saveUserModelId } from "../src/config/settings.js";
 
 async function temporaryDirectories(): Promise<{ workspace: string; home: string }> {
-  const root = await mkdtemp(join(tmpdir(), "minimal-agent-settings-"));
+  const root = await mkdtemp(join(tmpdir(), "ant-settings-"));
   return {
     workspace: join(root, "workspace"),
     home: join(root, "home"),
@@ -18,9 +18,9 @@ test("settings merge global and project layers without environment overrides", a
   const { workspace, home } = await temporaryDirectories();
 
   try {
-    await mkdir(join(home, ".minimal-ai-agent"), { recursive: true });
+    await mkdir(join(home, ".ant"), { recursive: true });
     await writeFile(
-      join(home, ".minimal-ai-agent", "settings.json"),
+      join(home, ".ant", "settings.json"),
       JSON.stringify({
         model: { id: "deepseek-v4-pro", thinking: { effort: "max" } },
         ui: { color: false },
@@ -28,9 +28,9 @@ test("settings merge global and project layers without environment overrides", a
       }),
       "utf8",
     );
-    await mkdir(join(workspace, ".agent"), { recursive: true });
+    await mkdir(join(workspace, ".ant"), { recursive: true });
     await writeFile(
-      join(workspace, ".agent", "settings.json"),
+      join(workspace, ".ant", "settings.json"),
       JSON.stringify({
         model: { thinking: { enabled: false } },
         ui: { showReasoning: true },
@@ -63,7 +63,7 @@ test("saving a selected model updates the global user settings only", async () =
   const { workspace, home } = await temporaryDirectories();
 
   try {
-    const settingsDirectory = join(home, ".minimal-ai-agent");
+    const settingsDirectory = join(home, ".ant");
     await mkdir(settingsDirectory, { recursive: true });
     await writeFile(
       join(settingsDirectory, "settings.json"),
@@ -96,9 +96,9 @@ test("settings reject unsupported providers and invalid JSON", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
-    await mkdir(join(workspace, ".agent"), { recursive: true });
+    await mkdir(join(workspace, ".ant"), { recursive: true });
     await writeFile(
-      join(workspace, ".agent", "settings.json"),
+      join(workspace, ".ant", "settings.json"),
       '{"model":{"provider":"other"}}',
       "utf8",
     );
@@ -108,7 +108,7 @@ test("settings reject unsupported providers and invalid JSON", async () => {
       /Неподдерживаемый provider: other/u,
     );
 
-    await writeFile(join(workspace, ".agent", "settings.json"), "{", "utf8");
+    await writeFile(join(workspace, ".ant", "settings.json"), "{", "utf8");
     await assert.rejects(
       loadSettings(workspace, home),
       /некорректный JSON/u,

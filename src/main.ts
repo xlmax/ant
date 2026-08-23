@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     workspace,
     bashPath === undefined ? {} : { bashPath },
   ));
-  const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
+  const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
 
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
 

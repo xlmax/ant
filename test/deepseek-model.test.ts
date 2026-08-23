@@ -341,7 +341,7 @@ test("DeepSeekModel omits saved reasoning when thinking is disabled", async () =
 });
 
 test("DeepSeekModel forwards image tool results to a vision model", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-image-"));
+  const directory = await mkdtemp(join(tmpdir(), "ant-image-"));
   const imagePath = join(directory, "screen.png");
   const image = Buffer.from("89504e470d0a1a0a00000000", "hex");
   let request: RequestInit | undefined;

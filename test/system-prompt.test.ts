@@ -7,7 +7,7 @@ import test from "node:test";
 import { loadSystemPrompt } from "../src/config/system-prompt.js";
 
 test("system prompt loads the bundled default", async () => {
-  const workspace = await mkdtemp(join(tmpdir(), "minimal-agent-prompt-"));
+  const workspace = await mkdtemp(join(tmpdir(), "ant-prompt-"));
 
   try {
     const prompt = await loadSystemPrompt(workspace);
@@ -24,10 +24,10 @@ test("system prompt loads the bundled default", async () => {
 });
 
 test("configured and project system prompts are appended after the bundled default", async () => {
-  const workspace = await mkdtemp(join(tmpdir(), "minimal-agent-prompt-"));
+  const workspace = await mkdtemp(join(tmpdir(), "ant-prompt-"));
 
   try {
-    const directory = join(workspace, ".agent");
+    const directory = join(workspace, ".ant");
     await mkdir(directory);
     await writeFile(join(directory, "SYSTEM.md"), "Проектное правило.", "utf8");
     await writeFile(join(workspace, "extra.md"), "Дополнительное правило.", "utf8");

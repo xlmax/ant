@@ -11,7 +11,7 @@ import { echoTool } from "./support/echo-tool.js";
 import { StubModel } from "./support/stub-model.js";
 
 test("JSONL session store persists and resumes agent events", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 
   try {
     const store = new JsonlSessionStore(directory);
@@ -44,7 +44,7 @@ test("JSONL session store persists and resumes agent events", async () => {
 });
 
 test("JSONL session store preserves image attachments", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 
   try {
     const store = new JsonlSessionStore(directory);
@@ -57,7 +57,7 @@ test("JSONL session store preserves image attachments", async () => {
         value: { kind: "image" },
         attachments: [{
           type: "image",
-          path: "C:\\workspace\\.agent\\attachments\\hash.png",
+          path: "C:\\workspace\\.ant\\attachments\\hash.png",
           mediaType: "image/png",
           bytes: 12,
         }],
@@ -73,7 +73,7 @@ test("JSONL session store preserves image attachments", async () => {
         value: { kind: "image" },
         attachments: [{
           type: "image",
-          path: "C:\\workspace\\.agent\\attachments\\hash.png",
+          path: "C:\\workspace\\.ant\\attachments\\hash.png",
           mediaType: "image/png",
           bytes: 12,
         }],
@@ -85,7 +85,7 @@ test("JSONL session store preserves image attachments", async () => {
 });
 
 test("session observer records the complete agent loop", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "minimal-agent-session-"));
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 
   try {
     const store = new JsonlSessionStore(directory);

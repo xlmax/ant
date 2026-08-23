@@ -9,7 +9,7 @@ import { ToolEnvironment } from "../src/core/environment.js";
 import { createReadTool } from "../src/tools/read-tool.js";
 
 async function createWorkspace(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "minimal-agent-"));
+  return mkdtemp(join(tmpdir(), "ant-"));
 }
 
 test("read returns supported images as multimodal attachments", async () => {
@@ -29,7 +29,7 @@ test("read returns supported images as multimodal attachments", async () => {
 
     const cachedPath = join(
       workspace,
-      ".agent",
+      ".ant",
       "attachments",
       `${createHash("sha256").update(content).digest("hex")}.png`,
     );

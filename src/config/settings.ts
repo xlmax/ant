@@ -315,7 +315,7 @@ async function readSettingsFile(path: string): Promise<PartialSettings | undefin
 }
 
 function userSettingsPath(homeDirectory: string): string {
-  return resolve(homeDirectory, ".minimal-ai-agent", "settings.json");
+  return resolve(homeDirectory, ".ant", "settings.json");
 }
 
 export async function loadSettings(
@@ -326,7 +326,7 @@ export async function loadSettings(
   let settings = defaults;
   const paths = [
     userSettingsPath(homeDirectory),
-    resolve(workspace, ".agent", "settings.json"),
+    resolve(workspace, ".ant", "settings.json"),
   ];
 
   for (const path of paths) {
@@ -358,6 +358,6 @@ export async function saveUserModelId(
     },
   };
 
-  await mkdir(resolve(homeDirectory, ".minimal-ai-agent"), { recursive: true });
+  await mkdir(resolve(homeDirectory, ".ant"), { recursive: true });
   await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }

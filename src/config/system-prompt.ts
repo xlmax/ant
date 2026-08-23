@@ -31,8 +31,8 @@ export async function loadSystemPrompt(
 ): Promise<SystemPrompt> {
   const candidates = [
     DEFAULT_PROMPT_PATH,
-    resolve(homedir(), ".minimal-ai-agent", "SYSTEM.md"),
-    resolve(workspace, ".agent", "SYSTEM.md"),
+    resolve(homedir(), ".ant", "SYSTEM.md"),
+    resolve(workspace, ".ant", "SYSTEM.md"),
     ...additionalPaths.map((path) => resolve(workspace, path)),
   ];
   const sources: string[] = [];

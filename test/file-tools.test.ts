@@ -9,7 +9,7 @@ import { createEditTool } from "../src/tools/edit-tool.js";
 import { createWriteTool } from "../src/tools/write-tool.js";
 
 async function createWorkspace(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "minimal-agent-"));
+  return mkdtemp(join(tmpdir(), "ant-"));
 }
 
 test("write creates parent directories and edit applies replacements atomically", async () => {

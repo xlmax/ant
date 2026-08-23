@@ -96,7 +96,7 @@ async function cacheImage(
     throw new Error(`Image ${image.path} exceeds the 32 MiB vision limit`);
   }
   const hash = createHash("sha256").update(content).digest("hex");
-  const directory = join(workspaceDirectory, ".agent", "attachments");
+  const directory = join(workspaceDirectory, ".ant", "attachments");
   const path = join(directory, `${hash}.${imageExtension(image.mediaType)}`);
   await mkdir(directory, { recursive: true });
   await writeFile(path, content);

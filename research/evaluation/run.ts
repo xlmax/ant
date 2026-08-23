@@ -490,7 +490,7 @@ const tasks: readonly EvalTask[] = [
       await writeFile(workspace + "/memory.txt", "Контрольная фраза: CONTEXT-OK\n", "utf8");
     },
     async run({ workspace, model, environment }) {
-      const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
+      const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
       const initialState = createAgentState(
         "Прочитай memory.txt и запомни контрольную фразу.",
       );
@@ -541,7 +541,7 @@ const tasks: readonly EvalTask[] = [
 ];
 
 async function runTask(task: EvalTask): Promise<EvalTaskReport> {
-  const workspace = await mkdtemp(join(tmpdir(), `minimal-agent-eval-${task.id}-`));
+  const workspace = await mkdtemp(join(tmpdir(), `ant-eval-${task.id}-`));
   const startedAt = performance.now();
   const model = new CappedModel(
     await createModel(),

@@ -4,6 +4,10 @@ dist/
 .env
 .env.*
 !.env.example
+.ant/sessions/
+.ant/attachments/
+.ant/input-debug.jsonl
+# Legacy local state created before the ANT rename.
 .agent/sessions/
 .agent/attachments/
 .agent/input-debug.jsonl
