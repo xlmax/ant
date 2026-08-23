@@ -54,6 +54,25 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 Поздние файлы дополняют ранние. Промпт применяется ко всем обращениям модели в текущем процессе, поэтому после изменения файла перезапустите REPL.
 
+### Настройки модели
+
+Настройки без секретов загружаются по слоям: `~/.minimal-ai-agent/settings.json`, затем `.agent/settings.json` в рабочей директории. Проектный файл перекрывает глобальный.
+
+```json
+{
+  "model": {
+    "provider": "deepseek",
+    "id": "deepseek-v4-flash",
+    "baseUrl": "https://api.deepseek.com",
+    "contextWindow": 1000000,
+    "thinking": { "enabled": true, "effort": "high" }
+  },
+  "ui": { "showReasoning": false }
+}
+```
+
+Поддерживается только `deepseek`. Переменные окружения имеют более высокий приоритет: `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_CONTEXT_WINDOW`, `DEEPSEEK_THINKING`, `DEEPSEEK_REASONING_EFFORT`, `AGENT_SHOW_REASONING`. `DEEPSEEK_API_KEY` храните только в `.env.local`.
+
 > В экспериментальном режиме инструменты не ограничены рабочей директорией и могут прочитать `.env.local`. `bash` выполняет произвольные команды с правами текущего пользователя. Не используйте ключ с важным балансом и не запускайте агент в каталоге с чувствительными данными.
 
 Интерактивный диалог с потоковым выводом:

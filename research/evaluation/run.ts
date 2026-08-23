@@ -13,6 +13,7 @@ import {
   type ModelInput,
 } from "../../src/core/agent.js";
 import { createCodingTools } from "../../src/coding-tools.js";
+import { loadSettings } from "../../src/config/settings.js";
 import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/core/environment.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
@@ -90,14 +91,19 @@ async function createModel(): Promise<DeepSeekModel> {
     throw new Error("Для запуска eval необходима переменная DEEPSEEK_API_KEY");
   }
 
-  const systemPrompt = await loadSystemPrompt(process.cwd());
+  const [systemPrompt, loadedSettings] = await Promise.all([
+    loadSystemPrompt(process.cwd()),
+    loadSettings(process.cwd()),
+  ]);
 
   return new DeepSeekModel({
     apiKey,
     systemPrompt: systemPrompt.content,
-    model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
-    baseUrl:
-      process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
+    model: loadedSettings.settings.model.id,
+    baseUrl: loadedSettings.settings.model.baseUrl,
+    contextWindow: loadedSettings.settings.model.contextWindow,
+    thinkingEnabled: loadedSettings.settings.model.thinking.enabled,
+    reasoningEffort: loadedSettings.settings.model.thinking.effort,
   });
 }
 

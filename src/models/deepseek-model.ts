@@ -21,6 +21,8 @@ interface DeepSeekModelOptions {
   systemPrompt: string;
   model?: string;
   contextWindow?: number;
+  thinkingEnabled?: boolean;
+  reasoningEffort?: "low" | "high" | "max";
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
 }
@@ -411,6 +413,8 @@ export class DeepSeekModel implements AgentModel {
   readonly #systemPrompt: string;
   readonly #model: string;
   readonly #contextWindow: number;
+  readonly #thinkingEnabled: boolean;
+  readonly #reasoningEffort: "low" | "high" | "max";
   readonly #baseUrl: string;
   readonly #fetch: typeof globalThis.fetch;
 
@@ -431,6 +435,8 @@ export class DeepSeekModel implements AgentModel {
     this.#systemPrompt = options.systemPrompt;
     this.#model = options.model ?? DEFAULT_MODEL;
     this.#contextWindow = options.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    this.#thinkingEnabled = options.thinkingEnabled ?? true;
+    this.#reasoningEffort = options.reasoningEffort ?? "high";
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
@@ -446,10 +452,13 @@ export class DeepSeekModel implements AgentModel {
     const body: Record<string, unknown> = {
       model: this.#model,
       messages: createMessages(input.events, this.#systemPrompt),
-      thinking: { type: "enabled" },
-      reasoning_effort: "high",
+      thinking: { type: this.#thinkingEnabled ? "enabled" : "disabled" },
       stream: onTextDelta !== undefined,
     };
+
+    if (this.#thinkingEnabled) {
+      body.reasoning_effort = this.#reasoningEffort;
+    }
 
     if (onTextDelta) {
       body.stream_options = { include_usage: true };
@@ -493,7 +502,7 @@ export class DeepSeekModel implements AgentModel {
         {
           provider: "deepseek",
           model: this.#model,
-          reasoning: "high",
+          reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",
           contextWindow: this.#contextWindow,
         },
       );
@@ -511,7 +520,7 @@ export class DeepSeekModel implements AgentModel {
     const usage = parseUsage(payload, {
       provider: "deepseek",
       model: this.#model,
-      reasoning: "high",
+      reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",
       contextWindow: this.#contextWindow,
     });
     if (usage) {

@@ -6,6 +6,7 @@ import {
   type AgentState,
 } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
+import { loadSettings } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
 import {
@@ -56,6 +57,7 @@ function parseCliOptions(args: readonly string[]): CliOptions {
 async function createModel(workspace: string): Promise<{
   model: DeepSeekModel;
   promptSources: string[];
+  showReasoning: boolean;
 }> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
@@ -65,17 +67,23 @@ async function createModel(workspace: string): Promise<{
     );
   }
 
-  const systemPrompt = await loadSystemPrompt(workspace);
+  const [systemPrompt, loadedSettings] = await Promise.all([
+    loadSystemPrompt(workspace),
+    loadSettings(workspace),
+  ]);
 
   return {
     model: new DeepSeekModel({
       apiKey,
       systemPrompt: systemPrompt.content,
-      model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash",
-      baseUrl:
-        process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
+      model: loadedSettings.settings.model.id,
+      baseUrl: loadedSettings.settings.model.baseUrl,
+      contextWindow: loadedSettings.settings.model.contextWindow,
+      thinkingEnabled: loadedSettings.settings.model.thinking.enabled,
+      reasoningEffort: loadedSettings.settings.model.thinking.effort,
     }),
     promptSources: systemPrompt.sources,
+    showReasoning: loadedSettings.settings.ui.showReasoning,
   };
 }
 
@@ -132,10 +140,9 @@ async function runOneShot(
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
   const workspace = process.cwd();
-  const { model, promptSources } = await createModel(workspace);
+  const { model, promptSources, showReasoning } = await createModel(workspace);
   const environment = new ToolEnvironment(createCodingTools(workspace));
   const store = new JsonlSessionStore(join(workspace, ".agent", "sessions"));
-  const showReasoning = process.env.AGENT_SHOW_REASONING === "1";
 
   console.log(`Системный промпт: ${promptSources.join(", ")}`);
 
