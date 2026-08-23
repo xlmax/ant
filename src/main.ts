@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
+import { VERSION } from "./version.js";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
 import { createAgentState, runAgent, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
@@ -205,6 +206,11 @@ async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
   if (options.action === "help") {
     console.log(cliHelp());
+    return;
+  }
+
+  if (options.action === "version") {
+    console.log(VERSION);
     return;
   }
 

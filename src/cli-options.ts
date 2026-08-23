@@ -1,6 +1,6 @@
 export interface CliOptions {
   task: string;
-  action: "run" | "help" | "list-sessions";
+  action: "run" | "help" | "list-sessions" | "version";
   resume?: string;
   continueLatest: boolean;
 }
@@ -17,6 +17,11 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
     switch (argument) {
       case "-h":
         action = "help";
+        continue;
+
+      case "-v":
+      case "--version":
+        action = "version";
         continue;
 
       case "-r":
@@ -69,6 +74,7 @@ export function cliHelp(): string {
     "",
     "Ключи:",
     "  -h       показать эту справку",
+    "  -v       показать версию и выйти",
     "  -r       показать сохранённые сессии и выйти",
     "  -c       продолжить последнюю сессию",
     "  -s <id>  продолжить указанную сессию",

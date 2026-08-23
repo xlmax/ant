@@ -14,6 +14,16 @@ test("short CLI keys select help, listing and session resume modes", () => {
     action: "list-sessions",
     continueLatest: false,
   });
+  assert.deepEqual(parseCliOptions(["-v"]), {
+    task: "",
+    action: "version",
+    continueLatest: false,
+  });
+  assert.deepEqual(parseCliOptions(["--version"]), {
+    task: "",
+    action: "version",
+    continueLatest: false,
+  });
   assert.deepEqual(parseCliOptions(["-c", "Продолжай"]), {
     task: "Продолжай",
     action: "run",
@@ -39,7 +49,7 @@ test("CLI keys reject invalid session selection combinations", () => {
 test("CLI help documents every short key", () => {
   const help = cliHelp();
 
-  for (const key of ["-h", "-r", "-c", "-s <id>"]) {
+  for (const key of ["-h", "-v", "-r", "-c", "-s <id>"]) {
     assert.ok(help.includes(key));
   }
 });

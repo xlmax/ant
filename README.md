@@ -53,6 +53,7 @@ npm install
 
 ```bash
 npm run dev -- -h                    # справка по ключам
+npm run dev -- -v                    # показать версию и выйти
 npm run dev -- -r                    # список сохранённых сессий
 npm run dev -- -c                    # продолжить последнюю сессию
 npm run dev -- -s <session-id>        # продолжить указанную сессию
