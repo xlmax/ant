@@ -25,6 +25,7 @@ test("settings merge global and project layers without environment overrides", a
         model: { id: "deepseek-v4-pro", thinking: { effort: "max" } },
         ui: { color: false },
         prompts: { additionalPaths: ["prompts/extra.md"] },
+        limits: { modelMaxAttempts: 2 },
       }),
       "utf8",
     );
@@ -35,6 +36,7 @@ test("settings merge global and project layers without environment overrides", a
         model: { thinking: { enabled: false } },
         ui: { showReasoning: true },
         tools: { bashPath: "/custom/bash" },
+        limits: { turnTimeoutSeconds: 120 },
       }),
       "utf8",
     );
@@ -52,6 +54,11 @@ test("settings merge global and project layers without environment overrides", a
       ui: { showReasoning: true, color: false },
       prompts: { additionalPaths: ["prompts/extra.md"] },
       tools: { bashPath: "/custom/bash" },
+      limits: {
+        turnTimeoutSeconds: 120,
+        modelRequestTimeoutSeconds: 90,
+        modelMaxAttempts: 2,
+      },
     });
     assert.equal(loaded.sources.length, 2);
   } finally {

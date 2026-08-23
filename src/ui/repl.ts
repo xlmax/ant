@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-import type { ModelSettings } from "../config/settings.js";
+import type { ModelSettings, RuntimeLimits } from "../config/settings.js";
 import {
   createAgentState,
   runAgent,
@@ -29,8 +29,6 @@ import {
   userInputPrompt,
 } from "./input-frame.js";
 
-const TURN_TIMEOUT_MS = 60_000;
-
 export interface ReplOptions {
   model: AgentModel;
   modelSettings: ModelSettings;
@@ -40,6 +38,7 @@ export interface ReplOptions {
   environment: ToolEnvironment;
   store: JsonlSessionStore;
   showReasoning?: boolean;
+  limits: RuntimeLimits;
   resume?: string;
 }
 
@@ -229,7 +228,9 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         observers: [session.observer, renderer],
         onTextDelta: renderer.onTextDelta,
         onReasoningDelta: renderer.onReasoningDelta,
-        signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+        signal: AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
+        modelRequestTimeoutMs: options.limits.modelRequestTimeoutSeconds * 1_000,
+        modelMaxAttempts: options.limits.modelMaxAttempts,
       });
 
       renderer.printResult(result);

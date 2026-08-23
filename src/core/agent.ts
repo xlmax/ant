@@ -34,7 +34,14 @@ export interface Observation {
 export type AgentEvent =
   | { type: "task"; content: string }
   | { type: "user"; content: string }
-  | { type: "model.requested" }
+  | { type: "model.requested"; attempt: number; maxAttempts: number }
+  | {
+      type: "model.retry";
+      reason: string;
+      nextAttempt: number;
+      maxAttempts: number;
+      delayMs: number;
+    }
   | { type: "model.usage"; usage: ModelUsage }
   | { type: "decision"; decision: Decision }
   | {
@@ -77,6 +84,16 @@ export interface AgentModel {
   ): Promise<Decision>;
 }
 
+export class ModelRequestError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "ModelRequestError";
+    this.retryable = retryable;
+  }
+}
+
 export interface Environment {
   tools(): readonly ToolSpec[];
   execute(call: ToolCall, signal?: AbortSignal): Promise<Observation>;
@@ -98,6 +115,9 @@ export interface AgentDependencies {
   onTextDelta?: TextDeltaHandler;
   onReasoningDelta?: ReasoningDeltaHandler;
   signal?: AbortSignal;
+  modelRequestTimeoutMs?: number;
+  modelMaxAttempts?: number;
+  retryDelayMs?: number;
 }
 
 export function createAgentState(task: string): AgentState {
@@ -118,6 +138,27 @@ async function appendEvent(
   }
 }
 
+function retryReason(error: unknown, requestSignal?: AbortSignal): string | undefined {
+  if (requestSignal?.aborted) {
+    return "Модель не ответила за отведённое время";
+  }
+
+  if (error instanceof ModelRequestError && error.retryable) {
+    return error.message;
+  }
+
+  if (error instanceof TypeError) {
+    return `Сетевая ошибка: ${error.message}`;
+  }
+
+  return undefined;
+}
+
+async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  signal?.throwIfAborted();
+}
+
 export async function runAgent(
   state: AgentState,
   dependencies: AgentDependencies,
@@ -129,33 +170,100 @@ export async function runAgent(
     onTextDelta,
     onReasoningDelta,
     signal,
+    modelRequestTimeoutMs,
+    modelMaxAttempts = 1,
+    retryDelayMs = 1_000,
   } = dependencies;
 
+  if (!Number.isInteger(modelMaxAttempts) || modelMaxAttempts <= 0) {
+    throw new Error("Количество попыток модели должно быть положительным целым числом");
+  }
+
   while (!signal?.aborted) {
-    let decision: Decision;
+    let decision: Decision | undefined;
     let usage: ModelUsage | undefined;
 
-    await appendEvent(state, { type: "model.requested" }, observers);
-
-    try {
-      decision = await model.decide(
-        {
-          events: state.events,
-          tools: environment.tools(),
-        },
-        signal,
-        onTextDelta,
-        onReasoningDelta,
-        (reportedUsage) => {
-          usage = reportedUsage;
-        },
+    for (let attempt = 1; attempt <= modelMaxAttempts; attempt += 1) {
+      await appendEvent(
+        state,
+        { type: "model.requested", attempt, maxAttempts: modelMaxAttempts },
+        observers,
       );
-    } catch (error) {
-      if (signal?.aborted) {
-        return { status: "cancelled", state };
-      }
+      usage = undefined;
+      let receivedOutput = false;
+      const timeoutSignal =
+        modelRequestTimeoutMs === undefined
+          ? undefined
+          : AbortSignal.timeout(modelRequestTimeoutMs);
+      const requestSignal =
+        timeoutSignal === undefined
+          ? signal
+          : signal === undefined
+            ? timeoutSignal
+            : AbortSignal.any([signal, timeoutSignal]);
 
-      throw error;
+      try {
+        decision = await model.decide(
+          {
+            events: state.events,
+            tools: environment.tools(),
+          },
+          requestSignal,
+          onTextDelta === undefined
+            ? undefined
+            : (text) => {
+                receivedOutput = true;
+                onTextDelta(text);
+              },
+          onReasoningDelta === undefined
+            ? undefined
+            : (text) => {
+                receivedOutput = true;
+                onReasoningDelta(text);
+              },
+          (reportedUsage) => {
+            usage = reportedUsage;
+          },
+        );
+        break;
+      } catch (error) {
+        if (signal?.aborted) {
+          return { status: "cancelled", state };
+        }
+
+        const reason = retryReason(error, requestSignal);
+        if (reason === undefined) {
+          throw error;
+        }
+        if (receivedOutput) {
+          throw new Error(`${reason}. Ответ уже начал выводиться, повтор не выполнен.`);
+        }
+        if (attempt === modelMaxAttempts) {
+          throw new Error(`${reason}. Попытки исчерпаны (${attempt}/${modelMaxAttempts}).`);
+        }
+
+        const delayMs = retryDelayMs * 2 ** (attempt - 1);
+        await appendEvent(
+          state,
+          {
+            type: "model.retry",
+            reason,
+            nextAttempt: attempt + 1,
+            maxAttempts: modelMaxAttempts,
+            delayMs,
+          },
+          observers,
+        );
+        try {
+          await waitForRetry(delayMs, signal);
+        } catch {
+          return { status: "cancelled", state };
+        }
+      }
+    }
+
+    if (!decision) {
+      throw new Error("Модель не вернула решение");
     }
 
     if (usage) {

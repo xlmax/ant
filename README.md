@@ -73,11 +73,16 @@ DEEPSEEK_API_KEY=ваш_временный_ключ
   },
   "ui": { "showReasoning": false, "color": true },
   "prompts": { "additionalPaths": ["prompts/local.md"] },
-  "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" }
+  "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" },
+  "limits": {
+    "turnTimeoutSeconds": 600,
+    "modelRequestTimeoutSeconds": 90,
+    "modelMaxAttempts": 3
+  }
 }
 ```
 
-Поддерживается только `deepseek`. Все настройки приложения хранятся в JSON; в `.env.local` храните только `DEEPSEEK_API_KEY`. `contextWindow` по умолчанию равен 1 000 000.
+Поддерживается только `deepseek`. Все настройки приложения хранятся в JSON; в `.env.local` храните только `DEEPSEEK_API_KEY`. `contextWindow` по умолчанию равен 1 000 000. Ход агента ограничен 10 минутами, один запрос модели — 90 секундами; при таймауте, сетевой ошибке, `429` или `5xx` модель повторяется до трёх раз с паузой 1 и 2 секунды.
 
 > В экспериментальном режиме инструменты не ограничены рабочей директорией и могут прочитать `.env.local`. `bash` выполняет произвольные команды с правами текущего пользователя. Не используйте ключ с важным балансом и не запускайте агент в каталоге с чувствительными данными.
 

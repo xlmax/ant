@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { ModelRequestError } from "../core/agent.js";
 import type {
   AgentEvent,
   AgentModel,
@@ -226,6 +227,7 @@ async function createMessages(
         break;
 
       case "model.requested":
+      case "model.retry":
       case "model.usage":
         break;
     }
@@ -623,8 +625,9 @@ export class DeepSeekModel implements AgentModel {
     );
     if (!response.ok) {
       const responseText = await response.text();
-      throw new Error(
+      throw new ModelRequestError(
         `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
+        response.status === 429 || response.status >= 500,
       );
     }
 

@@ -17,7 +17,11 @@ test("JSONL session store persists and resumes agent events", async () => {
     const store = new JsonlSessionStore(directory);
     const session = await store.create(createAgentState("Исходная задача"));
 
-    await session.observer.onEvent({ type: "model.requested" });
+    await session.observer.onEvent({
+      type: "model.requested",
+      attempt: 1,
+      maxAttempts: 1,
+    });
     await session.observer.onEvent({
       type: "decision",
       decision: {

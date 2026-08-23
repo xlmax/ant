@@ -15,6 +15,12 @@ export interface ModelSettings {
   };
 }
 
+export interface RuntimeLimits {
+  turnTimeoutSeconds: number;
+  modelRequestTimeoutSeconds: number;
+  modelMaxAttempts: number;
+}
+
 export interface AppSettings {
   model: ModelSettings;
   ui: {
@@ -27,6 +33,7 @@ export interface AppSettings {
   tools: {
     bashPath?: string;
   };
+  limits: RuntimeLimits;
 }
 
 export interface LoadedSettings {
@@ -55,6 +62,7 @@ type PartialSettings = {
   tools?: {
     bashPath?: string;
   };
+  limits?: Partial<RuntimeLimits>;
 };
 
 const defaults: AppSettings = {
@@ -76,6 +84,11 @@ const defaults: AppSettings = {
     additionalPaths: [],
   },
   tools: {},
+  limits: {
+    turnTimeoutSeconds: 600,
+    modelRequestTimeoutSeconds: 90,
+    modelMaxAttempts: 3,
+  },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -134,6 +147,18 @@ function optionalContextWindow(value: unknown): number | undefined {
   return value;
 }
 
+function optionalPositiveInteger(value: unknown, path: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`Настройка ${path} должна быть положительным целым числом`);
+  }
+
+  return value;
+}
+
 function optionalEffort(value: unknown): ReasoningEffort | undefined {
   if (value === undefined) {
     return undefined;
@@ -166,7 +191,7 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     throw new Error(`Файл настроек ${source} должен содержать JSON-объект`);
   }
 
-  assertKnownKeys(value, ["model", "ui", "prompts", "tools"], "");
+  assertKnownKeys(value, ["model", "ui", "prompts", "tools", "limits"], "");
   const result: PartialSettings = {};
 
   if (value.model !== undefined) {
@@ -264,6 +289,35 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     result.tools = bashPath === undefined ? {} : { bashPath };
   }
 
+  if (value.limits !== undefined) {
+    if (!isRecord(value.limits)) {
+      throw new Error("Настройка limits должна быть объектом");
+    }
+
+    assertKnownKeys(
+      value.limits,
+      ["turnTimeoutSeconds", "modelRequestTimeoutSeconds", "modelMaxAttempts"],
+      "limits.",
+    );
+    const turnTimeoutSeconds = optionalPositiveInteger(
+      value.limits.turnTimeoutSeconds,
+      "limits.turnTimeoutSeconds",
+    );
+    const modelRequestTimeoutSeconds = optionalPositiveInteger(
+      value.limits.modelRequestTimeoutSeconds,
+      "limits.modelRequestTimeoutSeconds",
+    );
+    const modelMaxAttempts = optionalPositiveInteger(
+      value.limits.modelMaxAttempts,
+      "limits.modelMaxAttempts",
+    );
+    result.limits = {
+      ...(turnTimeoutSeconds === undefined ? {} : { turnTimeoutSeconds }),
+      ...(modelRequestTimeoutSeconds === undefined ? {} : { modelRequestTimeoutSeconds }),
+      ...(modelMaxAttempts === undefined ? {} : { modelMaxAttempts }),
+    };
+  }
+
   return result;
 }
 
@@ -289,6 +343,14 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       additionalPaths: partial.prompts?.additionalPaths ?? base.prompts.additionalPaths,
     },
     tools: bashPath === undefined ? {} : { bashPath },
+    limits: {
+      turnTimeoutSeconds:
+        partial.limits?.turnTimeoutSeconds ?? base.limits.turnTimeoutSeconds,
+      modelRequestTimeoutSeconds:
+        partial.limits?.modelRequestTimeoutSeconds ?? base.limits.modelRequestTimeoutSeconds,
+      modelMaxAttempts:
+        partial.limits?.modelMaxAttempts ?? base.limits.modelMaxAttempts,
+    },
   };
 }
 

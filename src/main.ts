@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
-import type { ModelSettings } from "./config/settings.js";
+import type { ModelSettings, RuntimeLimits } from "./config/settings.js";
 import {
   createAgentState,
   runAgent,
@@ -19,8 +19,6 @@ import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
-
-const TURN_TIMEOUT_MS = 60_000;
 
 function createDeepSeekModel(
   apiKey: string,
@@ -47,6 +45,7 @@ async function createModel(workspace: string): Promise<{
   promptSources: string[];
   showReasoning: boolean;
   color: boolean;
+  limits: RuntimeLimits;
   bashPath?: string;
 }> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
@@ -78,6 +77,7 @@ async function createModel(workspace: string): Promise<{
     promptSources: systemPrompt.sources,
     showReasoning: loadedSettings.settings.ui.showReasoning,
     color: loadedSettings.settings.ui.color,
+    limits: loadedSettings.settings.limits,
     ...(loadedSettings.settings.tools.bashPath === undefined
       ? {}
       : { bashPath: loadedSettings.settings.tools.bashPath }),
@@ -100,6 +100,7 @@ async function runOneShot(
   environment: ToolEnvironment,
   store: JsonlSessionStore,
   showReasoning: boolean,
+  limits: RuntimeLimits,
 ): Promise<void> {
   let state: AgentState;
   let session: AgentSession;
@@ -124,7 +125,9 @@ async function runOneShot(
     observers: [session.observer, renderer],
     onTextDelta: renderer.onTextDelta,
     onReasoningDelta: renderer.onReasoningDelta,
-    signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+    signal: AbortSignal.timeout(limits.turnTimeoutSeconds * 1_000),
+    modelRequestTimeoutMs: limits.modelRequestTimeoutSeconds * 1_000,
+    modelMaxAttempts: limits.modelMaxAttempts,
   });
 
   renderer.printResult(result);
@@ -192,6 +195,7 @@ async function main(): Promise<void> {
     promptSources,
     showReasoning,
     color,
+    limits,
     bashPath,
   } = await createModel(workspace);
   configureAnsi(color);
@@ -211,6 +215,7 @@ async function main(): Promise<void> {
       environment,
       store,
       showReasoning,
+      limits,
       ...(resume === undefined ? {} : { resume }),
     });
     return;
@@ -222,6 +227,7 @@ async function main(): Promise<void> {
     environment,
     store,
     showReasoning,
+    limits,
   );
 }
 
