@@ -138,9 +138,9 @@ async function appendEvent(
   }
 }
 
-function retryReason(error: unknown, requestSignal?: AbortSignal): string | undefined {
-  if (requestSignal?.aborted) {
-    return "Модель не ответила за отведённое время";
+function retryReason(error: unknown, requestTimedOut: boolean): string | undefined {
+  if (requestTimedOut) {
+    return "Модель не передавала данные за отведённое время";
   }
 
   if (error instanceof ModelRequestError && error.retryable) {
@@ -157,6 +157,49 @@ function retryReason(error: unknown, requestSignal?: AbortSignal): string | unde
 async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   signal?.throwIfAborted();
+}
+
+function createRequestTimeout(
+  timeoutMs: number | undefined,
+  parentSignal: AbortSignal | undefined,
+): {
+  signal: AbortSignal | undefined;
+  reset(): void;
+  dispose(): void;
+  timedOut(): boolean;
+} {
+  if (timeoutMs === undefined) {
+    return {
+      signal: parentSignal,
+      reset: () => {},
+      dispose: () => {},
+      timedOut: () => false,
+    };
+  }
+
+  const controller = new AbortController();
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  const reset = (): void => {
+    if (handle !== undefined) {
+      clearTimeout(handle);
+    }
+    handle = setTimeout(() => controller.abort(), timeoutMs);
+  };
+
+  reset();
+  return {
+    signal:
+      parentSignal === undefined
+        ? controller.signal
+        : AbortSignal.any([parentSignal, controller.signal]),
+    reset,
+    dispose: () => {
+      if (handle !== undefined) {
+        clearTimeout(handle);
+      }
+    },
+    timedOut: () => controller.signal.aborted,
+  };
 }
 
 export async function runAgent(
@@ -190,17 +233,8 @@ export async function runAgent(
         observers,
       );
       usage = undefined;
-      let receivedOutput = false;
-      const timeoutSignal =
-        modelRequestTimeoutMs === undefined
-          ? undefined
-          : AbortSignal.timeout(modelRequestTimeoutMs);
-      const requestSignal =
-        timeoutSignal === undefined
-          ? signal
-          : signal === undefined
-            ? timeoutSignal
-            : AbortSignal.any([signal, timeoutSignal]);
+      let receivedText = false;
+      const request = createRequestTimeout(modelRequestTimeoutMs, signal);
 
       try {
         decision = await model.decide(
@@ -208,17 +242,18 @@ export async function runAgent(
             events: state.events,
             tools: environment.tools(),
           },
-          requestSignal,
+          request.signal,
           onTextDelta === undefined
             ? undefined
             : (text) => {
-                receivedOutput = true;
+                request.reset();
+                receivedText = true;
                 onTextDelta(text);
               },
           onReasoningDelta === undefined
             ? undefined
             : (text) => {
-                receivedOutput = true;
+                request.reset();
                 onReasoningDelta(text);
               },
           (reportedUsage) => {
@@ -231,12 +266,12 @@ export async function runAgent(
           return { status: "cancelled", state };
         }
 
-        const reason = retryReason(error, requestSignal);
+        const reason = retryReason(error, request.timedOut());
         if (reason === undefined) {
           throw error;
         }
-        if (receivedOutput) {
-          throw new Error(`${reason}. Ответ уже начал выводиться, повтор не выполнен.`);
+        if (receivedText) {
+          throw new Error(`${reason}. Текст ответа уже начал выводиться, повтор не выполнен.`);
         }
         if (attempt === modelMaxAttempts) {
           throw new Error(`${reason}. Попытки исчерпаны (${attempt}/${modelMaxAttempts}).`);
@@ -259,6 +294,8 @@ export async function runAgent(
         } catch {
           return { status: "cancelled", state };
         }
+      } finally {
+        request.dispose();
       }
     }
 

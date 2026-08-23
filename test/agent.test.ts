@@ -102,6 +102,32 @@ test("the agent retries a timed out model request", async () => {
   assert.equal(attempts, 2);
 });
 
+test("the model request timeout resets while streaming reasoning", async () => {
+  let attempts = 0;
+  const model: AgentModel = {
+    async decide(_input, signal, _onTextDelta, onReasoningDelta) {
+      attempts += 1;
+      for (let index = 0; index < 4; index += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 4));
+        signal?.throwIfAborted();
+        onReasoningDelta?.(".");
+      }
+      return { type: "finish", answer: "Готово" };
+    },
+  };
+
+  const result = await runAgent(createAgentState("Жди поток"), {
+    model,
+    environment: new ToolEnvironment([]),
+    modelRequestTimeoutMs: 10,
+    modelMaxAttempts: 2,
+    onReasoningDelta: () => {},
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(attempts, 1);
+});
+
 test("the agent does not retry after streaming has started", async () => {
   let attempts = 0;
   const model: AgentModel = {
@@ -120,7 +146,7 @@ test("the agent does not retry after streaming has started", async () => {
       retryDelayMs: 0,
       onTextDelta: () => {},
     }),
-    /Ответ уже начал выводиться/u,
+    /Текст ответа уже начал выводиться/u,
   );
   assert.equal(attempts, 1);
 });
