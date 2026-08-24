@@ -96,7 +96,6 @@ export interface AgentModel {
     onUsage?: ModelUsageHandler,
     onActivity?: ModelActivityHandler,
   ): Promise<Decision>;
-  compact?(input: ModelInput, signal?: AbortSignal): Promise<string>;
 }
 
 export class ModelRequestError extends Error {

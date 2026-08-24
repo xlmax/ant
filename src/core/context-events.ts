@@ -1,5 +1,9 @@
 import type { AgentEvent } from "./agent.js";
 
+export interface ContextSummarizer {
+  summarize(events: readonly AgentEvent[], signal?: AbortSignal): Promise<string>;
+}
+
 function isContextHistoryEvent(event: AgentEvent): boolean {
   return (
     event.type === "task" ||

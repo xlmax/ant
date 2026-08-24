@@ -4,7 +4,7 @@ import { stdin, stdout } from "node:process";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
 import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
-import { createCompactionPlan } from "../core/context-events.js";
+import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
@@ -18,8 +18,10 @@ import { formatContextStatus } from "./context-status.js";
 
 export interface ReplOptions {
   model: AgentModel;
+  summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): AgentModel;
+  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
@@ -53,6 +55,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   );
   const inputHistory = new InputHistory();
   let model = options.model;
+  let summarizer = options.summarizer;
   let modelSettings = options.modelSettings;
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
@@ -122,10 +125,6 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               console.log(ansi.dim("Сессия ещё не создана."));
               continue;
             }
-            if (!model.compact) {
-              console.error(ansi.red("Активная модель не поддерживает сжатие контекста."));
-              continue;
-            }
             const plan = createCompactionPlan(state.events);
             if (!plan) {
               console.log(
@@ -154,10 +153,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 cancelCompaction.signal,
                 AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
               ]);
-              const summary = await model.compact(
-                { events: plan.eventsToSummarize, tools: [] },
-                signal,
-              );
+              const summary = await summarizer.summarize(plan.eventsToSummarize, signal);
               const event = {
                 type: "compaction" as const,
                 summary,
@@ -259,6 +255,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 await options.saveModelId(command.id);
                 modelSettings = selectModel(modelSettings, command.id);
                 model = options.createAgentModel(modelSettings);
+                summarizer = options.createContextSummarizer(modelSettings);
                 console.log(
                   ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`),
                 );
@@ -291,6 +288,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               if (changed) {
                 modelSettings = nextSettings;
                 model = options.createAgentModel(modelSettings);
+                summarizer = options.createContextSummarizer(modelSettings);
               }
 
               try {

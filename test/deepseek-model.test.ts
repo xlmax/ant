@@ -356,7 +356,7 @@ test("DeepSeekModel rejects an estimated input larger than the configured contex
   assert.equal(requested, false);
 });
 
-test("DeepSeekModel compacts context without exposing tools", async () => {
+test("DeepSeekModel summarizes context without exposing tools", async () => {
   let request: RequestInit | undefined;
   const model = new DeepSeekModel({
     apiKey: "test-key",
@@ -370,13 +370,10 @@ test("DeepSeekModel compacts context without exposing tools", async () => {
     }) as typeof fetch,
   });
 
-  const summary = await model.compact({
-    events: [
-      { type: "task", content: "Исправь ошибку" },
-      { type: "decision", decision: { type: "finish", answer: "Исправлено" } },
-    ],
-    tools: [{ name: "bash", description: "Run command", inputSchema: { type: "object" } }],
-  });
+  const summary = await model.summarize([
+    { type: "task", content: "Исправь ошибку" },
+    { type: "decision", decision: { type: "finish", answer: "Исправлено" } },
+  ]);
 
   const body = JSON.parse(String(request?.body));
   assert.equal(summary, "Краткое резюме работы.");

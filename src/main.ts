@@ -17,6 +17,7 @@ import {
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
+import type { ContextSummarizer } from "./core/context-events.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
@@ -41,8 +42,10 @@ function createDeepSeekModel(
 
 async function createModel(workspace: string): Promise<{
   model: DeepSeekModel;
+  summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): DeepSeekModel;
+  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
@@ -75,8 +78,10 @@ async function createModel(workspace: string): Promise<{
 
   return {
     model,
+    summarizer: model,
     modelSettings,
     createAgentModel: createConfiguredModel,
+    createContextSummarizer: createConfiguredModel,
     listModels: () => model.listModels(),
     saveModelId: saveUserModelId,
     saveThinking: saveUserModelThinking,
@@ -225,8 +230,10 @@ async function main(): Promise<void> {
   const resume = await resolveResumeId(options, store);
   const {
     model,
+    summarizer,
     modelSettings,
     createAgentModel: createConfiguredModel,
+    createContextSummarizer,
     listModels,
     saveModelId,
     saveThinking,
@@ -248,8 +255,10 @@ async function main(): Promise<void> {
   if (!options.task) {
     await runRepl({
       model,
+      summarizer,
       modelSettings,
       createAgentModel: createConfiguredModel,
+      createContextSummarizer,
       listModels,
       saveModelId,
       saveThinking,

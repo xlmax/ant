@@ -674,11 +674,8 @@ export class DeepSeekModel implements AgentModel {
     return parseDecision(payload);
   }
 
-  async compact(input: ModelInput, signal?: AbortSignal): Promise<string> {
-    const summaryEvents: AgentEvent[] = [
-      ...input.events,
-      { type: "user", content: COMPACTION_PROMPT },
-    ];
+  async summarize(events: readonly AgentEvent[], signal?: AbortSignal): Promise<string> {
+    const summaryEvents: AgentEvent[] = [...events, { type: "user", content: COMPACTION_PROMPT }];
     const budget = estimateContextBudget({
       systemPrompt: this.#systemPrompt,
       events: summaryEvents,
@@ -694,7 +691,7 @@ export class DeepSeekModel implements AgentModel {
     }
 
     const messages = await createMessages(
-      input.events,
+      events,
       this.#systemPrompt,
       false,
       this.#supportsImages,
