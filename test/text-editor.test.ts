@@ -23,6 +23,17 @@ test("backspace joins lines and keeps the cursor at the previous line end", () =
   assert.equal(editor.value, "первая!");
 });
 
+test("render keeps a prompt prefix while editing and wrapping", () => {
+  const editor = new TextEditor();
+  editor.replace("abcd");
+
+  const rendered = editor.render(5, "› ");
+
+  assert.equal(rendered.text, "› abc\nd");
+  assert.deepEqual(rendered.cursor, { row: 1, column: 1 });
+  assert.deepEqual(rendered.end, { row: 1, column: 1 });
+});
+
 test("arrow keys and delete edit the buffer at the cursor", () => {
   const editor = new TextEditor();
 

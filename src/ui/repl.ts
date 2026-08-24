@@ -74,8 +74,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   try {
     while (true) {
       openUserInputFrame();
-      stdout.write(userInputPrompt());
-      const input = await readTerminalInput(inputHistory, terminal);
+      const input = await readTerminalInput(inputHistory, terminal, userInputPrompt());
       closeUserInputFrame();
 
       if (input.trim() === "") {

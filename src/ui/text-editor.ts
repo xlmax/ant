@@ -1,4 +1,5 @@
 import type { ConsoleInputAction } from "./windows-console-input.js";
+import { displayWidth } from "./display-width.js";
 
 export interface CursorPosition {
   row: number;
@@ -11,10 +12,14 @@ export interface RenderedEditor {
   end: CursorPosition;
 }
 
-function positionFor(characters: readonly string[], columns: number): CursorPosition[] {
-  const positions: CursorPosition[] = [{ row: 0, column: 0 }];
+function positionFor(
+  characters: readonly string[],
+  columns: number,
+  initialColumn = 0,
+): CursorPosition[] {
+  const positions: CursorPosition[] = [{ row: 0, column: initialColumn }];
   let row = 0;
-  let column = 0;
+  let column = initialColumn;
 
   for (const character of characters) {
     if (character === "\n") {
@@ -54,7 +59,7 @@ export class TextEditor {
     this.#cursor = this.#characters.length;
   }
 
-  apply(action: ConsoleInputAction, columns: number): void {
+  apply(action: ConsoleInputAction, columns: number, initialColumn = 0): void {
     switch (action.type) {
       case "character":
         this.#characters.splice(this.#cursor, 0, action.value);
@@ -99,7 +104,7 @@ export class TextEditor {
 
       case "up":
       case "down": {
-        const positions = positionFor(this.#characters, columns);
+        const positions = positionFor(this.#characters, columns, initialColumn);
         const current = positions[this.#cursor] ?? { row: 0, column: 0 };
         const targetRow = current.row + (action.type === "up" ? -1 : 1);
 
@@ -129,11 +134,12 @@ export class TextEditor {
     }
   }
 
-  render(columns: number): RenderedEditor {
+  render(columns: number, prefix = ""): RenderedEditor {
     const safeColumns = Math.max(1, columns);
-    const positions = positionFor(this.#characters, safeColumns);
-    let text = "";
-    let column = 0;
+    const prefixWidth = Math.min(safeColumns, displayWidth(prefix));
+    const positions = positionFor(this.#characters, safeColumns, prefixWidth);
+    let text = prefix;
+    let column = prefixWidth;
 
     for (const character of this.#characters) {
       if (character === "\n") {

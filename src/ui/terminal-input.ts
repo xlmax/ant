@@ -1,6 +1,7 @@
 import { stdout } from "node:process";
 import type { Interface } from "node:readline/promises";
 
+import { displayWidth } from "./display-width.js";
 import { InputHistory } from "./input-history.js";
 import { TextEditor, type CursorPosition } from "./text-editor.js";
 import { mapWindowsKeyEvent } from "./windows-console-input.js";
@@ -78,7 +79,11 @@ function moveCursor(from: CursorPosition, to: CursorPosition): void {
   }
 }
 
-function redraw(editor: TextEditor, previousCursor: CursorPosition): CursorPosition {
+function redraw(
+  editor: TextEditor,
+  previousCursor: CursorPosition,
+  prompt: string,
+): CursorPosition {
   stdout.write("\u001B[?25l");
 
   if (previousCursor.row > 0) {
@@ -86,7 +91,7 @@ function redraw(editor: TextEditor, previousCursor: CursorPosition): CursorPosit
   }
   stdout.write("\r\u001B[J");
 
-  const rendered = editor.render(Math.max(1, stdout.columns ?? 80));
+  const rendered = editor.render(Math.max(1, stdout.columns ?? 80), prompt);
   stdout.write(rendered.text);
 
   const rowsUp = rendered.end.row - rendered.cursor.row;
@@ -104,7 +109,7 @@ function redraw(editor: TextEditor, previousCursor: CursorPosition): CursorPosit
   return rendered.cursor;
 }
 
-async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
+async function readWindowsConsoleInput(history: InputHistory, prompt: string): Promise<string> {
   const api = await getWindowsConsoleApi();
   const input = api.getStdHandle(STD_INPUT_HANDLE);
 
@@ -122,7 +127,9 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
   }
 
   const editor = new TextEditor();
-  let cursor: CursorPosition = { row: 0, column: 0 };
+  const promptWidth = displayWidth(prompt);
+  stdout.write(prompt);
+  let cursor = editor.render(Math.max(1, stdout.columns ?? 80), prompt).cursor;
 
   try {
     while (true) {
@@ -148,7 +155,7 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
 
         if (previous !== undefined) {
           editor.replace(previous);
-          cursor = redraw(editor, cursor);
+          cursor = redraw(editor, cursor, prompt);
         }
         continue;
       }
@@ -158,7 +165,7 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
 
         if (next !== undefined) {
           editor.replace(next);
-          cursor = redraw(editor, cursor);
+          cursor = redraw(editor, cursor, prompt);
         }
         continue;
       }
@@ -171,7 +178,7 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
       if (action.type === "cancel") {
         editor.replace("");
         history.reset();
-        cursor = redraw(editor, cursor);
+        cursor = redraw(editor, cursor, prompt);
         continue;
       }
 
@@ -190,11 +197,12 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
 
       const columns = Math.max(1, stdout.columns ?? 80);
       const cursorAtEnd = editor.cursorAtEnd;
-      const renderedBefore = editor.render(columns);
+      const renderedBefore = editor.render(columns, prompt);
       const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
       const eraseAtEnd =
         cursorAtEnd &&
         action.type === "backspace" &&
+        editor.characterBeforeCursor !== undefined &&
         editor.characterBeforeCursor !== "\n" &&
         renderedBefore.cursor.column > 0;
       const moveCursorOnly =
@@ -204,20 +212,20 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
         action.type === "down" ||
         action.type === "home" ||
         action.type === "end";
-      editor.apply(action, columns);
+      editor.apply(action, columns, Math.min(columns, promptWidth));
 
       if (appendAtEnd) {
         stdout.write(action.type === "character" ? action.value : "\n");
-        cursor = editor.render(columns).cursor;
+        cursor = editor.render(columns, prompt).cursor;
       } else if (eraseAtEnd) {
         stdout.write("\b \b");
-        cursor = editor.render(columns).cursor;
+        cursor = editor.render(columns, prompt).cursor;
       } else if (moveCursorOnly) {
-        const nextCursor = editor.render(columns).cursor;
+        const nextCursor = editor.render(columns, prompt).cursor;
         moveCursor(cursor, nextCursor);
         cursor = nextCursor;
       } else {
-        cursor = redraw(editor, cursor);
+        cursor = redraw(editor, cursor, prompt);
       }
     }
   } finally {
@@ -228,14 +236,15 @@ async function readWindowsConsoleInput(history: InputHistory): Promise<string> {
 export async function readTerminalInput(
   history: InputHistory,
   fallback?: Pick<Interface, "question">,
+  prompt = "",
 ): Promise<string> {
   if (process.platform === "win32" && process.stdin.isTTY) {
-    return readWindowsConsoleInput(history);
+    return readWindowsConsoleInput(history, prompt);
   }
 
   if (!fallback) {
     throw new Error("Интерактивный ввод недоступен");
   }
 
-  return fallback.question("");
+  return fallback.question(prompt);
 }

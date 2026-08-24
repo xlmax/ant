@@ -34,8 +34,56 @@ test("reasoning output uses muted markdown formatting", async () => {
     );
     assert.match(plain, /важно и code/u);
     assert.match(plain, /отдельный блок/u);
-    assert.doesNotMatch(plain, /\*\*|`/u);
+    assert.doesNotMatch(plain, /Рассуждения|\*\*|`/u);
     assert.match(rendered, new RegExp(`${String.fromCharCode(27)}\\[2m`, "u"));
+  } finally {
+    process.stdout.write = originalWrite;
+    if (isTTYDescriptor) {
+      Object.defineProperty(process.stdout, "isTTY", isTTYDescriptor);
+    } else {
+      Reflect.deleteProperty(process.stdout, "isTTY");
+    }
+    configureAnsi(true);
+  }
+});
+
+test("Ant and change summaries color their full boundaries", () => {
+  const originalWrite = process.stdout.write;
+  const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const output: string[] = [];
+  Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    output.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+  configureAnsi(true);
+
+  try {
+    const renderer = new ConsoleRenderer();
+    renderer.beginTurn();
+    renderer.printResult({
+      status: "completed",
+      answer: "Готово",
+      state: { events: [] },
+    });
+    renderer.printChangeSummary({
+      commands: ["npm test"],
+      changedFiles: [{ path: "src/ui/console-renderer.ts", status: "M " }],
+      toolWrittenFiles: [],
+      gitAvailable: true,
+      baselineDirty: false,
+    });
+
+    const rendered = output.join("");
+    const plain = rendered.replaceAll(
+      new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "gu"),
+      "",
+    );
+    assert.match(plain, /^───Ant─/mu);
+    assert.match(plain, /^───Изменения─/mu);
+    assert.doesNotMatch(plain, /Агент/u);
+    assert.ok(rendered.includes(`${String.fromCharCode(27)}[32m───`));
+    assert.ok(rendered.includes(`${String.fromCharCode(27)}[38;2;197;140;106m───`));
   } finally {
     process.stdout.write = originalWrite;
     if (isTTYDescriptor) {

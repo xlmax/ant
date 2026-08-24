@@ -9,7 +9,7 @@ function colorsAvailable(): boolean {
   return colorEnabled && Boolean(process.stdout.isTTY);
 }
 
-function style(code: number, text: string): string {
+function style(code: number | string, text: string): string {
   return colorsAvailable() ? `\u001B[${code}m${text}${reset}` : text;
 }
 
@@ -32,4 +32,6 @@ export const ansi = {
   blue: (text: string): string => style(34, text),
   magenta: (text: string): string => style(35, text),
   cyan: (text: string): string => style(36, text),
+  violet: (text: string): string => style("38;2;155;138;251", text),
+  terracotta: (text: string): string => style("38;2;197;140;106", text),
 };

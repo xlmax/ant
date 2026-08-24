@@ -161,7 +161,7 @@ export class ConsoleRenderer implements AgentObserver {
     this.#finalizeSpinner();
 
     if (!this.#reasoningBlockOpen) {
-      process.stdout.write(`${sectionHeader("Рассуждения", (title) => ansi.dim(title))}\n`);
+      process.stdout.write(`${sectionFooter()}\n`);
       this.#reasoningBlockOpen = true;
     }
 
@@ -284,9 +284,15 @@ export class ConsoleRenderer implements AgentObserver {
     this.#finalizeSpinner();
     const formatted = formatTurnChangeSummary(summary);
     if (!formatted) return;
-    console.log(`\n${sectionHeader("Изменения", (title) => ansi.dim(title))}`);
+    console.log(
+      `\n${sectionHeader(
+        "Изменения",
+        (title) => ansi.bold(ansi.terracotta(title)),
+        ansi.terracotta,
+      )}`,
+    );
     console.log(ansi.dim(formatted.replace(/^Изменения за ход\n?/u, "")));
-    console.log(sectionFooter());
+    console.log(sectionFooter(ansi.terracotta));
   }
 
   #writeLine(text: string): void {
@@ -351,7 +357,7 @@ export class ConsoleRenderer implements AgentObserver {
     const markdown = new StreamingMarkdownRenderer();
     const formatted = `${markdown.push(reasoning)}${markdown.finish()}`;
 
-    console.log(sectionHeader("Рассуждения", (title) => ansi.dim(title)));
+    console.log(sectionFooter());
     process.stdout.write(`${ansi.dimPreservingStyles(formatted)}\n`);
     console.log(sectionFooter());
   }
@@ -363,10 +369,12 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   private printAgentBlockStart(): void {
-    process.stdout.write(`${sectionHeader("Агент", (text) => ansi.bold(ansi.green(text)))}\n`);
+    process.stdout.write(
+      `${sectionHeader("Ant", (title) => ansi.bold(ansi.green(title)), ansi.green)}\n`,
+    );
   }
 
   private printAgentBlockEnd(): void {
-    process.stdout.write(`\n${sectionFooter()}\n`);
+    process.stdout.write(`\n${sectionFooter(ansi.green)}\n`);
   }
 }
