@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { ModelRequestError } from "../core/agent.js";
+import { estimateContextBudget } from "../core/context-budget.js";
 import type {
   AgentEvent,
   AgentModel,
@@ -568,6 +569,19 @@ export class DeepSeekModel implements AgentModel {
     onActivity?: ModelActivityHandler,
   ): Promise<Decision> {
     const tools = createTools(input.tools);
+    const budget = estimateContextBudget({
+      systemPrompt: this.#systemPrompt,
+      events: input.events,
+      tools: input.tools,
+      contextWindow: this.#contextWindow,
+      includeImages: this.#supportsImages,
+      includeReasoning: this.#thinkingEnabled,
+    });
+    if (budget.estimatedTokens >= this.#contextWindow) {
+      throw new Error(
+        `Estimated input context (${budget.estimatedTokens} tokens) exceeds the configured context window (${this.#contextWindow}). Start a new session or reduce the saved context.`,
+      );
+    }
     const messages = await createMessages(
       input.events,
       this.#systemPrompt,
@@ -581,15 +595,6 @@ export class DeepSeekModel implements AgentModel {
       thinking: { type: this.#thinkingEnabled ? "enabled" : "disabled" },
       stream: onTextDelta !== undefined,
     };
-
-    const estimatedInputTokens = Math.ceil(
-      Buffer.byteLength(JSON.stringify({ messages, tools }), "utf8") / 4,
-    );
-    if (estimatedInputTokens >= this.#contextWindow) {
-      throw new Error(
-        `Estimated input context (${estimatedInputTokens} tokens) exceeds the configured context window (${this.#contextWindow}). Start a new session or reduce the saved context.`,
-      );
-    }
 
     if (this.#thinkingEnabled) {
       body.reasoning_effort = this.#reasoningEffort;

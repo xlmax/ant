@@ -27,6 +27,14 @@ test("reasoning command supports querying and changing its setting", () => {
   });
 });
 
+test("context command accepts no arguments", () => {
+  assert.deepEqual(parseReplCommand("/context"), { type: "context" });
+  assert.deepEqual(parseReplCommand("/context extra"), {
+    type: "error",
+    message: "Использование: /context",
+  });
+});
+
 test("model and think commands support querying and runtime selection", () => {
   assert.deepEqual(parseReplCommand("/model"), { type: "model" });
   assert.deepEqual(parseReplCommand("/think"), { type: "think" });

@@ -48,6 +48,7 @@ async function createModel(workspace: string): Promise<{
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
   promptSources: string[];
+  systemPrompt: string;
   projectOverrides: ProjectSettingsOverrides;
   showReasoning: boolean;
   color: boolean;
@@ -81,6 +82,7 @@ async function createModel(workspace: string): Promise<{
     saveThinking: saveUserModelThinking,
     saveShowReasoning: saveUserShowReasoning,
     promptSources: systemPrompt.sources,
+    systemPrompt: systemPrompt.content,
     projectOverrides: loadedSettings.projectOverrides,
     showReasoning: loadedSettings.settings.ui.showReasoning,
     color: loadedSettings.settings.ui.color,
@@ -230,6 +232,7 @@ async function main(): Promise<void> {
     saveThinking,
     saveShowReasoning,
     promptSources,
+    systemPrompt,
     projectOverrides,
     showReasoning,
     color,
@@ -256,6 +259,7 @@ async function main(): Promise<void> {
       store,
       showReasoning,
       limits,
+      systemPrompt,
       ...(resume === undefined ? {} : { resume }),
     });
     return;

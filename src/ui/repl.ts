@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
 import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
+import { estimateContextBudget } from "../core/context-budget.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
@@ -12,6 +13,7 @@ import { InputHistory } from "./input-history.js";
 import { readTerminalInput } from "./terminal-input.js";
 import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
+import { formatContextStatus } from "./context-status.js";
 
 export interface ReplOptions {
   model: AgentModel;
@@ -26,6 +28,7 @@ export interface ReplOptions {
   store: JsonlSessionStore;
   showReasoning?: boolean;
   limits: RuntimeLimits;
+  systemPrompt: string;
   resume?: string;
 }
 
@@ -96,6 +99,21 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
           case "clear":
             process.stdout.write("\u001B[2J\u001B[H");
+            continue;
+
+          case "context":
+            console.log(
+              formatContextStatus(
+                estimateContextBudget({
+                  systemPrompt: options.systemPrompt,
+                  events: state?.events ?? [],
+                  tools: options.environment.tools(),
+                  contextWindow: modelSettings.contextWindow,
+                  includeImages: modelSettings.vision,
+                  includeReasoning: modelSettings.thinking.enabled,
+                }),
+              ),
+            );
             continue;
 
           case "reasoning":
