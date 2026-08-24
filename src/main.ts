@@ -22,6 +22,7 @@ import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
+import { TurnChangeTracker } from "./ui/turn-change-summary.js";
 
 function createDeepSeekModel(
   apiKey: string,
@@ -110,6 +111,7 @@ async function appendUserMessage(
 
 async function runOneShot(
   options: Pick<CliOptions, "task" | "resume">,
+  workspace: string,
   model: DeepSeekModel,
   environment: ToolEnvironment,
   store: JsonlSessionStore,
@@ -130,13 +132,15 @@ async function runOneShot(
   }
 
   const renderer = new ConsoleRenderer({ showReasoning });
+  const changes = new TurnChangeTracker(workspace);
   console.log(`Сессия: ${session.id}`);
   renderer.beginTurn();
+  await changes.begin();
 
   const result = await runAgent(state, {
     model,
     environment,
-    observers: [session.observer, renderer],
+    observers: [session.observer, renderer, changes],
     onTextDelta: renderer.onTextDelta,
     onReasoningDelta: renderer.onReasoningDelta,
     signal: AbortSignal.timeout(limits.turnTimeoutSeconds * 1_000),
@@ -145,6 +149,7 @@ async function runOneShot(
   });
 
   renderer.printResult(result);
+  renderer.printChangeSummary(await changes.finish());
 
   if (result.status === "cancelled") {
     process.exitCode = 2;
@@ -254,6 +259,7 @@ async function main(): Promise<void> {
 
   if (!options.task) {
     await runRepl({
+      workspace,
       model,
       summarizer,
       modelSettings,
@@ -276,6 +282,7 @@ async function main(): Promise<void> {
 
   await runOneShot(
     { task: options.task, ...(resume === undefined ? {} : { resume }) },
+    workspace,
     model,
     environment,
     store,

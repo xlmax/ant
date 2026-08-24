@@ -2,6 +2,7 @@ import type { AgentEvent, AgentObserver, AgentResult, ModelUsage } from "../core
 import { ansi } from "./ansi.js";
 import { StreamingMarkdownRenderer } from "./markdown.js";
 import { sectionFooter, sectionHeader } from "./section.js";
+import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
 
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -208,6 +209,14 @@ export class ConsoleRenderer implements AgentObserver {
         console.error(ansi.red("Агент: работа отменена"));
         break;
     }
+  }
+
+  printChangeSummary(summary: TurnChangeSummary): void {
+    const formatted = formatTurnChangeSummary(summary);
+    if (!formatted) return;
+    console.log(`\n${sectionHeader("Изменения", (title) => ansi.dim(title))}`);
+    console.log(ansi.dim(formatted.replace(/^Изменения за ход\n?/u, "")));
+    console.log(sectionFooter());
   }
 
   private closeReasoningBlock(): void {

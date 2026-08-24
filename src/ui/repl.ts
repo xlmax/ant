@@ -15,8 +15,10 @@ import { readTerminalInput } from "./terminal-input.js";
 import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
 import { formatContextStatus } from "./context-status.js";
+import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface ReplOptions {
+  workspace: string;
   model: AgentModel;
   summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
@@ -345,6 +347,8 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       }
 
       renderer.beginTurn();
+      const changes = new TurnChangeTracker(options.workspace);
+      await changes.begin();
       const cancelTurn = new AbortController();
       const onSigint = (): void => {
         if (!cancelTurn.signal.aborted) {
@@ -358,7 +362,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         const result = await runAgent(state, {
           model,
           environment: options.environment,
-          observers: [session.observer, renderer],
+          observers: [session.observer, renderer, changes],
           onTextDelta: renderer.onTextDelta,
           onReasoningDelta: renderer.onReasoningDelta,
           signal: AbortSignal.any([
@@ -370,6 +374,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         });
 
         renderer.printResult(result);
+        renderer.printChangeSummary(await changes.finish());
       } finally {
         process.removeListener("SIGINT", onSigint);
       }
