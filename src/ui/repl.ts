@@ -7,6 +7,8 @@ import { estimateContextBudget } from "../core/context-budget.js";
 import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
+import { checkForUpdates, isRunningUnderNpm, runGlobalUpdate } from "../updates/updates.js";
+import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
 import { getReplCommands, parseReplCommand } from "./commands.js";
 import { ConsoleRenderer } from "./console-renderer.js";
@@ -16,6 +18,7 @@ import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
 import { formatContextStatus } from "./context-status.js";
 import { formatStartScreen, resolveGitBranch } from "./start-screen.js";
+import { formatUpdateNotice } from "./update-notice.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface ReplOptions {
@@ -77,6 +80,13 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     state = resumed.state;
     session = resumed.session;
     console.log(ansi.dim(`Продолжена сессия: ${session.id}`));
+  }
+
+  const updateInfo = isRunningUnderNpm()
+    ? undefined
+    : await checkForUpdates(VERSION, AbortSignal.timeout(2_000));
+  if (updateInfo) {
+    console.log(formatUpdateNotice(updateInfo, VERSION));
   }
 
   try {
@@ -325,6 +335,35 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               }
             }
             continue;
+
+          case "update": {
+            const info = updateInfo ?? (await checkForUpdates(VERSION, AbortSignal.timeout(5_000)));
+
+            if (!info) {
+              console.log(ansi.dim("Вы используете актуальную версию ant."));
+              continue;
+            }
+
+            if (!info.url) {
+              console.error(ansi.red("Не удалось найти установочный файл для обновления."));
+              continue;
+            }
+
+            console.log(ansi.dim(`Обновляю ant до ${info.version}…`));
+            try {
+              await runGlobalUpdate(info.url);
+              console.log(
+                ansi.green(`Обновлено до ${info.version}. Перезапустите: /exit, затем ant -c.`),
+              );
+            } catch (error) {
+              console.error(
+                ansi.red(
+                  `Не удалось обновиться: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+              );
+            }
+            continue;
+          }
 
           case "help":
             if (command.command) {

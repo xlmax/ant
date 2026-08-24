@@ -16,6 +16,7 @@ export type CommandAction =
   | { type: "reasoning"; enabled?: boolean }
   | { type: "model"; id?: string; list?: true }
   | { type: "think"; selection?: EffortSelection }
+  | { type: "update" }
   | { type: "exit" }
   | { type: "error"; message: string };
 
@@ -64,6 +65,11 @@ const commands: readonly ReplCommand[] = [
     name: "think",
     usage: "/think [off|low|high|max]",
     description: "Показать или сменить режим и глубину размышлений до перезапуска.",
+  },
+  {
+    name: "update",
+    usage: "/update",
+    description: "Проверить и установить новую версию глобально.",
   },
   {
     name: "exit",
@@ -191,6 +197,7 @@ export function parseReplCommand(input: string): CommandAction | undefined {
     case "clear":
     case "context":
     case "compact":
+    case "update":
     case "exit":
       return args.length === 0
         ? { type: command.name }

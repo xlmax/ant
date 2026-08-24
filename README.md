@@ -1,12 +1,14 @@
 # ANT — Agentic Native Tool
 
-Минимальное событийное ядро coding-агента (Ant) на TypeScript с DeepSeek в качестве модели.
+Ant is a compact coding agent that lives in your terminal. You describe a task in plain language, and it reads the project, runs commands, and edits files.
 
-## Установка
+## Installation
 
-### Готовая сборка
+### Prebuilt
 
-Linux/macOS (или Git Bash на Windows):
+The easiest way is to install it with a script.
+
+Linux/macOS (or Git Bash on Windows):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xlmax/ant/master/install.sh | sh
@@ -18,76 +20,78 @@ PowerShell (Windows):
 irm https://raw.githubusercontent.com/xlmax/ant/master/install.ps1 | iex
 ```
 
-Или вручную из GitHub Releases:
+Or manually from GitHub Releases (replace with the latest version):
 
 ```bash
-npm install -g https://github.com/xlmax/ant/releases/download/v0.1.0/ant-0.1.0.tgz
+npm install -g https://github.com/xlmax/ant/releases/download/v0.4.0/ant-0.4.0.tgz
 ```
 
-Требуется Node.js ≥ 20.12. Затем запускается как `ant`.
+Requires Node.js ≥ 20.12. After installation, run it as `ant`.
 
-### Из исходников
+### From source
 
 ```bash
 npm install
+npm run dev
 ```
 
-## Инструменты
+## Tools
 
-В режиме DeepSeek агент получает базовые инструменты по образцу pi:
+Ant works with files and the terminal:
 
-- `read(path, offset?, limit?)` — читает текстовый файл по относительному или абсолютному пути; результат ограничен 2 000 строками или 50 КиБ. JPEG, PNG, GIF и WebP передаются как изображение активной vision-модели.
-- `grep(pattern, path?, include?, maxResults?, ignoreCase?)` — ищет в рабочей директории строки по регулярному выражению; возвращает путь, номер строки и текст совпадения. Пропускает `.git`, `node_modules` и `.ant`.
-- `glob(pattern, path?)` — находит файлы по glob-шаблону, например `src/**/*.ts`; возвращает относительные пути.
-- `bash(command, timeout?)` — запускает неинтерактивную команду в рабочей директории, выводит stdout/stderr в консоль по мере поступления и возвращает их ограниченный хвост. Ввод stdin отключён; `timeout` ограничен 3 600 секундами.
-- `edit(path, edits)` — выполняет точные уникальные замены `oldText` → `newText` в исходном файле.
-- `write(path, content)` — создаёт или полностью перезаписывает файл, создавая родительские директории.
+- `read` — reads files, including images;
+- `grep` and `glob` — search the project;
+- `bash` — runs commands;
+- `edit` and `write` — modify and create files.
 
-`echo` существует только в тестах ядра.
+This set covers most day-to-day tasks.
 
-## Сессии и трассировки
+> [!WARNING]
+> Ant has no built-in guardrails: it runs commands and edits files with the same permissions as the user who launched it, and it is not confined to the working directory. Any consequences are your responsibility. Don't run it in directories with sensitive data or use keys with a valuable balance.
 
-Каждый запуск создаёт JSONL-журнал в `.ant/sessions/<session-id>.jsonl`. В нём сохраняются задачи, решения модели и итоговые результаты инструментов; служебные события (попытки запроса, повторы, статистика токенов и потоковый вывод инструментов) в журнал не пишутся. Директория игнорируется Git.
+## Sessions
 
-Ключи запуска:
+Every run writes a JSONL journal to `.ant/sessions/<session-id>.jsonl`: tasks, model decisions, and final tool results. Transient events are not written there, and the directory is ignored by Git.
+
+Launch flags:
 
 ```bash
-npm run dev -- -h                    # справка по ключам
-npm run dev -- -v                    # показать версию и выйти
-npm run dev -- -r                    # список сохранённых сессий
-npm run dev -- -c                    # продолжить последнюю сессию
-npm run dev -- -s <session-id>        # продолжить указанную сессию
-npm run dev -- -s <session-id> "теперь запусти тесты"
+npm run dev -- -h                    # help
+npm run dev -- -v                    # print version and exit
+npm run dev -- -r                    # list saved sessions
+npm run dev -- -c                    # resume the latest session
+npm run dev -- -s <session-id>        # resume a specific session
+npm run dev -- -s <session-id> "now run the tests"
 ```
 
-`-r` и `-h` работают без API-ключа. Повреждённые JSONL-файлы пропускаются и выводятся как предупреждения.
+`-r` and `-h` work without an API key. Corrupted JSONL files are skipped and reported as warnings.
 
-> Файл сессии может содержать результаты `read` и `bash`, reasoning content модели и случайно раскрытые секреты. Он предназначен только для локального исследования.
+> A session file may contain `read` and `bash` results, model reasoning, and accidentally exposed secrets. It is meant for local inspection only.
 
-## Запуск
+## Running
 
-Запишите временный ключ в файл `.env.local` в рабочей директории либо глобально в `~/.ant/.env.local`:
+Put a temporary key in `.env.local` in the working directory, or globally in `~/.ant/.env.local`:
 
 ```dotenv
-DEEPSEEK_API_KEY=ваш_временный_ключ
+DEEPSEEK_API_KEY=your_temporary_key
 ```
 
-Файл из рабочей директории имеет приоритет над глобальным, а переменная окружения — над обоими. При `npm run dev` и `npm start` загружаются оба файла; глобальный удобен, чтобы `ant` работал из любой директории. Оба игнорируются Git.
+The file in the working directory takes priority over the global one, and an environment variable takes priority over both. Both files are ignored by Git.
 
-### Системный промпт
+### System prompt
 
-Перед первой модельной генерацией агент загружает и объединяет Markdown-файлы в таком порядке:
+Before the first model call, Ant assembles the system prompt from Markdown files in this order:
 
-1. `prompts/SYSTEM.md` — базовые инструкции агента;
-2. `~/.ant/SYSTEM.md` — глобальные инструкции пользователя, если файл существует;
-3. `.ant/SYSTEM.md` в рабочей директории — инструкции конкретного проекта, если файл существует;
-4. пути из `prompts.additionalPaths` в настройках.
+1. `prompts/SYSTEM.md` — base instructions;
+2. `~/.ant/SYSTEM.md` — global user instructions, if the file exists;
+3. `.ant/SYSTEM.md` in the working directory — project-specific instructions, if the file exists;
+4. paths from `prompts.additionalPaths` in settings.
 
-Поздние файлы дополняют ранние. Промпт применяется ко всем обращениям модели в текущем процессе, поэтому после изменения файла перезапустите REPL.
+Later files extend earlier ones. The prompt applies to every model call in the current process, so restart the REPL after changing a file.
 
-### Настройки модели
+### Settings
 
-Настройки без секретов загружаются по слоям: `~/.ant/settings.json`, затем `.ant/settings.json` в рабочей директории. Проектный файл перекрывает глобальный, в том числе `ui.showReasoning` и `model.thinking`.
+Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.json` in the working directory. The project file overrides the global one.
 
 ```json
 {
@@ -110,65 +114,80 @@ DEEPSEEK_API_KEY=ваш_временный_ключ
 }
 ```
 
-Поддерживается только `deepseek`. Для собственной vision-модели укажите `model.vision: true`. Чтобы сбросить унаследованный `tools.bashPath` в проектных настройках, задайте `"bashPath": null`. Все настройки приложения хранятся в JSON; в `.env.local` храните только `DEEPSEEK_API_KEY`. `contextWindow` по умолчанию равен 1 000 000. Ход агента ограничен 15 минутами. Запрос модели повторяется, только если она не передавала ни одного фрагмента 90 секунд, при сетевой ошибке, `429` или `5xx`; до трёх раз с паузой 1 и 2 секунды. Предупреждение о повторе выводится только после неудачной попытки и содержит её причину.
+Only `deepseek` is supported. For a custom vision model, set `model.vision: true`. To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. All app settings live in JSON; keep only `DEEPSEEK_API_KEY` in `.env.local`.
 
-> В экспериментальном режиме инструменты не ограничены рабочей директорией и могут прочитать `.env.local`. `bash` выполняет произвольные команды с правами текущего пользователя. Не используйте ключ с важным балансом и не запускайте агент в каталоге с чувствительными данными.
+`contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 
-Интерактивный диалог с потоковым выводом:
+## Interactive mode
 
 ```bash
 npm run dev
 ```
 
-Введите `/help`, чтобы увидеть локальные команды REPL: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/exit` и справку по отдельной команде. `/context` локально оценивает использование контекстного окна, показывает разбивку и самые тяжёлые результаты инструментов; команда не обращается к API и не изменяет сессию. `/compact` через отдельный интерфейс суммаризации сворачивает старую часть истории в структурированное резюме и сохраняет последние два пользовательских хода дословно; по умолчанию суммаризатор создаётся из настроек текущей модели. Исходные события остаются в JSONL: новое compaction-событие меняет только контекст, отправляемый модели.
+Or just `ant` if installed globally.
 
-После каждого хода Ant выводит сводку последствий: выполненные `bash`-команды, файлы, состояние которых изменилось между снимками Git, и `diff --stat` для изначально чистого рабочего дерева. Если до хода уже были незакоммиченные изменения, Ant сравнивает состояние и содержимое файлов со стартовым снимком и не смешивает старый общий diff-stat с новым ходом. Успешные записи через `write` и `edit` показываются отдельно, если Git их не видит или рабочая директория не является репозиторием. Сводка служит для наблюдаемости и ничего не запрещает. Вывод разделён цветными блоками; для их отключения задайте `ui.color: false` в настройках.
+There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/update`, `/exit`.
 
-Во время REPL можно сменить модель и режим размышлений:
+- `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
+- `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
+- `/model` and `/think` switch the model and reasoning mode on the fly:
 
 ```text
-/model                     # показать текущую DeepSeek-модель
-/model list                # запросить доступные текущему ключу модели
-/model deepseek-v4-pro     # сменить модель для следующих ходов
-/think                     # показать режим размышлений
-/think low|high|max|off    # задать глубину или отключить thinking и сохранить выбор
-/reasoning on|off          # показать или скрыть reasoning в UI и сохранить выбор
+/model                     # show the current model
+/model list                # list available models
+/model deepseek-v4-pro     # switch the model
+/think                     # show the reasoning mode
+/think low|high|max|off    # set depth or disable thinking
+/reasoning on|off          # show or hide reasoning in the UI
 ```
 
-`/model list` обращается к DeepSeek API только по явной команде и не меняет выбранную модель. `/model <id>` сохраняет выбранный ID в `~/.ant/settings.json` и применяет его к следующему сообщению; файлы проекта при этом не изменяются. `/think low|high|max|off` сразу меняет режим и сохраняет `model.thinking` в глобальный `~/.ant/settings.json`, поэтому выбор действует при следующих запусках. Если проектный `.ant/settings.json` содержит `model.id`, `model.thinking` или `ui.showReasoning`, он имеет приоритет; после сохранения соответствующая команда выведет предупреждение. Пока поддерживается только provider `deepseek`: можно указать идентификатор другой модели этого же provider, доступной вашему API-ключу. `baseUrl` и `contextWindow` остаются из настроек.
+`/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it.
 
-### Ввод в REPL
+After each turn, Ant prints a short summary: which commands ran and which files changed (based on Git snapshots). It's for visibility and doesn't block anything. Colored output can be disabled with `ui.color: false`.
 
-На Windows REPL использует Windows Console API, поэтому поддерживает многострочный ввод без TUI:
+### REPL input
 
-- `Enter` — отправить сообщение;
-- `Shift+Enter` — вставить новую строку;
-- `Ctrl+C` — очистить текущий черновик; во время выполнения хода — отменить его без завершения REPL;
-- `↑`/`↓` — история отправленных сообщений из текущего запуска, если поле пустое;
-- `←`/`→`, `Home`, `End`, `Backspace`, `Delete` — редактирование текста.
+On Windows the REPL uses the Windows Console API, so it supports multiline input without a TUI:
 
-На других платформах используется стандартный `readline` без многострочного редактора. Редактор корректно рассчитан для обычного одноколоночного текста; emoji и широкие Unicode-символы пока могут неверно влиять на позицию курсора. На любой платформе `Ctrl+C` во время выполнения хода отменяет его без завершения REPL.
+- `Enter` — send the message;
+- `Shift+Enter` — new line;
+- `Ctrl+C` — clear the draft (during a turn — cancel it);
+- `↑`/`↓` — history of sent messages when the field is empty;
+- `←`/`→`, `Home`, `End`, `Backspace`, `Delete` — editing.
 
-Чтобы показать reasoning content DeepSeek отдельным приглушённым блоком, задайте `ui.showReasoning: true` в настройках либо используйте `/reasoning on` в REPL. `/reasoning on|off` сразу меняет UI и сохраняет выбор в глобальный `~/.ant/settings.json`, поэтому он действует при следующих запусках. Если проектный `.ant/settings.json` содержит `ui.showReasoning`, он имеет приоритет. `/reasoning off` скрывает блок, но не прекращает сохранение reasoning в сессии и его передачу обратно модели.
+Other platforms use standard `readline`. Emoji and wide Unicode characters may still affect the cursor position.
 
-Одноразовая задача:
+One-off task:
 
 ```bash
-npm run dev -- "Прочитай package.json и README.md, затем объясни устройство проекта"
+npm run dev -- "Read package.json and README.md, then explain the project structure"
 ```
 
-Продолжение сохранённой сессии в REPL:
+Resume a saved session:
 
 ```bash
 npm run dev -- -c
 npm run dev -- -s <session-id>
 ```
 
-## Исследовательские материалы
+## Updates
 
-Live eval-набор и его документация находятся в [`research/evaluation/`](research/evaluation/README.md). Он не входит в production-сборку и выполняет платные API-запросы только при явном запуске `npm run eval`.
+When the interactive mode starts, Ant checks GitHub Releases and, if a newer version is available, shows a hint below the banner:
 
-## Проверки
+```text
+A new version of ant is available: v0.5.0 (you have 0.4.0)
+Update globally: /update
+```
+
+`/update` downloads and installs the latest version globally. After updating, restart: `/exit`, then `ant -c` to resume the same session.
+
+In development mode (`npm run dev` / `npm start`) the auto-check is disabled so it doesn't get in the way.
+
+## Research materials
+
+The live eval set and its documentation live in [`research/evaluation/`](research/evaluation/README.md). It is not part of the production build and makes paid API calls only when you explicitly run `npm run eval`.
+
+## Checks
 
 ```bash
 npm run format:check
@@ -176,5 +195,5 @@ npm run lint
 npm run check
 npm test
 npm run build
-npm start -- "Прочитай README.md"
+npm start -- "Read README.md"
 ```
