@@ -1,12 +1,15 @@
 import { readFile } from "node:fs/promises";
 
 import { ModelRequestError } from "../core/agent.js";
+import { estimateContextBudget } from "../core/context-budget.js";
+import { activeContextEvents } from "../core/context-events.js";
 import type {
   AgentEvent,
   AgentModel,
   Decision,
   ImageAttachment,
   ModelInput,
+  ModelActivityHandler,
   ModelUsage,
   ModelUsageHandler,
   Observation,
@@ -20,6 +23,9 @@ const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+const COMPACTION_PROMPT = `Составь компактное структурированное резюме предыдущей части сессии coding-агента.
+Сохрани цели пользователя, принятые решения, важные факты, изменённые файлы, выполненные команды и их существенные результаты, ошибки, ограничения и незавершённую работу.
+Не добавляй новых предположений. Не описывай сам процесс суммаризации. Ответ должен быть самодостаточным контекстом для продолжения работы.`;
 
 interface DeepSeekModelOptions {
   apiKey: string;
@@ -146,15 +152,19 @@ async function createMessages(
     | { decision: Extract<Decision, { type: "tools" }>; observations: Map<string, Observation> }
     | undefined;
 
-  const flushPending = async (): Promise<void> => {
-    if (!pending || pending.observations.size !== pending.decision.calls.length) {
+  const flushPending = async (interrupted = false): Promise<void> => {
+    if (!pending) {
       return;
     }
+    if (!interrupted && pending.observations.size !== pending.decision.calls.length) return;
 
     messages.push(decisionMessage(pending.decision, includeReasoning));
     const attachments: ImageAttachment[] = [];
     for (const call of pending.decision.calls) {
-      const observation = pending.observations.get(call.id);
+      const observation = pending.observations.get(call.id) ?? {
+        ok: false,
+        error: "Tool call was interrupted; execution status is unknown",
+      };
       if (observation) {
         messages.push({
           role: "tool",
@@ -188,13 +198,11 @@ async function createMessages(
     pending = undefined;
   };
 
-  for (const event of events) {
+  for (const event of activeContextEvents(events)) {
     switch (event.type) {
       case "task":
       case "user":
-        // An interrupted tool turn cannot be submitted to the provider: it
-        // requires a tool response for every call. Drop that incomplete turn.
-        pending = undefined;
+        await flushPending(true);
         messages.push({ role: "user", content: event.content });
         break;
 
@@ -207,6 +215,14 @@ async function createMessages(
         }
         break;
 
+      case "compaction":
+        pending = undefined;
+        messages.push({
+          role: "user",
+          content: `Ниже дано резюме предыдущей части этой сессии. Используй его как контекст для продолжения работы.\n\n${event.summary}`,
+        });
+        break;
+
       case "observation":
         if (pending && pending.decision.calls.some((call) => call.id === event.call.id)) {
           pending.observations.set(event.call.id, event.observation);
@@ -217,12 +233,14 @@ async function createMessages(
       case "model.requested":
       case "model.retry":
       case "model.usage":
+      case "tool.started":
+      case "tool.output":
+      case "tool.finished":
         break;
     }
   }
 
-  // Do not flush an incomplete tool turn. This is possible when an old
-  // session was interrupted after persisting the assistant tool call.
+  await flushPending(true);
   return messages;
 }
 
@@ -358,6 +376,7 @@ async function parseStreamingDecision(
   onTextDelta: TextDeltaHandler,
   onReasoningDelta: ReasoningDeltaHandler | undefined,
   onUsage: ModelUsageHandler | undefined,
+  onActivity: ModelActivityHandler | undefined,
   metadata: ModelMetadata,
 ): Promise<Decision> {
   if (!response.body) {
@@ -398,6 +417,7 @@ async function parseStreamingDecision(
       }
 
       const usage = parseUsage(payload, metadata);
+      onActivity?.();
       if (usage) {
         onUsage?.(usage);
       }
@@ -558,8 +578,22 @@ export class DeepSeekModel implements AgentModel {
     onTextDelta?: TextDeltaHandler,
     onReasoningDelta?: ReasoningDeltaHandler,
     onUsage?: ModelUsageHandler,
+    onActivity?: ModelActivityHandler,
   ): Promise<Decision> {
     const tools = createTools(input.tools);
+    const budget = estimateContextBudget({
+      systemPrompt: this.#systemPrompt,
+      events: input.events,
+      tools: input.tools,
+      contextWindow: this.#contextWindow,
+      includeImages: this.#supportsImages,
+      includeReasoning: this.#thinkingEnabled,
+    });
+    if (budget.estimatedTokens >= this.#contextWindow) {
+      throw new Error(
+        `Estimated input context (${budget.estimatedTokens} tokens) exceeds the configured context window (${this.#contextWindow}). Start a new session or reduce the saved context.`,
+      );
+    }
     const messages = await createMessages(
       input.events,
       this.#systemPrompt,
@@ -610,7 +644,7 @@ export class DeepSeekModel implements AgentModel {
     }
 
     if (onTextDelta) {
-      return parseStreamingDecision(response, onTextDelta, onReasoningDelta, onUsage, {
+      return parseStreamingDecision(response, onTextDelta, onReasoningDelta, onUsage, onActivity, {
         provider: "deepseek",
         model: this.#model,
         reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",
@@ -638,6 +672,67 @@ export class DeepSeekModel implements AgentModel {
     }
 
     return parseDecision(payload);
+  }
+
+  async summarize(events: readonly AgentEvent[], signal?: AbortSignal): Promise<string> {
+    const summaryEvents: AgentEvent[] = [...events, { type: "user", content: COMPACTION_PROMPT }];
+    const budget = estimateContextBudget({
+      systemPrompt: this.#systemPrompt,
+      events: summaryEvents,
+      tools: [],
+      contextWindow: this.#contextWindow,
+      includeImages: this.#supportsImages,
+      includeReasoning: false,
+    });
+    if (budget.estimatedTokens >= this.#contextWindow) {
+      throw new Error(
+        `The context selected for compaction is too large (${budget.estimatedTokens}/${this.#contextWindow} estimated tokens). Compact the session earlier or start a new session.`,
+      );
+    }
+
+    const messages = await createMessages(
+      events,
+      this.#systemPrompt,
+      false,
+      this.#supportsImages,
+      signal,
+    );
+    messages.push({ role: "user", content: COMPACTION_PROMPT });
+    const request: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.#apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.#model,
+        messages,
+        thinking: { type: "disabled" },
+        stream: false,
+        max_tokens: 4_096,
+      }),
+      ...(signal === undefined ? {} : { signal }),
+    };
+    const response = await this.#fetchResponse(`${this.#baseUrl}/chat/completions`, request);
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw new ModelRequestError(
+        `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
+        response.status === 429 || response.status >= 500,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error("DeepSeek returned invalid JSON");
+    }
+    const decision = parseDecision(payload);
+    if (decision.type !== "finish") {
+      throw new Error("DeepSeek returned tool calls while compacting without tools");
+    }
+    return decision.answer.trim();
   }
 
   async #fetchResponse(url: string, request: RequestInit): Promise<Response> {

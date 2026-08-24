@@ -3,6 +3,8 @@ import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
 import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
+import { estimateContextBudget } from "../core/context-budget.js";
+import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
@@ -12,11 +14,16 @@ import { InputHistory } from "./input-history.js";
 import { readTerminalInput } from "./terminal-input.js";
 import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
+import { formatContextStatus } from "./context-status.js";
+import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface ReplOptions {
+  workspace: string;
   model: AgentModel;
+  summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): AgentModel;
+  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
@@ -26,6 +33,7 @@ export interface ReplOptions {
   store: JsonlSessionStore;
   showReasoning?: boolean;
   limits: RuntimeLimits;
+  systemPrompt: string;
   resume?: string;
 }
 
@@ -49,6 +57,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   );
   const inputHistory = new InputHistory();
   let model = options.model;
+  let summarizer = options.summarizer;
   let modelSettings = options.modelSettings;
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
@@ -97,6 +106,98 @@ export async function runRepl(options: ReplOptions): Promise<void> {
           case "clear":
             process.stdout.write("\u001B[2J\u001B[H");
             continue;
+
+          case "context":
+            console.log(
+              formatContextStatus(
+                estimateContextBudget({
+                  systemPrompt: options.systemPrompt,
+                  events: state?.events ?? [],
+                  tools: options.environment.tools(),
+                  contextWindow: modelSettings.contextWindow,
+                  includeImages: modelSettings.vision,
+                  includeReasoning: modelSettings.thinking.enabled,
+                }),
+              ),
+            );
+            continue;
+
+          case "compact": {
+            if (!state || !session) {
+              console.log(ansi.dim("Сессия ещё не создана."));
+              continue;
+            }
+            const plan = createCompactionPlan(state.events);
+            if (!plan) {
+              console.log(
+                ansi.dim(
+                  "Для сжатия нужно больше двух пользовательских ходов в активном контексте.",
+                ),
+              );
+              continue;
+            }
+
+            const before = estimateContextBudget({
+              systemPrompt: options.systemPrompt,
+              events: state.events,
+              tools: options.environment.tools(),
+              contextWindow: modelSettings.contextWindow,
+              includeImages: modelSettings.vision,
+              includeReasoning: modelSettings.thinking.enabled,
+            });
+            console.log(ansi.dim("Сжимаю старую часть контекста…"));
+            const cancelCompaction = new AbortController();
+            const onCompactionSigint = (): void => cancelCompaction.abort();
+            process.on("SIGINT", onCompactionSigint);
+
+            try {
+              const signal = AbortSignal.any([
+                cancelCompaction.signal,
+                AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
+              ]);
+              const summary = await summarizer.summarize(plan.eventsToSummarize, signal);
+              const event = {
+                type: "compaction" as const,
+                summary,
+                retainedEvents: plan.retainedEvents,
+              };
+              const after = estimateContextBudget({
+                systemPrompt: options.systemPrompt,
+                events: [...state.events, event],
+                tools: options.environment.tools(),
+                contextWindow: modelSettings.contextWindow,
+                includeImages: modelSettings.vision,
+                includeReasoning: modelSettings.thinking.enabled,
+              });
+              if (after.estimatedTokens >= before.estimatedTokens) {
+                console.warn(
+                  ansi.yellow(
+                    `Резюме не уменьшило контекст (~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов), поэтому сессия не изменена.`,
+                  ),
+                );
+                continue;
+              }
+              state.events.push(event);
+              await session.observer.onEvent(event);
+
+              console.log(
+                ansi.green(
+                  `Контекст сжат: ~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов. Последние ${plan.retainedUserTurns} хода сохранены дословно.`,
+                ),
+              );
+            } catch (error) {
+              console.error(
+                cancelCompaction.signal.aborted
+                  ? ansi.yellow("Сжатие контекста отменено.")
+                  : ansi.red(
+                      `Не удалось сжать контекст: ${error instanceof Error ? error.message : String(error)}`,
+                    ),
+              );
+            } finally {
+              process.removeListener("SIGINT", onCompactionSigint);
+            }
+            continue;
+          }
 
           case "reasoning":
             if (command.enabled === undefined) {
@@ -156,6 +257,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 await options.saveModelId(command.id);
                 modelSettings = selectModel(modelSettings, command.id);
                 model = options.createAgentModel(modelSettings);
+                summarizer = options.createContextSummarizer(modelSettings);
                 console.log(
                   ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(modelSettings)}`),
                 );
@@ -188,6 +290,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               if (changed) {
                 modelSettings = nextSettings;
                 model = options.createAgentModel(modelSettings);
+                summarizer = options.createContextSummarizer(modelSettings);
               }
 
               try {
@@ -244,6 +347,8 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       }
 
       renderer.beginTurn();
+      const changes = new TurnChangeTracker(options.workspace);
+      await changes.begin();
       const cancelTurn = new AbortController();
       const onSigint = (): void => {
         if (!cancelTurn.signal.aborted) {
@@ -257,7 +362,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         const result = await runAgent(state, {
           model,
           environment: options.environment,
-          observers: [session.observer, renderer],
+          observers: [session.observer, renderer, changes],
           onTextDelta: renderer.onTextDelta,
           onReasoningDelta: renderer.onReasoningDelta,
           signal: AbortSignal.any([
@@ -269,6 +374,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         });
 
         renderer.printResult(result);
+        renderer.printChangeSummary(await changes.finish());
       } finally {
         process.removeListener("SIGINT", onSigint);
       }

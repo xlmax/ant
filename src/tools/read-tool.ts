@@ -261,6 +261,7 @@ async function readTextFile(
 
 export function createReadTool(workspaceDirectory: string): Tool {
   return {
+    parallelSafe: true,
     spec: {
       name: "read",
       description:

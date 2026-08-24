@@ -93,7 +93,12 @@ function serializeRecord(sessionId: string, event: AgentEvent, timestamp: string
  */
 export function isPersistedEvent(event: AgentEvent): boolean {
   return (
-    event.type !== "model.requested" && event.type !== "model.retry" && event.type !== "model.usage"
+    event.type !== "model.requested" &&
+    event.type !== "model.retry" &&
+    event.type !== "model.usage" &&
+    event.type !== "tool.started" &&
+    event.type !== "tool.output" &&
+    event.type !== "tool.finished"
   );
 }
 
@@ -209,9 +214,18 @@ async function readSessionMetadata(
 async function readSessionRecords(filePath: string): Promise<SessionRecord[]> {
   const content = await readFile(filePath, "utf8");
   const records: SessionRecord[] = [];
-  for (const [index, line] of content.split(/\r?\n/u).entries()) {
+  const lines = content.split(/\r?\n/u);
+  const hasIncompleteTail = content !== "" && !content.endsWith("\n");
+  for (const [index, line] of lines.entries()) {
     if (line) {
-      records.push(parseRecord(line, index + 1));
+      try {
+        records.push(parseRecord(line, index + 1));
+      } catch (error) {
+        if (hasIncompleteTail && index === lines.length - 1 && records.length > 0) {
+          break;
+        }
+        throw error;
+      }
     }
   }
 

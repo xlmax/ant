@@ -267,7 +267,7 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
   assert.deepEqual(requestBody.stream_options, { include_usage: true });
 });
 
-test("DeepSeekModel drops an interrupted tool turn when resuming a session", async () => {
+test("DeepSeekModel preserves completed calls and marks missing observations as interrupted", async () => {
   let request: RequestInit | undefined;
   const fetchMock = (async (
     _input: string | URL | Request,
@@ -307,8 +307,113 @@ test("DeepSeekModel drops an interrupted tool turn when resuming a session", asy
   assert.deepEqual(body.messages, [
     { role: "system", content: "Тестовая системная инструкция." },
     { role: "user", content: "Сделай работу" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call-completed",
+          type: "function",
+          function: { name: "echo", arguments: '{"text":"x"}' },
+        },
+        {
+          id: "call-interrupted",
+          type: "function",
+          function: { name: "echo", arguments: '{"text":"y"}' },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      tool_call_id: "call-completed",
+      content: '{"ok":true,"value":{"text":"x"}}',
+    },
+    {
+      role: "tool",
+      tool_call_id: "call-interrupted",
+      content: '{"ok":false,"error":"Tool call was interrupted; execution status is unknown"}',
+    },
     { role: "user", content: "Продолжай" },
   ]);
+});
+
+test("DeepSeekModel rejects an estimated input larger than the configured context", async () => {
+  let requested = false;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "A deliberately long system prompt for a tiny context window.",
+    contextWindow: 10,
+    fetch: (async () => {
+      requested = true;
+      return new Response();
+    }) as typeof fetch,
+  });
+
+  await assert.rejects(
+    model.decide({ events: [{ type: "task", content: "work" }], tools: [] }),
+    /exceeds the configured context window/u,
+  );
+  assert.equal(requested, false);
+});
+
+test("DeepSeekModel summarizes context without exposing tools", async () => {
+  let request: RequestInit | undefined;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "System prompt",
+    fetch: (async (_input, init) => {
+      request = init;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "Краткое резюме работы." } }] }),
+        { status: 200 },
+      );
+    }) as typeof fetch,
+  });
+
+  const summary = await model.summarize([
+    { type: "task", content: "Исправь ошибку" },
+    { type: "decision", decision: { type: "finish", answer: "Исправлено" } },
+  ]);
+
+  const body = JSON.parse(String(request?.body));
+  assert.equal(summary, "Краткое резюме работы.");
+  assert.equal(body.tools, undefined);
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(body.max_tokens, 4_096);
+  assert.match(body.messages.at(-1)?.content ?? "", /структурированное резюме/u);
+});
+
+test("DeepSeekModel sends the active compaction instead of superseded history", async () => {
+  let request: RequestInit | undefined;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "System prompt",
+    fetch: (async (_input, init) => {
+      request = init;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "Продолжаю" } }] }), {
+        status: 200,
+      });
+    }) as typeof fetch,
+  });
+  const retainedEvents = [{ type: "user" as const, content: "Недавняя задача" }];
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Секретная старая задача" },
+      {
+        type: "compaction",
+        summary: "Старая задача завершена без деталей.",
+        retainedEvents,
+      },
+    ],
+    tools: [],
+  });
+
+  const messages = JSON.parse(String(request?.body)).messages;
+  const serialized = JSON.stringify(messages);
+  assert.doesNotMatch(serialized, /Секретная старая задача/u);
+  assert.match(serialized, /Старая задача завершена без деталей/u);
+  assert.match(serialized, /Недавняя задача/u);
 });
 
 test("DeepSeekModel omits saved reasoning when thinking is disabled", async () => {

@@ -105,6 +105,21 @@ test("JSONL session store refreshes stale sidecar metadata from JSONL", async ()
   }
 });
 
+test("JSONL session store ignores only an incomplete final record", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Уцелевшая задача"));
+    const validContent = await readFile(session.filePath, "utf8");
+    await writeFile(session.filePath, `${validContent}{"version":1`, "utf8");
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL session store preserves image attachments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 
@@ -167,6 +182,55 @@ test("session observer records the complete agent loop", async () => {
     assert.equal(result.status, "completed");
     const persistedEvents = result.state.events.filter((event) => isPersistedEvent(event));
     assert.deepEqual(resumed.state.events, persistedEvents);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("session journals do not persist transient tool lifecycle events", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Поток"));
+    const call = { id: "bash-1", name: "bash", input: { command: "work" } };
+    await session.observer.onEvent({ type: "tool.started", call });
+    await session.observer.onEvent({
+      type: "tool.output",
+      call,
+      output: { stream: "stdout", content: "secret transient output" },
+    });
+    await session.observer.onEvent({
+      type: "tool.finished",
+      call,
+      observation: { ok: true, value: { exitCode: 0 } },
+      durationMs: 10,
+    });
+
+    const content = await readFile(session.filePath, "utf8");
+    assert.doesNotMatch(content, /tool\.(started|output|finished)|secret transient output/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("session journals persist compaction summaries and retained events", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Старая задача"));
+    const retainedEvents = [{ type: "user" as const, content: "Новая задача" }];
+    await session.observer.onEvent({
+      type: "compaction",
+      summary: "Старая задача завершена.",
+      retainedEvents,
+    });
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events.at(-1), {
+      type: "compaction",
+      summary: "Старая задача завершена.",
+      retainedEvents,
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

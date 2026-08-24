@@ -1,6 +1,7 @@
 import type { Tool } from "../../src/core/environment.js";
 
 export const echoTool: Tool = {
+  parallelSafe: true,
   spec: {
     name: "echo",
     description: "Returns the provided text without changing it.",

@@ -17,10 +17,12 @@ import {
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
+import type { ContextSummarizer } from "./core/context-events.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
+import { TurnChangeTracker } from "./ui/turn-change-summary.js";
 
 function createDeepSeekModel(
   apiKey: string,
@@ -41,13 +43,16 @@ function createDeepSeekModel(
 
 async function createModel(workspace: string): Promise<{
   model: DeepSeekModel;
+  summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
   createAgentModel(settings: ModelSettings): DeepSeekModel;
+  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
   promptSources: string[];
+  systemPrompt: string;
   projectOverrides: ProjectSettingsOverrides;
   showReasoning: boolean;
   color: boolean;
@@ -74,13 +79,16 @@ async function createModel(workspace: string): Promise<{
 
   return {
     model,
+    summarizer: model,
     modelSettings,
     createAgentModel: createConfiguredModel,
+    createContextSummarizer: createConfiguredModel,
     listModels: () => model.listModels(),
     saveModelId: saveUserModelId,
     saveThinking: saveUserModelThinking,
     saveShowReasoning: saveUserShowReasoning,
     promptSources: systemPrompt.sources,
+    systemPrompt: systemPrompt.content,
     projectOverrides: loadedSettings.projectOverrides,
     showReasoning: loadedSettings.settings.ui.showReasoning,
     color: loadedSettings.settings.ui.color,
@@ -103,6 +111,7 @@ async function appendUserMessage(
 
 async function runOneShot(
   options: Pick<CliOptions, "task" | "resume">,
+  workspace: string,
   model: DeepSeekModel,
   environment: ToolEnvironment,
   store: JsonlSessionStore,
@@ -123,13 +132,15 @@ async function runOneShot(
   }
 
   const renderer = new ConsoleRenderer({ showReasoning });
+  const changes = new TurnChangeTracker(workspace);
   console.log(`Сессия: ${session.id}`);
   renderer.beginTurn();
+  await changes.begin();
 
   const result = await runAgent(state, {
     model,
     environment,
-    observers: [session.observer, renderer],
+    observers: [session.observer, renderer, changes],
     onTextDelta: renderer.onTextDelta,
     onReasoningDelta: renderer.onReasoningDelta,
     signal: AbortSignal.timeout(limits.turnTimeoutSeconds * 1_000),
@@ -138,6 +149,7 @@ async function runOneShot(
   });
 
   renderer.printResult(result);
+  renderer.printChangeSummary(await changes.finish());
 
   if (result.status === "cancelled") {
     process.exitCode = 2;
@@ -223,13 +235,16 @@ async function main(): Promise<void> {
   const resume = await resolveResumeId(options, store);
   const {
     model,
+    summarizer,
     modelSettings,
     createAgentModel: createConfiguredModel,
+    createContextSummarizer,
     listModels,
     saveModelId,
     saveThinking,
     saveShowReasoning,
     promptSources,
+    systemPrompt,
     projectOverrides,
     showReasoning,
     color,
@@ -244,9 +259,12 @@ async function main(): Promise<void> {
 
   if (!options.task) {
     await runRepl({
+      workspace,
       model,
+      summarizer,
       modelSettings,
       createAgentModel: createConfiguredModel,
+      createContextSummarizer,
       listModels,
       saveModelId,
       saveThinking,
@@ -256,6 +274,7 @@ async function main(): Promise<void> {
       store,
       showReasoning,
       limits,
+      systemPrompt,
       ...(resume === undefined ? {} : { resume }),
     });
     return;
@@ -263,6 +282,7 @@ async function main(): Promise<void> {
 
   await runOneShot(
     { task: options.task, ...(resume === undefined ? {} : { resume }) },
+    workspace,
     model,
     environment,
     store,

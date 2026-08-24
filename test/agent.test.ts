@@ -176,6 +176,28 @@ test("the model request timeout resets while streaming reasoning", async () => {
   assert.equal(attempts, 1);
 });
 
+test("the model request timeout resets on non-text stream activity", async () => {
+  const model: AgentModel = {
+    async decide(_input, signal, _text, _reasoning, _usage, onActivity) {
+      for (let index = 0; index < 4; index += 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 4));
+        signal?.throwIfAborted();
+        onActivity?.();
+      }
+      return { type: "finish", answer: "Готово" };
+    },
+  };
+
+  const result = await runAgent(createAgentState("Жди tool-call stream"), {
+    model,
+    environment: new ToolEnvironment([]),
+    modelRequestTimeoutMs: 10,
+    modelMaxAttempts: 1,
+    onTextDelta: () => {},
+  });
+  assert.equal(result.status, "completed");
+});
+
 test("the agent does not retry after streaming has started", async () => {
   let attempts = 0;
   const model: AgentModel = {
@@ -252,5 +274,90 @@ test("the agent executes every tool call from one model turn", async () => {
       "model.requested",
       "decision",
     ],
+  );
+});
+
+test("the environment executes parallel-safe tool calls concurrently", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  const tool = {
+    parallelSafe: true,
+    spec: { name: "delayed", description: "waits", inputSchema: { type: "object" } },
+    async execute() {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      active -= 1;
+      return "done";
+    },
+  };
+  const environment = new ToolEnvironment([tool]);
+  const observations = await environment.executeMany([
+    { id: "one", name: "delayed", input: {} },
+    { id: "two", name: "delayed", input: {} },
+  ]);
+
+  assert.equal(maximumActive, 2);
+  assert.equal(observations.length, 2);
+});
+
+test("the environment keeps unsafe tool calls sequential", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  const tool = {
+    spec: { name: "mutating", description: "waits", inputSchema: { type: "object" } },
+    async execute() {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return "done";
+    },
+  };
+  const environment = new ToolEnvironment([tool]);
+  await environment.executeMany([
+    { id: "one", name: "mutating", input: {} },
+    { id: "two", name: "mutating", input: {} },
+  ]);
+  assert.equal(maximumActive, 1);
+});
+
+test("tool lifecycle and output events are observed but not added to model state", async () => {
+  const lifecycleEvents: AgentEvent[] = [];
+  const streamingTool = {
+    spec: { name: "stream", description: "streams", inputSchema: { type: "object" } },
+    async execute(_input: unknown, _signal?: AbortSignal, onOutput?: (output: never) => void) {
+      onOutput?.({ stream: "stdout", content: "working\n" } as never);
+      return { status: "done" };
+    },
+  };
+  const model: AgentModel = {
+    async decide({ events }) {
+      return events.some((event) => event.type === "observation")
+        ? { type: "finish", answer: "Готово" }
+        : { type: "tools", calls: [{ id: "stream-1", name: "stream", input: {} }] };
+    },
+  };
+
+  const result = await runAgent(createAgentState("Покажи поток"), {
+    model,
+    environment: new ToolEnvironment([streamingTool]),
+    observers: [
+      {
+        onEvent: (event) => {
+          lifecycleEvents.push(event);
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(
+    lifecycleEvents.filter((event) => event.type.startsWith("tool.")).map((event) => event.type),
+    ["tool.started", "tool.output", "tool.finished"],
+  );
+  assert.equal(
+    result.state.events.some((event) => event.type.startsWith("tool.")),
+    false,
   );
 });

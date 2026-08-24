@@ -11,6 +11,8 @@ export type CommandAction =
   | { type: "new" }
   | { type: "session" }
   | { type: "clear" }
+  | { type: "context" }
+  | { type: "compact" }
   | { type: "reasoning"; enabled?: boolean }
   | { type: "model"; id?: string; list?: true }
   | { type: "think"; selection?: EffortSelection }
@@ -37,6 +39,16 @@ const commands: readonly ReplCommand[] = [
     name: "clear",
     usage: "/clear",
     description: "Очистить экран терминала.",
+  },
+  {
+    name: "context",
+    usage: "/context",
+    description: "Показать приблизительное использование контекстного окна.",
+  },
+  {
+    name: "compact",
+    usage: "/compact",
+    description: "Сжать старую часть текущей сессии в резюме.",
   },
   {
     name: "reasoning",
@@ -177,6 +189,8 @@ export function parseReplCommand(input: string): CommandAction | undefined {
     case "new":
     case "session":
     case "clear":
+    case "context":
+    case "compact":
     case "exit":
       return args.length === 0
         ? { type: command.name }

@@ -89,6 +89,7 @@ function truncateLine(text: string): string {
 
 export function createGrepTool(workspaceDirectory: string): Tool {
   return {
+    parallelSafe: true,
     spec: {
       name: "grep",
       description:
