@@ -47,7 +47,7 @@ test("reasoning output uses muted markdown formatting", async () => {
   }
 });
 
-test("tool output is rendered live and the final observation is not duplicated", async () => {
+test("tool output is not streamed and the final observation is not duplicated", async () => {
   const originalWrite = process.stdout.write;
   const output: string[] = [];
   process.stdout.write = ((chunk: string | Uint8Array): boolean => {
@@ -79,12 +79,59 @@ test("tool output is rendered live and the final observation is not duplicated",
     await renderer.onEvent({ type: "observation", call, observation });
 
     const rendered = output.join("");
-    assert.match(rendered, /→ bash/u);
-    assert.match(rendered, /building/u);
-    assert.match(rendered, /exit 0/u);
-    assert.equal(rendered.match(/building/gu)?.length, 1);
+    assert.match(rendered, /→ bash build/u);
+    assert.doesNotMatch(rendered, /building/u);
+    assert.match(rendered, /✓ bash exit 0 · 120 ms/u);
+    assert.equal(rendered.match(/exit 0/gu)?.length, 1);
   } finally {
     process.stdout.write = originalWrite;
+    configureAnsi(true);
+  }
+});
+
+test("interactive tool rendering shows a spinner line instead of streaming output", async () => {
+  const originalWrite = process.stdout.write;
+  const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const output: string[] = [];
+  Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    output.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+  configureAnsi(false);
+
+  try {
+    const renderer = new ConsoleRenderer();
+    renderer.beginTurn();
+    const call = { id: "bash-1", name: "bash", input: { command: "npm test" } };
+    await renderer.onEvent({ type: "tool.started", call });
+    await renderer.onEvent({
+      type: "tool.output",
+      call,
+      output: { stream: "stdout", content: "running tests\n" },
+    });
+    await renderer.onEvent({
+      type: "tool.finished",
+      call,
+      observation: {
+        ok: true as const,
+        value: { exitCode: 0, output: "running tests\n", truncated: false },
+      },
+      durationMs: 3500,
+    });
+
+    const rendered = output.join("");
+    assert.match(rendered, /→ bash npm test/u);
+    assert.ok(rendered.includes(`\r${String.fromCharCode(27)}[2K`));
+    assert.doesNotMatch(rendered, /running tests/u);
+    assert.match(rendered, /✓ bash exit 0 · 3\.5 s/u);
+  } finally {
+    process.stdout.write = originalWrite;
+    if (isTTYDescriptor) {
+      Object.defineProperty(process.stdout, "isTTY", isTTYDescriptor);
+    } else {
+      Reflect.deleteProperty(process.stdout, "isTTY");
+    }
     configureAnsi(true);
   }
 });

@@ -1,8 +1,20 @@
-import type { AgentEvent, AgentObserver, AgentResult, ModelUsage } from "../core/agent.js";
+import type {
+  AgentEvent,
+  AgentObserver,
+  AgentResult,
+  ModelUsage,
+  Observation,
+  ToolCall,
+} from "../core/agent.js";
 import { ansi } from "./ansi.js";
 import { StreamingMarkdownRenderer } from "./markdown.js";
 import { sectionFooter, sectionHeader } from "./section.js";
 import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 80;
+const TOOL_LABEL_MAX_CHARS = 60;
+const ERROR_REASON_MAX_CHARS = 120;
 
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -12,12 +24,66 @@ function formatDuration(durationMs: number): string {
   return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(1)} s`;
 }
 
-function formatStreamedResult(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as Record<string, unknown>;
-  if (typeof record.exitCode !== "number" && record.exitCode !== null) return undefined;
-  const status = record.exitCode === 0 ? "exit 0" : `exit ${String(record.exitCode)}`;
-  return record.truncated === true ? `${status} · сохранённый вывод обрезан` : status;
+function singleLine(value: string, maxChars: number): string {
+  const collapsed = value.replace(/\s+/gu, " ").trim();
+  if (collapsed === "") return "";
+  const chars = Array.from(collapsed);
+  if (chars.length <= maxChars) return collapsed;
+  return `${chars.slice(0, maxChars - 1).join("")}…`;
+}
+
+function stringProperty(value: unknown, property: string): string | undefined {
+  if (typeof value !== "object" || value === null || !(property in value)) return undefined;
+  const candidate = (value as Record<string, unknown>)[property];
+  return typeof candidate === "string" ? candidate : undefined;
+}
+
+function formatToolLabel(name: string, input: unknown): string {
+  const record = typeof input === "object" && input !== null ? input : undefined;
+  switch (name) {
+    case "bash":
+      return singleLine(stringProperty(record, "command") ?? "", TOOL_LABEL_MAX_CHARS);
+    case "grep":
+    case "glob":
+      return singleLine(stringProperty(record, "pattern") ?? "", TOOL_LABEL_MAX_CHARS);
+    case "read":
+    case "write":
+    case "edit":
+      return singleLine(stringProperty(record, "path") ?? "", TOOL_LABEL_MAX_CHARS);
+    default:
+      return singleLine(formatValue(input), TOOL_LABEL_MAX_CHARS);
+  }
+}
+
+function bashExitCode(value: unknown): number | undefined {
+  if (typeof value !== "object" || value === null || !("exitCode" in value)) return undefined;
+  const exitCode = (value as Record<string, unknown>).exitCode;
+  return typeof exitCode === "number" ? exitCode : undefined;
+}
+
+interface ToolResultLine {
+  text: string;
+  failed: boolean;
+}
+
+function formatToolResult(
+  call: ToolCall,
+  observation: Observation,
+  durationMs: number,
+): ToolResultLine {
+  const duration = `· ${formatDuration(durationMs)}`;
+  if (!observation.ok) {
+    const reason = singleLine(observation.error ?? "ошибка", ERROR_REASON_MAX_CHARS);
+    return { text: `${call.name} ${duration} — ${reason}`, failed: true };
+  }
+
+  const exitCode = bashExitCode(observation.value);
+  if (exitCode !== undefined && exitCode !== 0) {
+    return { text: `${call.name} exit ${exitCode} ${duration}`, failed: true };
+  }
+
+  const status = exitCode === 0 ? " exit 0" : "";
+  return { text: `${call.name}${status} ${duration}`, failed: false };
 }
 
 function formatTokens(tokens: number): string {
@@ -56,9 +122,11 @@ export class ConsoleRenderer implements AgentObserver {
   #reasoningMarkdown = new StreamingMarkdownRenderer();
   #markdown = new StreamingMarkdownRenderer();
   #usage: ModelUsage | undefined;
-  readonly #streamedToolCalls = new Set<string>();
   readonly #finishedToolCalls = new Set<string>();
-  readonly #toolOutputEndsWithNewline = new Map<string, boolean>();
+  #activeTools = new Map<string, { name: string; startedAt: number }>();
+  #spinnerTimer: ReturnType<typeof setInterval> | undefined;
+  #spinnerFrame = 0;
+  #spinnerLineVisible = false;
 
   constructor(options: { showReasoning?: boolean } = {}) {
     this.#showReasoning = options.showReasoning ?? false;
@@ -73,21 +141,24 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   beginTurn(): void {
+    this.#finalizeSpinner();
+    this.#activeTools.clear();
+    this.#spinnerFrame = 0;
     this.#streamedText = false;
     this.#streamedReasoningForDecision = false;
     this.#reasoningBlockOpen = false;
     this.#reasoningMarkdown = new StreamingMarkdownRenderer();
     this.#markdown = new StreamingMarkdownRenderer();
     this.#usage = undefined;
-    this.#streamedToolCalls.clear();
     this.#finishedToolCalls.clear();
-    this.#toolOutputEndsWithNewline.clear();
   }
 
   onReasoningDelta = (text: string): void => {
     if (!this.#showReasoning) {
       return;
     }
+
+    this.#finalizeSpinner();
 
     if (!this.#reasoningBlockOpen) {
       process.stdout.write(`${sectionHeader("Рассуждения", (title) => ansi.dim(title))}\n`);
@@ -99,6 +170,7 @@ export class ConsoleRenderer implements AgentObserver {
   };
 
   onTextDelta = (text: string): void => {
+    this.#finalizeSpinner();
     this.closeReasoningBlock();
 
     if (!this.#streamedText) {
@@ -135,53 +207,49 @@ export class ConsoleRenderer implements AgentObserver {
 
         break;
 
-      case "tool.started":
-        console.log(
-          `${ansi.yellow("→")} ${ansi.bold(ansi.cyan(event.call.name))} ${ansi.dim(`(${event.call.id})`)} ${ansi.dim(formatValue(event.call.input))}`,
-        );
+      case "tool.started": {
+        this.#eraseSpinner();
+        this.#activeTools.set(event.call.id, {
+          name: event.call.name,
+          startedAt: Date.now(),
+        });
+        const label = formatToolLabel(event.call.name, event.call.input);
+        const header = `${ansi.yellow("→")} ${ansi.bold(ansi.cyan(event.call.name))}`;
+        this.#writeLine(label === "" ? header : `${header} ${ansi.dim(label)}`);
+        this.#drawSpinner();
+        this.#startSpinnerTimer();
         break;
+      }
 
       case "tool.output":
-        if (!this.#streamedToolCalls.has(event.call.id)) {
-          this.#streamedToolCalls.add(event.call.id);
-          console.log(ansi.dim(`  ${event.output.stream}:`));
-        }
-        process.stdout.write(
-          event.output.stream === "stderr"
-            ? ansi.yellow(event.output.content)
-            : event.output.content,
-        );
-        this.#toolOutputEndsWithNewline.set(
-          event.call.id,
-          event.output.content.endsWith("\n") || event.output.content.endsWith("\r"),
-        );
         break;
 
       case "tool.finished": {
-        const streamed = this.#streamedToolCalls.has(event.call.id);
-        if (streamed && this.#toolOutputEndsWithNewline.get(event.call.id) === false) {
-          process.stdout.write("\n");
+        this.#activeTools.delete(event.call.id);
+        const result = formatToolResult(event.call, event.observation, event.durationMs);
+        this.#eraseSpinner();
+        const marker = result.failed ? ansi.red("✗") : ansi.green("✓");
+        this.#writeLine(`${marker} ${result.text}`);
+        if (this.#activeTools.size > 0) {
+          this.#drawSpinner();
+        } else {
+          this.#stopSpinnerTimer();
+          this.#spinnerFrame = 0;
         }
-        const result = event.observation.ok
-          ? streamed
-            ? (formatStreamedResult(event.observation.value) ?? "готово")
-            : formatValue(event.observation.value)
-          : `${ansi.red("Ошибка:")} ${event.observation.error}`;
-        console.log(
-          `${event.observation.ok ? ansi.green("←") : ansi.red("←")} ${result} ${ansi.dim(`· ${formatDuration(event.durationMs)}`)}`,
-        );
         this.#finishedToolCalls.add(event.call.id);
         break;
       }
 
-      case "observation":
+      case "observation": {
         if (this.#finishedToolCalls.has(event.call.id)) break;
-        console.log(
-          event.observation.ok
-            ? `${ansi.green("←")} ${ansi.dim(formatValue(event.observation.value))}`
-            : `${ansi.red("← Ошибка:")} ${event.observation.error}`,
-        );
+        this.#eraseSpinner();
+        const marker = event.observation.ok ? ansi.green("✓") : ansi.red("✗");
+        const detail = event.observation.ok
+          ? event.call.name
+          : singleLine(event.observation.error ?? "ошибка", ERROR_REASON_MAX_CHARS);
+        this.#writeLine(`${marker} ${detail}`);
         break;
+      }
 
       case "task":
       case "user":
@@ -190,6 +258,7 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   printResult(result: AgentResult): void {
+    this.#finalizeSpinner();
     switch (result.status) {
       case "completed":
         if (this.#streamedText) {
@@ -212,11 +281,58 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   printChangeSummary(summary: TurnChangeSummary): void {
+    this.#finalizeSpinner();
     const formatted = formatTurnChangeSummary(summary);
     if (!formatted) return;
     console.log(`\n${sectionHeader("Изменения", (title) => ansi.dim(title))}`);
     console.log(ansi.dim(formatted.replace(/^Изменения за ход\n?/u, "")));
     console.log(sectionFooter());
+  }
+
+  #writeLine(text: string): void {
+    process.stdout.write(`${text}\n`);
+  }
+
+  #isInteractive(): boolean {
+    return process.stdout.isTTY === true;
+  }
+
+  #eraseSpinner(): void {
+    if (!this.#spinnerLineVisible) return;
+    process.stdout.write("\r\x1b[2K");
+    this.#spinnerLineVisible = false;
+  }
+
+  #drawSpinner(): void {
+    if (!this.#isInteractive() || this.#activeTools.size === 0) return;
+    const active = [...this.#activeTools.values()];
+    const names = active.map((tool) => tool.name).join(", ");
+    const oldest = active.reduce(
+      (min, tool) => Math.min(min, tool.startedAt),
+      Number.POSITIVE_INFINITY,
+    );
+    const line = `${SPINNER_FRAMES[this.#spinnerFrame % SPINNER_FRAMES.length]} ${names} · ${formatDuration(
+      Date.now() - oldest,
+    )}`;
+    this.#spinnerFrame += 1;
+    process.stdout.write(`\r\x1b[2K${ansi.yellow(line)}`);
+    this.#spinnerLineVisible = true;
+  }
+
+  #startSpinnerTimer(): void {
+    if (!this.#isInteractive() || this.#spinnerTimer !== undefined) return;
+    this.#spinnerTimer = setInterval(() => this.#drawSpinner(), SPINNER_INTERVAL_MS);
+  }
+
+  #stopSpinnerTimer(): void {
+    if (this.#spinnerTimer === undefined) return;
+    clearInterval(this.#spinnerTimer);
+    this.#spinnerTimer = undefined;
+  }
+
+  #finalizeSpinner(): void {
+    this.#stopSpinnerTimer();
+    this.#eraseSpinner();
   }
 
   private closeReasoningBlock(): void {
