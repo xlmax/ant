@@ -15,6 +15,7 @@ import { readTerminalInput } from "./terminal-input.js";
 import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
 import { formatContextStatus } from "./context-status.js";
+import { formatStartScreen, resolveGitBranch } from "./start-screen.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface ReplOptions {
@@ -62,13 +63,20 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   let state: AgentState | undefined;
   let session: AgentSession | undefined;
 
+  const branch = await resolveGitBranch(options.workspace);
+  console.log(
+    formatStartScreen({
+      workspace: options.workspace,
+      branch,
+      modelSettings,
+    }),
+  );
+
   if (options.resume) {
     const resumed = await options.store.resume(options.resume);
     state = resumed.state;
     session = resumed.session;
     console.log(ansi.dim(`Продолжена сессия: ${session.id}`));
-  } else {
-    console.log(ansi.dim("Интерактивный режим. Введите /help, чтобы увидеть команды."));
   }
 
   try {

@@ -243,7 +243,6 @@ async function main(): Promise<void> {
     saveModelId,
     saveThinking,
     saveShowReasoning,
-    promptSources,
     systemPrompt,
     projectOverrides,
     showReasoning,
@@ -255,7 +254,6 @@ async function main(): Promise<void> {
   const environment = new ToolEnvironment(
     createCodingTools(workspace, bashPath === undefined ? {} : { bashPath }),
   );
-  console.log(`Системный промпт: ${promptSources.join(", ")}`);
 
   if (!options.task) {
     await runRepl({
