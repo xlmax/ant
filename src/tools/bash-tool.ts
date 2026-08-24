@@ -93,9 +93,16 @@ function trimUtf8Boundary(buffer: Buffer, start: number): number {
   return buffer.length;
 }
 
-function truncateOutput(output: Buffer): { output: string; truncated: boolean } {
+function truncateOutput(
+  output: Buffer,
+  previouslyTruncated = false,
+): { output: string; truncated: boolean } {
   let resultBuffer = output;
-  let truncated = false;
+  let truncated = previouslyTruncated;
+
+  if (previouslyTruncated && resultBuffer.length > 0) {
+    resultBuffer = resultBuffer.subarray(trimUtf8Boundary(resultBuffer, 0));
+  }
 
   if (resultBuffer.length > MAX_BYTES) {
     const start = trimUtf8Boundary(resultBuffer, resultBuffer.length - MAX_BYTES);
@@ -114,6 +121,34 @@ function truncateOutput(output: Buffer): { output: string; truncated: boolean } 
   }
 
   return { output: result, truncated };
+}
+
+class BoundedOutputBuffer {
+  readonly #chunks: Buffer[] = [];
+  #bytes = 0;
+  #truncated = false;
+
+  append(chunk: Buffer): void {
+    this.#chunks.push(chunk);
+    this.#bytes += chunk.length;
+
+    while (this.#bytes > MAX_BYTES && this.#chunks.length > 0) {
+      const first = this.#chunks[0]!;
+      const excess = this.#bytes - MAX_BYTES;
+      if (first.length <= excess) {
+        this.#chunks.shift();
+        this.#bytes -= first.length;
+      } else {
+        this.#chunks[0] = first.subarray(excess);
+        this.#bytes -= excess;
+      }
+      this.#truncated = true;
+    }
+  }
+
+  result(): { output: string; truncated: boolean } {
+    return truncateOutput(Buffer.concat(this.#chunks, this.#bytes), this.#truncated);
+  }
 }
 
 function terminateProcessTree(pid: number): void {
@@ -168,7 +203,7 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
           stdio: ["ignore", "pipe", "pipe"],
           detached: process.platform !== "win32",
         });
-        const chunks: Buffer[] = [];
+        const output = new BoundedOutputBuffer();
         let timedOut = false;
         let settled = false;
 
@@ -211,8 +246,8 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
           finish(() => reject(new Error("Operation aborted")));
         };
 
-        child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-        child.stderr.on("data", (chunk: Buffer) => chunks.push(chunk));
+        child.stdout.on("data", (chunk: Buffer) => output.append(chunk));
+        child.stderr.on("data", (chunk: Buffer) => output.append(chunk));
         child.on("error", (error) => finish(() => reject(error)));
         child.on("close", (exitCode) =>
           finish(() => {
@@ -221,7 +256,7 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
               return;
             }
 
-            const result = truncateOutput(Buffer.concat(chunks));
+            const result = output.result();
             resolve({
               exitCode,
               output: result.output,

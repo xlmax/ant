@@ -105,6 +105,21 @@ test("JSONL session store refreshes stale sidecar metadata from JSONL", async ()
   }
 });
 
+test("JSONL session store ignores only an incomplete final record", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Уцелевшая задача"));
+    const validContent = await readFile(session.filePath, "utf8");
+    await writeFile(session.filePath, `${validContent}{"version":1`, "utf8");
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL session store preserves image attachments", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
 

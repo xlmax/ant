@@ -8,6 +8,7 @@ export interface ToolExecutionResult {
 
 export interface Tool {
   spec: ToolSpec;
+  parallelSafe?: boolean;
   execute(input: unknown, signal?: AbortSignal): Promise<unknown | ToolExecutionResult>;
 }
 
@@ -72,5 +73,23 @@ export class ToolEnvironment implements Environment {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  async executeMany(
+    calls: readonly [ToolCall, ...ToolCall[]],
+    signal?: AbortSignal,
+  ): Promise<readonly Observation[]> {
+    const canRunInParallel = calls.every(
+      (call) => this.#tools.get(call.name)?.parallelSafe === true,
+    );
+    if (canRunInParallel) {
+      return Promise.all(calls.map((call) => this.execute(call, signal)));
+    }
+
+    const observations: Observation[] = [];
+    for (const call of calls) {
+      observations.push(await this.execute(call, signal));
+    }
+    return observations;
   }
 }

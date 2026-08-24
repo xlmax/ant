@@ -34,6 +34,7 @@ function parseInput(input: unknown): GlobInput {
 
 export function createGlobTool(workspaceDirectory: string): Tool {
   return {
+    parallelSafe: true,
     spec: {
       name: "glob",
       description:

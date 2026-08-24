@@ -7,6 +7,7 @@ import type {
   Decision,
   ImageAttachment,
   ModelInput,
+  ModelActivityHandler,
   ModelUsage,
   ModelUsageHandler,
   Observation,
@@ -146,15 +147,19 @@ async function createMessages(
     | { decision: Extract<Decision, { type: "tools" }>; observations: Map<string, Observation> }
     | undefined;
 
-  const flushPending = async (): Promise<void> => {
-    if (!pending || pending.observations.size !== pending.decision.calls.length) {
+  const flushPending = async (interrupted = false): Promise<void> => {
+    if (!pending) {
       return;
     }
+    if (!interrupted && pending.observations.size !== pending.decision.calls.length) return;
 
     messages.push(decisionMessage(pending.decision, includeReasoning));
     const attachments: ImageAttachment[] = [];
     for (const call of pending.decision.calls) {
-      const observation = pending.observations.get(call.id);
+      const observation = pending.observations.get(call.id) ?? {
+        ok: false,
+        error: "Tool call was interrupted; execution status is unknown",
+      };
       if (observation) {
         messages.push({
           role: "tool",
@@ -192,9 +197,7 @@ async function createMessages(
     switch (event.type) {
       case "task":
       case "user":
-        // An interrupted tool turn cannot be submitted to the provider: it
-        // requires a tool response for every call. Drop that incomplete turn.
-        pending = undefined;
+        await flushPending(true);
         messages.push({ role: "user", content: event.content });
         break;
 
@@ -221,8 +224,7 @@ async function createMessages(
     }
   }
 
-  // Do not flush an incomplete tool turn. This is possible when an old
-  // session was interrupted after persisting the assistant tool call.
+  await flushPending(true);
   return messages;
 }
 
@@ -358,6 +360,7 @@ async function parseStreamingDecision(
   onTextDelta: TextDeltaHandler,
   onReasoningDelta: ReasoningDeltaHandler | undefined,
   onUsage: ModelUsageHandler | undefined,
+  onActivity: ModelActivityHandler | undefined,
   metadata: ModelMetadata,
 ): Promise<Decision> {
   if (!response.body) {
@@ -398,6 +401,7 @@ async function parseStreamingDecision(
       }
 
       const usage = parseUsage(payload, metadata);
+      onActivity?.();
       if (usage) {
         onUsage?.(usage);
       }
@@ -558,6 +562,7 @@ export class DeepSeekModel implements AgentModel {
     onTextDelta?: TextDeltaHandler,
     onReasoningDelta?: ReasoningDeltaHandler,
     onUsage?: ModelUsageHandler,
+    onActivity?: ModelActivityHandler,
   ): Promise<Decision> {
     const tools = createTools(input.tools);
     const messages = await createMessages(
@@ -573,6 +578,15 @@ export class DeepSeekModel implements AgentModel {
       thinking: { type: this.#thinkingEnabled ? "enabled" : "disabled" },
       stream: onTextDelta !== undefined,
     };
+
+    const estimatedInputTokens = Math.ceil(
+      Buffer.byteLength(JSON.stringify({ messages, tools }), "utf8") / 4,
+    );
+    if (estimatedInputTokens >= this.#contextWindow) {
+      throw new Error(
+        `Estimated input context (${estimatedInputTokens} tokens) exceeds the configured context window (${this.#contextWindow}). Start a new session or reduce the saved context.`,
+      );
+    }
 
     if (this.#thinkingEnabled) {
       body.reasoning_effort = this.#reasoningEffort;
@@ -610,7 +624,7 @@ export class DeepSeekModel implements AgentModel {
     }
 
     if (onTextDelta) {
-      return parseStreamingDecision(response, onTextDelta, onReasoningDelta, onUsage, {
+      return parseStreamingDecision(response, onTextDelta, onReasoningDelta, onUsage, onActivity, {
         provider: "deepseek",
         model: this.#model,
         reasoning: this.#thinkingEnabled ? this.#reasoningEffort : "off",

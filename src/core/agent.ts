@@ -72,6 +72,7 @@ export interface ModelUsage {
 export type TextDeltaHandler = (text: string) => void;
 export type ReasoningDeltaHandler = (text: string) => void;
 export type ModelUsageHandler = (usage: ModelUsage) => void;
+export type ModelActivityHandler = () => void;
 
 export interface AgentModel {
   decide(
@@ -80,6 +81,7 @@ export interface AgentModel {
     onTextDelta?: TextDeltaHandler,
     onReasoningDelta?: ReasoningDeltaHandler,
     onUsage?: ModelUsageHandler,
+    onActivity?: ModelActivityHandler,
   ): Promise<Decision>;
 }
 
@@ -96,6 +98,7 @@ export class ModelRequestError extends Error {
 export interface Environment {
   tools(): readonly ToolSpec[];
   execute(call: ToolCall, signal?: AbortSignal): Promise<Observation>;
+  executeMany?(calls: ToolCalls, signal?: AbortSignal): Promise<readonly Observation[]>;
 }
 
 export type AgentResult =
@@ -264,6 +267,7 @@ export async function runAgent(
           (reportedUsage) => {
             usage = reportedUsage;
           },
+          () => request.reset(),
         );
         break;
       } catch (error) {
@@ -326,20 +330,30 @@ export async function runAgent(
           state,
         };
 
-      case "tools":
-        for (const call of decision.calls) {
-          let observation: Observation;
-
-          try {
-            observation = await environment.execute(call, signal);
-          } catch (error) {
-            if (signal?.aborted) {
-              return { status: "cancelled", state };
+      case "tools": {
+        let observations: readonly Observation[];
+        try {
+          if (environment.executeMany) {
+            observations = await environment.executeMany(decision.calls, signal);
+          } else {
+            const sequential: Observation[] = [];
+            for (const call of decision.calls) {
+              sequential.push(await environment.execute(call, signal));
             }
-
-            throw error;
+            observations = sequential;
           }
+        } catch (error) {
+          if (signal?.aborted) {
+            return { status: "cancelled", state };
+          }
+          throw error;
+        }
 
+        for (const [index, call] of decision.calls.entries()) {
+          const observation = observations[index];
+          if (!observation) {
+            throw new Error(`Environment did not return an observation for tool call ${call.id}`);
+          }
           await appendEvent(
             state,
             {
@@ -351,6 +365,7 @@ export async function runAgent(
           );
         }
         break;
+      }
     }
   }
 

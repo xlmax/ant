@@ -108,6 +108,21 @@ test("bash truncates UTF-8 output without breaking characters", async () => {
   assert.equal(result.output.endsWith("€"), true);
 });
 
+test("bash keeps only a bounded tail of very large output", async () => {
+  const environment = new ToolEnvironment([createBashTool(process.cwd())]);
+  const observation = await environment.execute({
+    id: "bash-bounded-output",
+    name: "bash",
+    input: { command: `node -e "process.stdout.write('x'.repeat(10 * 1024 * 1024) + 'TAIL')"` },
+  });
+
+  if (observation.ok === false) throw new Error(observation.error);
+  const result = observation.value as { truncated: boolean; output: string };
+  assert.equal(result.truncated, true);
+  assert.ok(Buffer.byteLength(result.output, "utf8") <= 50 * 1024);
+  assert.equal(result.output.endsWith("TAIL"), true);
+});
+
 test("bash timeout kills the whole process tree", async () => {
   const tool = createBashTool(process.cwd());
   const pidFileName = temporaryPidFileName("bash-child-pid-timeout");
