@@ -4,6 +4,7 @@ import { stdin, stdout } from "node:process";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
 import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
+import { createCompactionPlan } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
@@ -115,6 +116,90 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               ),
             );
             continue;
+
+          case "compact": {
+            if (!state || !session) {
+              console.log(ansi.dim("Сессия ещё не создана."));
+              continue;
+            }
+            if (!model.compact) {
+              console.error(ansi.red("Активная модель не поддерживает сжатие контекста."));
+              continue;
+            }
+            const plan = createCompactionPlan(state.events);
+            if (!plan) {
+              console.log(
+                ansi.dim(
+                  "Для сжатия нужно больше двух пользовательских ходов в активном контексте.",
+                ),
+              );
+              continue;
+            }
+
+            const before = estimateContextBudget({
+              systemPrompt: options.systemPrompt,
+              events: state.events,
+              tools: options.environment.tools(),
+              contextWindow: modelSettings.contextWindow,
+              includeImages: modelSettings.vision,
+              includeReasoning: modelSettings.thinking.enabled,
+            });
+            console.log(ansi.dim("Сжимаю старую часть контекста…"));
+            const cancelCompaction = new AbortController();
+            const onCompactionSigint = (): void => cancelCompaction.abort();
+            process.on("SIGINT", onCompactionSigint);
+
+            try {
+              const signal = AbortSignal.any([
+                cancelCompaction.signal,
+                AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
+              ]);
+              const summary = await model.compact(
+                { events: plan.eventsToSummarize, tools: [] },
+                signal,
+              );
+              const event = {
+                type: "compaction" as const,
+                summary,
+                retainedEvents: plan.retainedEvents,
+              };
+              const after = estimateContextBudget({
+                systemPrompt: options.systemPrompt,
+                events: [...state.events, event],
+                tools: options.environment.tools(),
+                contextWindow: modelSettings.contextWindow,
+                includeImages: modelSettings.vision,
+                includeReasoning: modelSettings.thinking.enabled,
+              });
+              if (after.estimatedTokens >= before.estimatedTokens) {
+                console.warn(
+                  ansi.yellow(
+                    `Резюме не уменьшило контекст (~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов), поэтому сессия не изменена.`,
+                  ),
+                );
+                continue;
+              }
+              state.events.push(event);
+              await session.observer.onEvent(event);
+
+              console.log(
+                ansi.green(
+                  `Контекст сжат: ~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов. Последние ${plan.retainedUserTurns} хода сохранены дословно.`,
+                ),
+              );
+            } catch (error) {
+              console.error(
+                cancelCompaction.signal.aborted
+                  ? ansi.yellow("Сжатие контекста отменено.")
+                  : ansi.red(
+                      `Не удалось сжать контекст: ${error instanceof Error ? error.message : String(error)}`,
+                    ),
+              );
+            } finally {
+              process.removeListener("SIGINT", onCompactionSigint);
+            }
+            continue;
+          }
 
           case "reasoning":
             if (command.enabled === undefined) {

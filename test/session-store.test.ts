@@ -212,3 +212,26 @@ test("session journals do not persist transient tool lifecycle events", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("session journals persist compaction summaries and retained events", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Старая задача"));
+    const retainedEvents = [{ type: "user" as const, content: "Новая задача" }];
+    await session.observer.onEvent({
+      type: "compaction",
+      summary: "Старая задача завершена.",
+      retainedEvents,
+    });
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events.at(-1), {
+      type: "compaction",
+      summary: "Старая задача завершена.",
+      retainedEvents,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -121,3 +121,29 @@ test("context status reports a warning and the largest observations", () => {
     configureAnsi(true);
   }
 });
+
+test("context budget counts the active compaction instead of superseded history", () => {
+  const oldCall = { id: "old", name: "read", input: {} };
+  const budget = estimateContextBudget({
+    systemPrompt: "System",
+    contextWindow: 10_000,
+    tools: [],
+    events: [
+      { type: "task", content: "Old task" },
+      {
+        type: "observation",
+        call: oldCall,
+        observation: { ok: true, value: "x".repeat(20_000) },
+      },
+      {
+        type: "compaction",
+        summary: "Old task completed.",
+        retainedEvents: [{ type: "user", content: "Recent task" }],
+      },
+    ],
+  });
+
+  assert.equal(budget.breakdown.toolResults, 0);
+  assert.equal(budget.heavyObservations.length, 0);
+  assert.ok(budget.estimatedTokens < 100);
+});

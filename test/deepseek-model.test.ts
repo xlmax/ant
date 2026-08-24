@@ -356,6 +356,69 @@ test("DeepSeekModel rejects an estimated input larger than the configured contex
   assert.equal(requested, false);
 });
 
+test("DeepSeekModel compacts context without exposing tools", async () => {
+  let request: RequestInit | undefined;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "System prompt",
+    fetch: (async (_input, init) => {
+      request = init;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "Краткое резюме работы." } }] }),
+        { status: 200 },
+      );
+    }) as typeof fetch,
+  });
+
+  const summary = await model.compact({
+    events: [
+      { type: "task", content: "Исправь ошибку" },
+      { type: "decision", decision: { type: "finish", answer: "Исправлено" } },
+    ],
+    tools: [{ name: "bash", description: "Run command", inputSchema: { type: "object" } }],
+  });
+
+  const body = JSON.parse(String(request?.body));
+  assert.equal(summary, "Краткое резюме работы.");
+  assert.equal(body.tools, undefined);
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(body.max_tokens, 4_096);
+  assert.match(body.messages.at(-1)?.content ?? "", /структурированное резюме/u);
+});
+
+test("DeepSeekModel sends the active compaction instead of superseded history", async () => {
+  let request: RequestInit | undefined;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "System prompt",
+    fetch: (async (_input, init) => {
+      request = init;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "Продолжаю" } }] }), {
+        status: 200,
+      });
+    }) as typeof fetch,
+  });
+  const retainedEvents = [{ type: "user" as const, content: "Недавняя задача" }];
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Секретная старая задача" },
+      {
+        type: "compaction",
+        summary: "Старая задача завершена без деталей.",
+        retainedEvents,
+      },
+    ],
+    tools: [],
+  });
+
+  const messages = JSON.parse(String(request?.body)).messages;
+  const serialized = JSON.stringify(messages);
+  assert.doesNotMatch(serialized, /Секретная старая задача/u);
+  assert.match(serialized, /Старая задача завершена без деталей/u);
+  assert.match(serialized, /Недавняя задача/u);
+});
+
 test("DeepSeekModel omits saved reasoning when thinking is disabled", async () => {
   let request: RequestInit | undefined;
   const fetchMock = (async (

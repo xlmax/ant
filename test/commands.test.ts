@@ -35,6 +35,14 @@ test("context command accepts no arguments", () => {
   });
 });
 
+test("compact command accepts no arguments", () => {
+  assert.deepEqual(parseReplCommand("/compact"), { type: "compact" });
+  assert.deepEqual(parseReplCommand("/compact extra"), {
+    type: "error",
+    message: "Использование: /compact",
+  });
+});
+
 test("model and think commands support querying and runtime selection", () => {
   assert.deepEqual(parseReplCommand("/model"), { type: "model" });
   assert.deepEqual(parseReplCommand("/think"), { type: "think" });

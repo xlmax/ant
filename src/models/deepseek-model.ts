@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { ModelRequestError } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
+import { activeContextEvents } from "../core/context-events.js";
 import type {
   AgentEvent,
   AgentModel,
@@ -22,6 +23,9 @@ const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+const COMPACTION_PROMPT = `Составь компактное структурированное резюме предыдущей части сессии coding-агента.
+Сохрани цели пользователя, принятые решения, важные факты, изменённые файлы, выполненные команды и их существенные результаты, ошибки, ограничения и незавершённую работу.
+Не добавляй новых предположений. Не описывай сам процесс суммаризации. Ответ должен быть самодостаточным контекстом для продолжения работы.`;
 
 interface DeepSeekModelOptions {
   apiKey: string;
@@ -194,7 +198,7 @@ async function createMessages(
     pending = undefined;
   };
 
-  for (const event of events) {
+  for (const event of activeContextEvents(events)) {
     switch (event.type) {
       case "task":
       case "user":
@@ -209,6 +213,14 @@ async function createMessages(
         } else {
           messages.push(decisionMessage(event.decision, includeReasoning));
         }
+        break;
+
+      case "compaction":
+        pending = undefined;
+        messages.push({
+          role: "user",
+          content: `Ниже дано резюме предыдущей части этой сессии. Используй его как контекст для продолжения работы.\n\n${event.summary}`,
+        });
         break;
 
       case "observation":
@@ -660,6 +672,70 @@ export class DeepSeekModel implements AgentModel {
     }
 
     return parseDecision(payload);
+  }
+
+  async compact(input: ModelInput, signal?: AbortSignal): Promise<string> {
+    const summaryEvents: AgentEvent[] = [
+      ...input.events,
+      { type: "user", content: COMPACTION_PROMPT },
+    ];
+    const budget = estimateContextBudget({
+      systemPrompt: this.#systemPrompt,
+      events: summaryEvents,
+      tools: [],
+      contextWindow: this.#contextWindow,
+      includeImages: this.#supportsImages,
+      includeReasoning: false,
+    });
+    if (budget.estimatedTokens >= this.#contextWindow) {
+      throw new Error(
+        `The context selected for compaction is too large (${budget.estimatedTokens}/${this.#contextWindow} estimated tokens). Compact the session earlier or start a new session.`,
+      );
+    }
+
+    const messages = await createMessages(
+      input.events,
+      this.#systemPrompt,
+      false,
+      this.#supportsImages,
+      signal,
+    );
+    messages.push({ role: "user", content: COMPACTION_PROMPT });
+    const request: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.#apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.#model,
+        messages,
+        thinking: { type: "disabled" },
+        stream: false,
+        max_tokens: 4_096,
+      }),
+      ...(signal === undefined ? {} : { signal }),
+    };
+    const response = await this.#fetchResponse(`${this.#baseUrl}/chat/completions`, request);
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw new ModelRequestError(
+        `DeepSeek API returned ${response.status}: ${responseText.slice(0, 500)}`,
+        response.status === 429 || response.status >= 500,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error("DeepSeek returned invalid JSON");
+    }
+    const decision = parseDecision(payload);
+    if (decision.type !== "finish") {
+      throw new Error("DeepSeek returned tool calls while compacting without tools");
+    }
+    return decision.answer.trim();
   }
 
   async #fetchResponse(url: string, request: RequestInit): Promise<Response> {

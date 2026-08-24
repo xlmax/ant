@@ -1,4 +1,5 @@
 import type { AgentEvent, ToolSpec } from "./agent.js";
+import { activeContextEvents } from "./context-events.js";
 
 const BYTES_PER_TOKEN = 4;
 
@@ -54,7 +55,7 @@ export function estimateContextBudget(options: {
   };
   const heavyObservations: HeavyObservation[] = [];
 
-  for (const event of options.events) {
+  for (const event of activeContextEvents(options.events)) {
     switch (event.type) {
       case "task":
       case "user":
@@ -71,6 +72,10 @@ export function estimateContextBudget(options: {
         }
         break;
       }
+
+      case "compaction":
+        breakdown.messages += estimateTokens({ summary: event.summary });
+        break;
 
       case "observation": {
         const resultTokens = estimateTokens(event.observation);

@@ -52,6 +52,7 @@ export type AgentEvent =
     }
   | { type: "model.usage"; usage: ModelUsage }
   | { type: "decision"; decision: Decision }
+  | { type: "compaction"; summary: string; retainedEvents: AgentEvent[] }
   | { type: "tool.started"; call: ToolCall }
   | { type: "tool.output"; call: ToolCall; output: ToolOutput }
   | { type: "tool.finished"; call: ToolCall; observation: Observation; durationMs: number }
@@ -95,6 +96,7 @@ export interface AgentModel {
     onUsage?: ModelUsageHandler,
     onActivity?: ModelActivityHandler,
   ): Promise<Decision>;
+  compact?(input: ModelInput, signal?: AbortSignal): Promise<string>;
 }
 
 export class ModelRequestError extends Error {
