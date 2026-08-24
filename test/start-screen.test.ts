@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ModelSettings } from "../src/config/settings.js";
 import { configureAnsi } from "../src/ui/ansi.js";
 import { formatStartScreen } from "../src/ui/start-screen.js";
+import { VERSION } from "../src/version.js";
 
 const settings: ModelSettings = {
   provider: "deepseek",
@@ -23,7 +24,7 @@ test("start screen shows logo, version, model, location and commands", () => {
   });
 
   assert.match(screen, /█████╗/u);
-  assert.match(screen, /ant 0\.3\.0/u);
+  assert.ok(screen.includes(`ant ${VERSION}`));
   assert.match(screen, /deepseek\/deepseek-v4-flash · thinking high/u);
   assert.match(screen, /C:\/Projects\/aiAgent · dev/u);
   assert.match(screen, /\/model/u);
