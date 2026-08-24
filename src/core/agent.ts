@@ -30,6 +30,15 @@ export interface Observation {
   error?: string;
 }
 
+export interface ToolOutput {
+  stream: "stdout" | "stderr";
+  content: string;
+}
+
+export type ToolOutputHandler = (call: ToolCall, output: ToolOutput) => void;
+export type ToolStartedHandler = (call: ToolCall) => void;
+export type SingleToolOutputHandler = (output: ToolOutput) => void;
+
 export type AgentEvent =
   | { type: "task"; content: string }
   | { type: "user"; content: string }
@@ -43,6 +52,9 @@ export type AgentEvent =
     }
   | { type: "model.usage"; usage: ModelUsage }
   | { type: "decision"; decision: Decision }
+  | { type: "tool.started"; call: ToolCall }
+  | { type: "tool.output"; call: ToolCall; output: ToolOutput }
+  | { type: "tool.finished"; call: ToolCall; observation: Observation; durationMs: number }
   | {
       type: "observation";
       call: ToolCall;
@@ -97,8 +109,17 @@ export class ModelRequestError extends Error {
 
 export interface Environment {
   tools(): readonly ToolSpec[];
-  execute(call: ToolCall, signal?: AbortSignal): Promise<Observation>;
-  executeMany?(calls: ToolCalls, signal?: AbortSignal): Promise<readonly Observation[]>;
+  execute(
+    call: ToolCall,
+    signal?: AbortSignal,
+    onOutput?: SingleToolOutputHandler,
+  ): Promise<Observation>;
+  executeMany?(
+    calls: ToolCalls,
+    signal?: AbortSignal,
+    onOutput?: ToolOutputHandler,
+    onStarted?: ToolStartedHandler,
+  ): Promise<readonly Observation[]>;
 }
 
 export type AgentResult =
@@ -134,6 +155,12 @@ async function appendEvent(
 ): Promise<void> {
   state.events.push(event);
 
+  for (const observer of observers) {
+    await observer.onEvent(event);
+  }
+}
+
+async function notifyEvent(event: AgentEvent, observers: readonly AgentObserver[]): Promise<void> {
   for (const observer of observers) {
     await observer.onEvent(event);
   }
@@ -331,29 +358,73 @@ export async function runAgent(
         };
 
       case "tools": {
+        const startedAt = new Map<string, number>();
+        let toolEvents = Promise.resolve();
+        const onToolStarted: ToolStartedHandler = (call) => {
+          startedAt.set(call.id, Date.now());
+          toolEvents = toolEvents.then(() =>
+            notifyEvent({ type: "tool.started", call }, observers),
+          );
+        };
+        const onToolOutput: ToolOutputHandler = (call, output) => {
+          toolEvents = toolEvents.then(() =>
+            notifyEvent({ type: "tool.output", call, output }, observers),
+          );
+        };
         let observations: readonly Observation[];
         try {
           if (environment.executeMany) {
-            observations = await environment.executeMany(decision.calls, signal);
+            observations = await environment.executeMany(
+              decision.calls,
+              signal,
+              onToolOutput,
+              onToolStarted,
+            );
           } else {
             const sequential: Observation[] = [];
             for (const call of decision.calls) {
-              sequential.push(await environment.execute(call, signal));
+              onToolStarted(call);
+              sequential.push(
+                await environment.execute(call, signal, (output) => onToolOutput(call, output)),
+              );
             }
             observations = sequential;
           }
         } catch (error) {
+          await toolEvents;
           if (signal?.aborted) {
+            for (const call of decision.calls) {
+              if (!startedAt.has(call.id)) continue;
+              await notifyEvent(
+                {
+                  type: "tool.finished",
+                  call,
+                  observation: { ok: false, error: "Tool call was cancelled" },
+                  durationMs: Date.now() - (startedAt.get(call.id) ?? Date.now()),
+                },
+                observers,
+              );
+            }
             return { status: "cancelled", state };
           }
           throw error;
         }
+        await toolEvents;
 
         for (const [index, call] of decision.calls.entries()) {
           const observation = observations[index];
           if (!observation) {
             throw new Error(`Environment did not return an observation for tool call ${call.id}`);
           }
+          await notifyEvent(
+            {
+              type: "tool.finished",
+              call,
+              observation,
+              durationMs: Date.now() - (startedAt.get(call.id) ?? Date.now()),
+            },
+            observers,
+          );
           await appendEvent(
             state,
             {

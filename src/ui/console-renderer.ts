@@ -7,6 +7,18 @@ function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+function formatDuration(durationMs: number): string {
+  return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(1)} s`;
+}
+
+function formatStreamedResult(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.exitCode !== "number" && record.exitCode !== null) return undefined;
+  const status = record.exitCode === 0 ? "exit 0" : `exit ${String(record.exitCode)}`;
+  return record.truncated === true ? `${status} · сохранённый вывод обрезан` : status;
+}
+
 function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) {
     return `${(tokens / 1_000_000).toFixed(1)}M`;
@@ -43,6 +55,9 @@ export class ConsoleRenderer implements AgentObserver {
   #reasoningMarkdown = new StreamingMarkdownRenderer();
   #markdown = new StreamingMarkdownRenderer();
   #usage: ModelUsage | undefined;
+  readonly #streamedToolCalls = new Set<string>();
+  readonly #finishedToolCalls = new Set<string>();
+  readonly #toolOutputEndsWithNewline = new Map<string, boolean>();
 
   constructor(options: { showReasoning?: boolean } = {}) {
     this.#showReasoning = options.showReasoning ?? false;
@@ -63,6 +78,9 @@ export class ConsoleRenderer implements AgentObserver {
     this.#reasoningMarkdown = new StreamingMarkdownRenderer();
     this.#markdown = new StreamingMarkdownRenderer();
     this.#usage = undefined;
+    this.#streamedToolCalls.clear();
+    this.#finishedToolCalls.clear();
+    this.#toolOutputEndsWithNewline.clear();
   }
 
   onReasoningDelta = (text: string): void => {
@@ -114,16 +132,49 @@ export class ConsoleRenderer implements AgentObserver {
         }
         this.#streamedReasoningForDecision = false;
 
-        if (event.decision.type === "tools") {
-          for (const call of event.decision.calls) {
-            console.log(
-              `${ansi.yellow("→")} ${ansi.bold(ansi.cyan(call.name))} ${ansi.dim(`(${call.id})`)} ${ansi.dim(formatValue(call.input))}`,
-            );
-          }
-        }
         break;
 
+      case "tool.started":
+        console.log(
+          `${ansi.yellow("→")} ${ansi.bold(ansi.cyan(event.call.name))} ${ansi.dim(`(${event.call.id})`)} ${ansi.dim(formatValue(event.call.input))}`,
+        );
+        break;
+
+      case "tool.output":
+        if (!this.#streamedToolCalls.has(event.call.id)) {
+          this.#streamedToolCalls.add(event.call.id);
+          console.log(ansi.dim(`  ${event.output.stream}:`));
+        }
+        process.stdout.write(
+          event.output.stream === "stderr"
+            ? ansi.yellow(event.output.content)
+            : event.output.content,
+        );
+        this.#toolOutputEndsWithNewline.set(
+          event.call.id,
+          event.output.content.endsWith("\n") || event.output.content.endsWith("\r"),
+        );
+        break;
+
+      case "tool.finished": {
+        const streamed = this.#streamedToolCalls.has(event.call.id);
+        if (streamed && this.#toolOutputEndsWithNewline.get(event.call.id) === false) {
+          process.stdout.write("\n");
+        }
+        const result = event.observation.ok
+          ? streamed
+            ? (formatStreamedResult(event.observation.value) ?? "готово")
+            : formatValue(event.observation.value)
+          : `${ansi.red("Ошибка:")} ${event.observation.error}`;
+        console.log(
+          `${event.observation.ok ? ansi.green("←") : ansi.red("←")} ${result} ${ansi.dim(`· ${formatDuration(event.durationMs)}`)}`,
+        );
+        this.#finishedToolCalls.add(event.call.id);
+        break;
+      }
+
       case "observation":
+        if (this.#finishedToolCalls.has(event.call.id)) break;
         console.log(
           event.observation.ok
             ? `${ansi.green("←")} ${ansi.dim(formatValue(event.observation.value))}`

@@ -186,3 +186,29 @@ test("session observer records the complete agent loop", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("session journals do not persist transient tool lifecycle events", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Поток"));
+    const call = { id: "bash-1", name: "bash", input: { command: "work" } };
+    await session.observer.onEvent({ type: "tool.started", call });
+    await session.observer.onEvent({
+      type: "tool.output",
+      call,
+      output: { stream: "stdout", content: "secret transient output" },
+    });
+    await session.observer.onEvent({
+      type: "tool.finished",
+      call,
+      observation: { ok: true, value: { exitCode: 0 } },
+      durationMs: 10,
+    });
+
+    const content = await readFile(session.filePath, "utf8");
+    assert.doesNotMatch(content, /tool\.(started|output|finished)|secret transient output/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

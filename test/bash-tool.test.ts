@@ -123,6 +123,32 @@ test("bash keeps only a bounded tail of very large output", async () => {
   assert.equal(result.output.endsWith("TAIL"), true);
 });
 
+test("bash streams stdout and stderr while retaining its final result", async () => {
+  const tool = createBashTool(process.cwd());
+  const chunks: Array<{ stream: string; content: string }> = [];
+  const result = await tool.execute(
+    { command: "printf 'out'; printf 'err' >&2" },
+    undefined,
+    (output) => chunks.push(output),
+  );
+
+  assert.equal(
+    chunks.some((chunk) => chunk.stream === "stdout" && chunk.content === "out"),
+    true,
+  );
+  assert.equal(
+    chunks.some((chunk) => chunk.stream === "stderr" && chunk.content === "err"),
+    true,
+  );
+  assert.deepEqual(
+    { ...(result as Record<string, unknown>), output: undefined },
+    { exitCode: 0, output: undefined, truncated: false },
+  );
+  const finalOutput = (result as { output: string }).output;
+  assert.match(finalOutput, /out/u);
+  assert.match(finalOutput, /err/u);
+});
+
 test("bash timeout kills the whole process tree", async () => {
   const tool = createBashTool(process.cwd());
   const pidFileName = temporaryPidFileName("bash-child-pid-timeout");

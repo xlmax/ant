@@ -1,4 +1,13 @@
-import type { Environment, ImageAttachment, Observation, ToolCall, ToolSpec } from "./agent.js";
+import type {
+  Environment,
+  ImageAttachment,
+  Observation,
+  SingleToolOutputHandler,
+  ToolCall,
+  ToolOutputHandler,
+  ToolStartedHandler,
+  ToolSpec,
+} from "./agent.js";
 
 export interface ToolExecutionResult {
   kind: "tool-result";
@@ -9,7 +18,11 @@ export interface ToolExecutionResult {
 export interface Tool {
   spec: ToolSpec;
   parallelSafe?: boolean;
-  execute(input: unknown, signal?: AbortSignal): Promise<unknown | ToolExecutionResult>;
+  execute(
+    input: unknown,
+    signal?: AbortSignal,
+    onOutput?: SingleToolOutputHandler,
+  ): Promise<unknown | ToolExecutionResult>;
 }
 
 function isToolExecutionResult(value: unknown): value is ToolExecutionResult {
@@ -43,7 +56,11 @@ export class ToolEnvironment implements Environment {
     return [...this.#tools.values()].map((tool) => tool.spec);
   }
 
-  async execute(call: ToolCall, signal?: AbortSignal): Promise<Observation> {
+  async execute(
+    call: ToolCall,
+    signal?: AbortSignal,
+    onOutput?: SingleToolOutputHandler,
+  ): Promise<Observation> {
     const tool = this.#tools.get(call.name);
 
     if (!tool) {
@@ -54,7 +71,7 @@ export class ToolEnvironment implements Environment {
     }
 
     try {
-      const result = await tool.execute(call.input, signal);
+      const result = await tool.execute(call.input, signal, onOutput);
       if (isToolExecutionResult(result)) {
         return {
           ok: true,
@@ -78,17 +95,25 @@ export class ToolEnvironment implements Environment {
   async executeMany(
     calls: readonly [ToolCall, ...ToolCall[]],
     signal?: AbortSignal,
+    onOutput?: ToolOutputHandler,
+    onStarted?: ToolStartedHandler,
   ): Promise<readonly Observation[]> {
     const canRunInParallel = calls.every(
       (call) => this.#tools.get(call.name)?.parallelSafe === true,
     );
     if (canRunInParallel) {
-      return Promise.all(calls.map((call) => this.execute(call, signal)));
+      return Promise.all(
+        calls.map((call) => {
+          onStarted?.(call);
+          return this.execute(call, signal, (output) => onOutput?.(call, output));
+        }),
+      );
     }
 
     const observations: Observation[] = [];
     for (const call of calls) {
-      observations.push(await this.execute(call, signal));
+      onStarted?.(call);
+      observations.push(await this.execute(call, signal, (output) => onOutput?.(call, output)));
     }
     return observations;
   }

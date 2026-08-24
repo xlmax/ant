@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
+import type { SingleToolOutputHandler } from "../core/agent.js";
 import type { Tool } from "../core/environment.js";
 
 const MAX_BYTES = 50 * 1024;
@@ -191,7 +193,11 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
       },
     },
 
-    async execute(input: unknown, signal?: AbortSignal): Promise<unknown> {
+    async execute(
+      input: unknown,
+      signal?: AbortSignal,
+      onOutput?: SingleToolOutputHandler,
+    ): Promise<unknown> {
       const { command, timeout } = parseInput(input);
       signal?.throwIfAborted();
       const { shell, args } = shellConfiguration(bashPath);
@@ -204,6 +210,8 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
           detached: process.platform !== "win32",
         });
         const output = new BoundedOutputBuffer();
+        const stdoutDecoder = new StringDecoder("utf8");
+        const stderrDecoder = new StringDecoder("utf8");
         let timedOut = false;
         let settled = false;
 
@@ -246,8 +254,24 @@ export function createBashTool(workspaceDirectory: string, bashPath?: string): T
           finish(() => reject(new Error("Operation aborted")));
         };
 
-        child.stdout.on("data", (chunk: Buffer) => output.append(chunk));
-        child.stderr.on("data", (chunk: Buffer) => output.append(chunk));
+        child.stdout.on("data", (chunk: Buffer) => {
+          output.append(chunk);
+          const content = stdoutDecoder.write(chunk);
+          if (content) onOutput?.({ stream: "stdout", content });
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          output.append(chunk);
+          const content = stderrDecoder.write(chunk);
+          if (content) onOutput?.({ stream: "stderr", content });
+        });
+        child.stdout.on("end", () => {
+          const content = stdoutDecoder.end();
+          if (content) onOutput?.({ stream: "stdout", content });
+        });
+        child.stderr.on("end", () => {
+          const content = stderrDecoder.end();
+          if (content) onOutput?.({ stream: "stderr", content });
+        });
         child.on("error", (error) => finish(() => reject(error)));
         child.on("close", (exitCode) =>
           finish(() => {

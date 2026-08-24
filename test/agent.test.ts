@@ -321,3 +321,43 @@ test("the environment keeps unsafe tool calls sequential", async () => {
   ]);
   assert.equal(maximumActive, 1);
 });
+
+test("tool lifecycle and output events are observed but not added to model state", async () => {
+  const lifecycleEvents: AgentEvent[] = [];
+  const streamingTool = {
+    spec: { name: "stream", description: "streams", inputSchema: { type: "object" } },
+    async execute(_input: unknown, _signal?: AbortSignal, onOutput?: (output: never) => void) {
+      onOutput?.({ stream: "stdout", content: "working\n" } as never);
+      return { status: "done" };
+    },
+  };
+  const model: AgentModel = {
+    async decide({ events }) {
+      return events.some((event) => event.type === "observation")
+        ? { type: "finish", answer: "Готово" }
+        : { type: "tools", calls: [{ id: "stream-1", name: "stream", input: {} }] };
+    },
+  };
+
+  const result = await runAgent(createAgentState("Покажи поток"), {
+    model,
+    environment: new ToolEnvironment([streamingTool]),
+    observers: [
+      {
+        onEvent: (event) => {
+          lifecycleEvents.push(event);
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(
+    lifecycleEvents.filter((event) => event.type.startsWith("tool.")).map((event) => event.type),
+    ["tool.started", "tool.output", "tool.finished"],
+  );
+  assert.equal(
+    result.state.events.some((event) => event.type.startsWith("tool.")),
+    false,
+  );
+});

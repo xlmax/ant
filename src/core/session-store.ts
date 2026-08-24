@@ -93,7 +93,12 @@ function serializeRecord(sessionId: string, event: AgentEvent, timestamp: string
  */
 export function isPersistedEvent(event: AgentEvent): boolean {
   return (
-    event.type !== "model.requested" && event.type !== "model.retry" && event.type !== "model.usage"
+    event.type !== "model.requested" &&
+    event.type !== "model.retry" &&
+    event.type !== "model.usage" &&
+    event.type !== "tool.started" &&
+    event.type !== "tool.output" &&
+    event.type !== "tool.finished"
   );
 }
 

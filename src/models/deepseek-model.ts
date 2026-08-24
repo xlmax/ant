@@ -220,6 +220,9 @@ async function createMessages(
       case "model.requested":
       case "model.retry":
       case "model.usage":
+      case "tool.started":
+      case "tool.output":
+      case "tool.finished":
         break;
     }
   }
