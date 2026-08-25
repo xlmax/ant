@@ -23,7 +23,7 @@ irm https://raw.githubusercontent.com/xlmax/ant/master/install.ps1 | iex
 Or manually from GitHub Releases (replace with the latest version):
 
 ```bash
-npm install -g https://github.com/xlmax/ant/releases/download/v0.4.0/ant-0.4.0.tgz
+npm install -g https://github.com/xlmax/ant/releases/download/v0.5.0/ant-0.5.0.tgz
 ```
 
 Requires Node.js ≥ 20.12. After installation, run it as `ant`.
