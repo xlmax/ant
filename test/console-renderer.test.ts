@@ -120,6 +120,39 @@ test("empty reasoning does not render an empty block", async () => {
   }
 });
 
+test("tool output is separated from the agent answer by a blank line", async () => {
+  const originalWrite = process.stdout.write;
+  const output: string[] = [];
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    output.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+  configureAnsi(false);
+
+  try {
+    const renderer = new ConsoleRenderer();
+    renderer.beginTurn();
+    const call = { id: "bash-1", name: "bash", input: { command: "build" } };
+    await renderer.onEvent({ type: "tool.started", call });
+    await renderer.onEvent({
+      type: "tool.finished",
+      call,
+      observation: {
+        ok: true as const,
+        value: { exitCode: 0, output: "built\n", truncated: false },
+      },
+      durationMs: 100,
+    });
+    renderer.onTextDelta("Готово");
+
+    const rendered = output.join("");
+    assert.match(rendered, /✓ bash exit 0 · 100 ms\n\n───Ant/u);
+  } finally {
+    process.stdout.write = originalWrite;
+    configureAnsi(true);
+  }
+});
+
 test("tool output is not streamed and the final observation is not duplicated", async () => {
   const originalWrite = process.stdout.write;
   const output: string[] = [];

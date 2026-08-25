@@ -127,6 +127,8 @@ export class ConsoleRenderer implements AgentObserver {
   #spinnerTimer: ReturnType<typeof setInterval> | undefined;
   #spinnerFrame = 0;
   #spinnerLineVisible = false;
+  #hadTools = false;
+  #toolGroupPendingSeparator = false;
 
   constructor(options: { showReasoning?: boolean } = {}) {
     this.#showReasoning = options.showReasoning ?? false;
@@ -151,6 +153,8 @@ export class ConsoleRenderer implements AgentObserver {
     this.#markdown = new StreamingMarkdownRenderer();
     this.#usage = undefined;
     this.#finishedToolCalls.clear();
+    this.#hadTools = false;
+    this.#toolGroupPendingSeparator = false;
   }
 
   onReasoningDelta = (text: string): void => {
@@ -177,8 +181,16 @@ export class ConsoleRenderer implements AgentObserver {
     this.closeReasoningBlock();
 
     if (!this.#streamedText) {
+      if (this.#hadTools) {
+        process.stdout.write("\n");
+      }
       this.printAgentBlockStart();
       this.#streamedText = true;
+    }
+
+    if (this.#toolGroupPendingSeparator) {
+      process.stdout.write("\n");
+      this.#toolGroupPendingSeparator = false;
     }
 
     process.stdout.write(this.#markdown.push(text));
@@ -216,6 +228,13 @@ export class ConsoleRenderer implements AgentObserver {
           name: event.call.name,
           startedAt: Date.now(),
         });
+        if (this.#streamedText && !this.#toolGroupPendingSeparator) {
+          this.#writeLine("");
+        }
+        if (this.#streamedText) {
+          this.#toolGroupPendingSeparator = true;
+        }
+        this.#hadTools = true;
         const label = formatToolLabel(event.call.name, event.call.input);
         const header = `${ansi.yellow("→")} ${ansi.bold(ansi.cyan(event.call.name))}`;
         this.#writeLine(label === "" ? header : `${header} ${ansi.dim(label)}`);
