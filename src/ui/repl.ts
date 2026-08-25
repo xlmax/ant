@@ -377,14 +377,22 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       const { state, session } = prepared;
       if (prepared.created) console.log(ansi.dim(`Сессия: ${session.id}`));
 
-      await new TurnRunner({
-        workspace: options.workspace,
-        model,
-        environment: options.environment,
-        renderer,
-        session,
-        limits: options.limits,
-      }).run(state);
+      try {
+        await new TurnRunner({
+          workspace: options.workspace,
+          model,
+          environment: options.environment,
+          renderer,
+          session,
+          limits: options.limits,
+        }).run(state);
+      } catch (error) {
+        console.error(
+          ansi.red(
+            `Не удалось выполнить ход: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
     }
   } finally {
     terminal?.close();
