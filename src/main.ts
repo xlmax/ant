@@ -57,6 +57,7 @@ async function createModel(workspace: string): Promise<{
   systemPrompt: string;
   projectOverrides: ProjectSettingsOverrides;
   showReasoning: boolean;
+  showChanges: boolean;
   color: boolean;
   limits: RuntimeLimits;
   bashPath?: string;
@@ -96,6 +97,7 @@ async function createModel(workspace: string): Promise<{
     systemPrompt: systemPrompt.content,
     projectOverrides: loadedSettings.projectOverrides,
     showReasoning: loadedSettings.settings.ui.showReasoning,
+    showChanges: loadedSettings.settings.ui.showChanges,
     color: loadedSettings.settings.ui.color,
     limits: loadedSettings.settings.limits,
     ...(loadedSettings.settings.tools.bashPath === undefined
@@ -111,6 +113,7 @@ async function runOneShot(
   environment: ToolEnvironment,
   store: JsonlSessionStore,
   showReasoning: boolean,
+  showChanges: boolean,
   limits: RuntimeLimits,
 ): Promise<void> {
   const sessions = new SessionController(store);
@@ -128,6 +131,7 @@ async function runOneShot(
     renderer,
     session,
     limits,
+    showChanges,
   }).run(state);
 
   if (result.status === "cancelled") {
@@ -225,6 +229,7 @@ async function main(): Promise<void> {
     systemPrompt,
     projectOverrides,
     showReasoning,
+    showChanges,
     color,
     limits,
     bashPath,
@@ -251,6 +256,7 @@ async function main(): Promise<void> {
       environment,
       store,
       showReasoning,
+      showChanges,
       limits,
       systemPrompt,
       ...(resume === undefined ? {} : { resume }),
@@ -265,6 +271,7 @@ async function main(): Promise<void> {
     environment,
     store,
     showReasoning,
+    showChanges,
     limits,
   );
 }

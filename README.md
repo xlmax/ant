@@ -23,7 +23,7 @@ irm https://raw.githubusercontent.com/xlmax/ant/master/install.ps1 | iex
 Or manually from GitHub Releases (replace with the latest version):
 
 ```bash
-npm install -g https://github.com/xlmax/ant/releases/download/v0.5.6/ant-0.5.6.tgz
+npm install -g https://github.com/xlmax/ant/releases/download/v0.5.8/ant-0.5.8.tgz
 ```
 
 Requires Node.js ≥ 20.12. After installation, run it as `ant`.
@@ -175,7 +175,7 @@ npm run dev -- -s <session-id>
 When the interactive mode starts, Ant checks GitHub Releases and, if a newer version is available, shows a hint below the banner:
 
 ```text
-A new version of ant is available: v0.5.6 (you have 0.5.5)
+A new version of ant is available: v0.5.8 (you have 0.5.7)
 Update globally: /update
 ```
 

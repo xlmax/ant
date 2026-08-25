@@ -29,6 +29,7 @@ export interface AppSettings {
   model: ModelSettings;
   ui: {
     showReasoning: boolean;
+    showChanges: boolean;
     color: boolean;
   };
   prompts: {
@@ -44,6 +45,7 @@ export interface ProjectSettingsOverrides {
   modelId: boolean;
   modelThinking: boolean;
   showReasoning: boolean;
+  showChanges: boolean;
 }
 
 export interface LoadedSettings {
@@ -66,6 +68,7 @@ type PartialSettings = {
   };
   ui?: {
     showReasoning?: boolean;
+    showChanges?: boolean;
     color?: boolean;
   };
   prompts?: {
@@ -91,6 +94,7 @@ const defaults: AppSettings = {
   },
   ui: {
     showReasoning: false,
+    showChanges: false,
     color: true,
   },
   prompts: {
@@ -249,9 +253,11 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     }
 
     const showReasoning = optionalBoolean(value.ui.showReasoning, "ui.showReasoning");
+    const showChanges = optionalBoolean(value.ui.showChanges, "ui.showChanges");
     const color = optionalBoolean(value.ui.color, "ui.color");
     result.ui = {
       ...(showReasoning === undefined ? {} : { showReasoning }),
+      ...(showChanges === undefined ? {} : { showChanges }),
       ...(color === undefined ? {} : { color }),
     };
   }
@@ -326,6 +332,7 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
     },
     ui: {
       showReasoning: partial.ui?.showReasoning ?? base.ui.showReasoning,
+      showChanges: partial.ui?.showChanges ?? base.ui.showChanges,
       color: partial.ui?.color ?? base.ui.color,
     },
     prompts: {
@@ -387,6 +394,7 @@ export async function loadSettings(
     modelId: false,
     modelThinking: false,
     showReasoning: false,
+    showChanges: false,
   };
 
   for (const [index, path] of paths.entries()) {
@@ -401,6 +409,7 @@ export async function loadSettings(
           partial.model?.thinking?.enabled !== undefined ||
           partial.model?.thinking?.effort !== undefined;
         projectOverrides.showReasoning = partial.ui?.showReasoning !== undefined;
+        projectOverrides.showChanges = partial.ui?.showChanges !== undefined;
       }
     }
   }
@@ -419,6 +428,7 @@ export interface UserSettingsUpdate {
   };
   ui?: {
     showReasoning?: boolean;
+    showChanges?: boolean;
   };
 }
 

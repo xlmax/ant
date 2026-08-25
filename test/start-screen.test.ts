@@ -42,3 +42,26 @@ test("start screen hides git branch when absent", () => {
   assert.match(screen, /\/home\/user\/project/u);
   assert.doesNotMatch(screen, / · dev/u);
 });
+
+test("start screen shows resumed session usage when available", () => {
+  configureAnsi(false);
+  const screen = formatStartScreen({
+    workspace: "/home/user/project",
+    branch: undefined,
+    modelSettings: settings,
+    sessionUsage: { inputTokens: 12_300, outputTokens: 4_500, calls: 3 },
+  });
+
+  assert.match(screen, /сессия: ↑12.3k ↓4.5k · 3 запр\./u);
+});
+
+test("start screen omits usage when not resumed", () => {
+  configureAnsi(false);
+  const screen = formatStartScreen({
+    workspace: "/home/user/project",
+    branch: undefined,
+    modelSettings: settings,
+  });
+
+  assert.doesNotMatch(screen, /сессия:/u);
+});

@@ -13,6 +13,7 @@ export interface TurnRunnerOptions {
   renderer: ConsoleRenderer;
   session: AgentSession;
   limits: RuntimeLimits;
+  showChanges?: boolean;
 }
 
 export class TurnRunner {
@@ -54,7 +55,9 @@ export class TurnRunner {
       });
 
       renderer.printResult(result);
-      renderer.printChangeSummary(await changes.finish());
+      if (this.#options.showChanges) {
+        renderer.printChangeSummary(await changes.finish());
+      }
       return result;
     } finally {
       process.removeListener("SIGINT", onSigint);

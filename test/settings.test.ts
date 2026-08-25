@@ -57,7 +57,7 @@ test("settings merge global and project layers without environment overrides", a
         vision: false,
         thinking: { enabled: false, effort: "max" },
       },
-      ui: { showReasoning: true, color: false },
+      ui: { showReasoning: true, showChanges: false, color: false },
       prompts: { additionalPaths: ["prompts/extra.md"] },
       tools: { bashPath: "/custom/bash" },
       limits: {
@@ -71,6 +71,7 @@ test("settings merge global and project layers without environment overrides", a
       modelId: false,
       modelThinking: true,
       showReasoning: true,
+      showChanges: false,
     });
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
