@@ -1,4 +1,4 @@
-import type { AgentEvent, ToolSpec } from "./agent.js";
+import type { HistoryEvent, ToolSpec } from "./agent.js";
 import { activeContextEvents } from "./context-events.js";
 
 const BYTES_PER_TOKEN = 4;
@@ -31,7 +31,7 @@ export function estimateTokens(value: unknown): number {
   return Math.ceil(serializedBytes(value) / BYTES_PER_TOKEN);
 }
 
-function estimateImageTokens(event: Extract<AgentEvent, { type: "observation" }>): number {
+function estimateImageTokens(event: Extract<HistoryEvent, { type: "observation" }>): number {
   return (event.observation.attachments ?? []).reduce(
     (total, attachment) => total + Math.ceil(attachment.bytes / 3),
     0,
@@ -40,7 +40,7 @@ function estimateImageTokens(event: Extract<AgentEvent, { type: "observation" }>
 
 export function estimateContextBudget(options: {
   systemPrompt: string;
-  events: readonly AgentEvent[];
+  events: readonly HistoryEvent[];
   tools: readonly ToolSpec[];
   contextWindow: number;
   includeImages?: boolean;
@@ -89,14 +89,6 @@ export function estimateContextBudget(options: {
         });
         break;
       }
-
-      case "model.requested":
-      case "model.retry":
-      case "model.usage":
-      case "tool.started":
-      case "tool.output":
-      case "tool.finished":
-        break;
     }
   }
 

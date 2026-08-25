@@ -3,9 +3,18 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { writeFileAtomically } from "../fs/atomic-write.js";
-import { modelSupportsVision } from "../core/model-capabilities.js";
 
 export type ReasoningEffort = "low" | "high" | "max";
+
+/**
+ * Vision capability is not reported by the DeepSeek API, so model ids are
+ * matched by name as a fallback. An explicit `model.vision` setting always
+ * takes priority over this heuristic — resolveVision is the single source of
+ * truth for the capability.
+ */
+export function resolveVision(id: string, configured?: boolean): boolean {
+  return configured ?? /vision/i.test(id);
+}
 
 export interface ModelSettings {
   provider: "deepseek";
@@ -324,6 +333,9 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       id: partial.model?.id ?? base.model.id,
       baseUrl: partial.model?.baseUrl ?? base.model.baseUrl,
       contextWindow: partial.model?.contextWindow ?? base.model.contextWindow,
+      // Raw vision is carried through layers without resolving; the heuristic
+      // is applied once, after every layer is merged, so an explicit value is
+      // never clobbered by a later layer that only changes unrelated keys.
       vision: partial.model?.vision ?? base.model.vision,
       thinking: {
         enabled: partial.model?.thinking?.enabled ?? base.model.thinking.enabled,
@@ -397,9 +409,23 @@ export async function loadSettings(
     showChanges: false,
   };
 
+  // Track whether any layer set `model.vision` explicitly. Resolution is
+  // deferred until all raw layers are merged so an explicit value survives
+  // a later layer that only overrides unrelated settings.
+  let explicitVision: boolean | undefined;
   for (const [index, path] of paths.entries()) {
     const partial = await readSettingsFile(path);
     if (partial) {
+      const layerVision = partial.model?.vision;
+      if (layerVision !== undefined) {
+        // Only the user layer can carry a stale auto-written `model.vision`
+        // (old versions wrote it there); if it matches the heuristic for its
+        // id, treat it as legacy so the heuristic can reapply. Project vision
+        // is always a genuine explicit override.
+        const layerId = partial.model?.id ?? settings.model.id;
+        const staleUserVision = index === 0 && layerVision === resolveVision(layerId);
+        if (!staleUserVision) explicitVision = layerVision;
+      }
       settings = mergeSettings(settings, partial);
       sources.push(path);
 
@@ -414,7 +440,38 @@ export async function loadSettings(
     }
   }
 
+  // Single point of truth: explicit `model.vision` wins, heuristic is the
+  // fallback applied only when no layer configured the capability explicitly.
+  settings.model.vision = resolveVision(settings.model.id, explicitVision);
+
   return { settings, sources, projectOverrides };
+}
+
+/**
+ * Returns the explicitly configured `model.vision` across the user and project
+ * layers (project wins), or `undefined` when no layer set it. This lets a
+ * runtime model switch resolve vision without re-applying a project `model.id`
+ * override to the selected id.
+ */
+export async function readExplicitVision(
+  workspace: string,
+  homeDirectory: string = homedir(),
+): Promise<boolean | undefined> {
+  let explicit: boolean | undefined;
+  const paths = [userSettingsPath(homeDirectory), resolve(workspace, ".ant", "settings.json")];
+  for (const [index, path] of paths.entries()) {
+    const partial = await readSettingsFile(path);
+    const vision = partial?.model?.vision;
+    if (vision === undefined) continue;
+    // Skip a stale auto-written user-layer vision (equals the heuristic for its
+    // id); project vision is always treated as explicit.
+    if (index === 0) {
+      const layerId = partial?.model?.id;
+      if (layerId !== undefined && vision === resolveVision(layerId)) continue;
+    }
+    explicit = vision;
+  }
+  return explicit;
 }
 
 export interface UserSettingsUpdate {
@@ -487,10 +544,28 @@ export async function saveUserModelId(
     throw new Error("Настройка model.id должна быть непустой строкой");
   }
 
-  await saveUserSettings(
-    { model: { id: normalizedId, vision: modelSupportsVision(normalizedId) } },
-    homeDirectory,
-  );
+  // Vision is preserved across a model switch only when it is genuinely
+  // explicit. A stale auto-written `model.vision` (which always equalled the
+  // heuristic for its id) is dropped so the heuristic can reapply to the new
+  // model; otherwise it would become a permanent override. This cleanup is
+  // intentionally limited to the user layer (old versions wrote it there).
+  // Known ambiguity: a manually set user vision that happens to equal the
+  // heuristic for its id is treated as legacy and removed on the next switch —
+  // accepted as a one-time migration rule for personal settings.
+  const current = await readSettingsValue(userSettingsPath(homeDirectory));
+  const currentModel = isRecord(current?.model) ? current.model : undefined;
+  const currentId = typeof currentModel?.id === "string" ? currentModel.id : undefined;
+  const currentVision = currentModel?.vision;
+  const visionIsStale =
+    currentId !== undefined &&
+    typeof currentVision === "boolean" &&
+    currentVision === resolveVision(currentId);
+
+  const modelUpdate: Record<string, unknown> = { id: normalizedId };
+  if (visionIsStale) {
+    modelUpdate.vision = undefined; // spread drops the key when serializing
+  }
+  await saveUserSettings({ model: modelUpdate } as UserSettingsUpdate, homeDirectory);
 }
 
 export async function saveUserShowReasoning(

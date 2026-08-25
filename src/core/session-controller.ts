@@ -1,4 +1,4 @@
-import { createAgentState, type AgentState } from "./agent.js";
+import { createAgentState, type AgentState, type HistoryEvent } from "./agent.js";
 import { JsonlSessionStore, type AgentSession } from "./session-store.js";
 
 export interface ActiveSession {
@@ -27,6 +27,19 @@ export class SessionController {
     return this.#active;
   }
 
+  /**
+   * Appends a persistent event to the active session. The journal is written
+   * before the in-memory state is mutated so a failed write cannot leave
+   * memory ahead of the durable log.
+   */
+  async appendPersistentEvent(event: HistoryEvent): Promise<void> {
+    if (!this.#active) {
+      throw new Error("Нет активной сессии");
+    }
+    await this.#active.session.observer.onEvent(event);
+    this.#active.state.events.push(event);
+  }
+
   async prepareUserMessage(content: string): Promise<PreparedUserMessage> {
     if (!this.#active) {
       const state = createAgentState(content);
@@ -36,8 +49,7 @@ export class SessionController {
     }
 
     const event = { type: "user" as const, content };
-    this.#active.state.events.push(event);
-    await this.#active.session.observer.onEvent(event);
+    await this.appendPersistentEvent(event);
     return { ...this.#active, created: false };
   }
 

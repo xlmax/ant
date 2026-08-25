@@ -12,6 +12,48 @@ import { ToolEnvironment } from "../src/core/environment.js";
 import { echoTool } from "./support/echo-tool.js";
 import { StubModel } from "./support/stub-model.js";
 
+test("the durable journal is written before UI observers run", async () => {
+  const model: AgentModel = {
+    async decide() {
+      return { type: "finish", answer: "Готово" };
+    },
+  };
+  const journal: AgentEvent[] = [];
+  const state = createAgentState("Задача");
+
+  await assert.rejects(
+    runAgent(state, {
+      model,
+      environment: new ToolEnvironment([]),
+      historyObserver: {
+        onEvent: (event) => {
+          journal.push(event);
+        },
+      },
+      observers: [
+        {
+          onEvent: (event) => {
+            if (event.type === "decision") throw new Error("UI boom");
+          },
+        },
+      ],
+    }),
+    /UI boom/u,
+  );
+
+  // The journal and the in-memory state agree even though the UI observer
+  // threw after the decision was recorded: persistence cannot run ahead of
+  // memory.
+  assert.equal(
+    state.events.some((event) => event.type === "decision"),
+    true,
+  );
+  assert.equal(
+    journal.some((event) => event.type === "decision"),
+    true,
+  );
+});
+
 test("the model can call a tool and finish with its observation", async () => {
   const result = await runAgent(createAgentState("Привет"), {
     model: new StubModel(),
@@ -27,7 +69,7 @@ test("the model can call a tool and finish with its observation", async () => {
   assert.equal(result.answer, 'Заглушка получила результат: {"text":"Привет"}');
   assert.deepEqual(
     result.state.events.map((event) => event.type),
-    ["task", "model.requested", "decision", "observation", "model.requested", "decision"],
+    ["task", "decision", "observation", "decision"],
   );
 });
 
@@ -265,15 +307,7 @@ test("the agent executes every tool call from one model turn", async () => {
   assert.equal(result.answer, "Получено результатов: 2");
   assert.deepEqual(
     result.state.events.map((event) => event.type),
-    [
-      "task",
-      "model.requested",
-      "decision",
-      "observation",
-      "observation",
-      "model.requested",
-      "decision",
-    ],
+    ["task", "decision", "observation", "observation", "decision"],
   );
 });
 

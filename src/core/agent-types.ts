@@ -39,9 +39,14 @@ export type ToolOutputHandler = (call: ToolCall, output: ToolOutput) => void;
 export type ToolStartedHandler = (call: ToolCall) => void;
 export type SingleToolOutputHandler = (output: ToolOutput) => void;
 
-export type AgentEvent =
+export type HistoryEvent =
   | { type: "task"; content: string }
   | { type: "user"; content: string }
+  | { type: "decision"; decision: Decision }
+  | { type: "compaction"; summary: string; retainedEvents: HistoryEvent[] }
+  | { type: "observation"; call: ToolCall; observation: Observation };
+
+export type LifecycleEvent =
   | { type: "model.requested"; attempt: number; maxAttempts: number }
   | {
       type: "model.retry";
@@ -51,19 +56,18 @@ export type AgentEvent =
       delayMs: number;
     }
   | { type: "model.usage"; usage: ModelUsage }
-  | { type: "decision"; decision: Decision }
-  | { type: "compaction"; summary: string; retainedEvents: AgentEvent[] }
   | { type: "tool.started"; call: ToolCall }
   | { type: "tool.output"; call: ToolCall; output: ToolOutput }
-  | { type: "tool.finished"; call: ToolCall; observation: Observation; durationMs: number }
-  | { type: "observation"; call: ToolCall; observation: Observation };
+  | { type: "tool.finished"; call: ToolCall; observation: Observation; durationMs: number };
+
+export type AgentEvent = HistoryEvent | LifecycleEvent;
 
 export interface AgentState {
-  events: AgentEvent[];
+  events: HistoryEvent[];
 }
 
 export interface ModelInput {
-  events: readonly AgentEvent[];
+  events: readonly HistoryEvent[];
   tools: readonly ToolSpec[];
 }
 
@@ -131,6 +135,12 @@ export interface AgentDependencies {
   model: AgentModel;
   environment: Environment;
   observers?: readonly AgentObserver[];
+  /**
+   * The durable history sink (session journal). It is written strictly before
+   * the in-memory state is mutated and before UI observers run, so a failure
+   * in rendering can never leave the journal ahead of the agent state.
+   */
+  historyObserver?: AgentObserver;
   onTextDelta?: TextDeltaHandler;
   onReasoningDelta?: ReasoningDeltaHandler;
   signal?: AbortSignal;

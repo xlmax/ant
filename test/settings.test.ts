@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   loadSettings,
+  readExplicitVision,
   saveUserModelId,
   saveUserModelThinking,
   saveUserShowReasoning,
@@ -18,6 +19,187 @@ async function temporaryDirectories(): Promise<{ workspace: string; home: string
     home: join(root, "home"),
   };
 }
+
+test("stale user-layer vision is ignored before the first /model", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "deepseek-v4-flash", vision: false } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "custom-vision-exp" } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.id, "custom-vision-exp");
+    assert.equal(loaded.settings.model.vision, true);
+    assert.equal(await readExplicitVision(workspace, home), undefined);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("project vision overrides an opposite global value", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "global-text", vision: true } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "project-text", vision: false } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.id, "project-text");
+    assert.equal(loaded.settings.model.vision, false);
+    assert.equal(await readExplicitVision(workspace, home), false);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("readExplicitVision returns explicit vision with the project layer winning", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { vision: true } }),
+      "utf8",
+    );
+
+    assert.equal(await readExplicitVision(workspace, home), true);
+
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { vision: false } }),
+      "utf8",
+    );
+    assert.equal(await readExplicitVision(workspace, home), false);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("readExplicitVision is undefined when no layer sets vision", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    assert.equal(await readExplicitVision(workspace, home), undefined);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saveUserModelId drops a stale auto-written vision so the heuristic re-applies", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "deepseek-v4-flash", vision: false } }),
+      "utf8",
+    );
+
+    await saveUserModelId("custom-vision-exp", home);
+
+    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
+      model: { id: "custom-vision-exp" },
+    });
+    assert.equal(await readExplicitVision(workspace, home), undefined);
+    assert.equal((await loadSettings(workspace, home)).settings.model.vision, true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saveUserModelId preserves a genuinely explicit vision", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "custom-text", vision: true } }),
+      "utf8",
+    );
+
+    await saveUserModelId("another-id", home);
+
+    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
+      model: { id: "another-id", vision: true },
+    });
+    assert.equal(await readExplicitVision(workspace, home), true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("explicit vision from an earlier layer survives a later UI-only merge", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "custom-text", vision: true } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ ui: { showReasoning: true } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.id, "custom-text");
+    assert.equal(loaded.settings.model.vision, true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("heuristic vision is a fallback when no layer sets it explicitly", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "custom-vision-exp" } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ ui: { color: false } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.vision, true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
 
 test("settings merge global and project layers without environment overrides", async () => {
   const { workspace, home } = await temporaryDirectories();
@@ -123,12 +305,14 @@ test("saving a selected model updates the global user settings only", async () =
       model: {
         baseUrl: "https://proxy.example",
         id: "deepseek-v4-pro",
-        vision: false,
       },
       ui: { showReasoning: true },
       future: { setting: true },
     });
-    assert.equal((await loadSettings(workspace, home)).settings.model.id, "deepseek-v4-pro");
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.id, "deepseek-v4-pro");
+    // vision is not persisted explicitly: it is resolved by heuristic on load.
+    assert.equal(loaded.settings.model.vision, false);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

@@ -115,6 +115,50 @@ test("JSONL session store ignores only an incomplete final record", async () => 
 
     const resumed = await store.resume(session.id);
     assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
+
+    // Resume must trim the partial tail so a later append keeps the journal
+    // well-formed instead of concatenating JSON onto the damaged line.
+    assert.equal(await readFile(session.filePath, "utf8"), validContent);
+
+    await resumed.session.observer.onEvent({
+      type: "decision",
+      decision: { type: "finish", answer: "Дописанный ответ", reasoning: "" },
+    });
+    const afterAppend = await store.resume(session.id);
+    assert.deepEqual(
+      afterAppend.state.events.map((event) => event.type),
+      ["task", "decision"],
+    );
+    assert.equal((await readFile(session.filePath, "utf8")).trim().split("\n").length, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL session store keeps a valid final record without a trailing newline", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create(createAgentState("Уцелевшая задача"));
+    const validContent = (await readFile(session.filePath, "utf8")).replace(/\n$/u, "");
+    await writeFile(session.filePath, validContent, "utf8");
+
+    // The single record is valid but lacks a trailing newline. Resume must not
+    // treat it as a torn tail and truncate the file to zero.
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
+    assert.equal(await readFile(session.filePath, "utf8"), `${validContent}\n`);
+
+    await resumed.session.observer.onEvent({
+      type: "decision",
+      decision: { type: "finish", answer: "Дописанный ответ", reasoning: "" },
+    });
+    const afterAppend = await store.resume(session.id);
+    assert.deepEqual(
+      afterAppend.state.events.map((event) => event.type),
+      ["task", "decision"],
+    );
+    assert.equal((await readFile(session.filePath, "utf8")).trim().split("\n").length, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -175,7 +219,7 @@ test("session observer records the complete agent loop", async () => {
     const result = await runAgent(state, {
       model: new StubModel(),
       environment: new ToolEnvironment([echoTool]),
-      observers: [session.observer],
+      historyObserver: session.observer,
     });
     const resumed = await store.resume(session.id);
 

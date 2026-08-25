@@ -18,6 +18,7 @@ import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/core/environment.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
 import { JsonlSessionStore } from "../../src/core/session-store.js";
+import { SessionController } from "../../src/core/session-controller.js";
 
 const MAX_MODEL_CALLS = 6;
 const TASK_TIMEOUT_MS = 60_000;
@@ -476,7 +477,7 @@ const tasks: readonly EvalTask[] = [
       const firstResult = await runAgent(initialState, {
         model,
         environment,
-        observers: [session.observer],
+        historyObserver: session.observer,
         signal: AbortSignal.timeout(TASK_TIMEOUT_MS),
       });
 
@@ -484,18 +485,18 @@ const tasks: readonly EvalTask[] = [
         return firstResult;
       }
 
-      const resumed = await store.resume(session.id);
-      const event = {
-        type: "user" as const,
-        content: "Назови контрольную фразу без повторного чтения memory.txt и без инструментов.",
-      };
-      resumed.state.events.push(event);
-      await resumed.session.observer.onEvent(event);
+      // Reuse SessionController so the resumed user event follows the
+      // persist-before-state contract (journal first, then in-memory state).
+      const controller = new SessionController(store);
+      await controller.resume(session.id);
+      const resumed = await controller.prepareUserMessage(
+        "Назови контрольную фразу без повторного чтения memory.txt и без инструментов.",
+      );
 
       return runAgent(resumed.state, {
         model,
         environment,
-        observers: [resumed.session.observer],
+        historyObserver: resumed.session.observer,
         signal: AbortSignal.timeout(TASK_TIMEOUT_MS),
       });
     },

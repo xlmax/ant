@@ -9,12 +9,13 @@ import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./c
 import { createCodingTools } from "./coding-tools.js";
 import {
   loadSettings,
+  readExplicitVision,
+  resolveVision,
   saveUserModelId,
   saveUserModelThinking,
   saveUserShowReasoning,
 } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
-import { modelSupportsVision } from "./core/model-capabilities.js";
 import { ToolEnvironment } from "./core/environment.js";
 import { JsonlSessionStore } from "./core/session-store.js";
 import { SessionController } from "./core/session-controller.js";
@@ -37,7 +38,7 @@ function createDeepSeekModel(
     model: settings.id,
     baseUrl: settings.baseUrl,
     contextWindow: settings.contextWindow,
-    supportsImages: modelSupportsVision(settings.id),
+    supportsImages: settings.vision,
     thinkingEnabled: settings.thinking.enabled,
     reasoningEffort: settings.thinking.effort,
   });
@@ -50,10 +51,9 @@ async function createModel(workspace: string): Promise<{
   createAgentModel(settings: ModelSettings): DeepSeekModel;
   createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
-  saveModelId(id: string): Promise<void>;
+  saveModelId(id: string): Promise<boolean>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
-  promptSources: string[];
   systemPrompt: string;
   projectOverrides: ProjectSettingsOverrides;
   showReasoning: boolean;
@@ -74,14 +74,23 @@ async function createModel(workspace: string): Promise<{
     loadedSettings.settings.prompts.additionalPaths,
   );
 
-  const modelSettings = {
-    ...loadedSettings.settings.model,
-    vision: modelSupportsVision(loadedSettings.settings.model.id),
-  };
+  // `model.vision` is already resolved at load time (explicit setting wins,
+  // heuristic is the fallback), so the settings are the single source of truth.
+  const modelSettings = loadedSettings.settings.model;
   const createConfiguredModel = (settings: ModelSettings): DeepSeekModel =>
     createDeepSeekModel(apiKey, systemPrompt.content, settings);
 
   const model = createConfiguredModel(modelSettings);
+
+  // Persist the id, then return only the vision for the newly selected model.
+  // This deliberately avoids reloading the merged config: a project-level
+  // `model.id` must not clobber the runtime switch (it only warns about
+  // overriding on the next restart). The explicit `model.vision` provenance is
+  // read separately so the heuristic is applied only when no layer set it.
+  const saveModelId = async (id: string): Promise<boolean> => {
+    await saveUserModelId(id);
+    return resolveVision(id, await readExplicitVision(workspace));
+  };
 
   return {
     model,
@@ -90,10 +99,9 @@ async function createModel(workspace: string): Promise<{
     createAgentModel: createConfiguredModel,
     createContextSummarizer: createConfiguredModel,
     listModels: () => model.listModels(),
-    saveModelId: saveUserModelId,
+    saveModelId,
     saveThinking: saveUserModelThinking,
     saveShowReasoning: saveUserShowReasoning,
-    promptSources: systemPrompt.sources,
     systemPrompt: systemPrompt.content,
     projectOverrides: loadedSettings.projectOverrides,
     showReasoning: loadedSettings.settings.ui.showReasoning,

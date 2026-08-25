@@ -8,7 +8,7 @@ import { ansi } from "./ansi.js";
 import { getReplCommands, type CommandAction } from "./commands.js";
 import { ConsoleRenderer } from "./console-renderer.js";
 import { formatContextStatus } from "./context-status.js";
-import { formatModelStatus, selectEffort, selectModel } from "./runtime-model.js";
+import { formatModelStatus, selectEffort } from "./runtime-model.js";
 import type { ReplOptions } from "./repl.js";
 
 export interface ReplCommandState {
@@ -123,8 +123,7 @@ export async function handleReplCommand(
           );
           return "continue";
         }
-        sessions.active.state.events.push(event);
-        await sessions.active.session.observer.onEvent(event);
+        await sessions.appendPersistentEvent(event);
         console.log(
           ansi.green(
             `Контекст сжат: ~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов. Последние ${plan.retainedUserTurns} хода сохранены дословно.`,
@@ -192,8 +191,8 @@ export async function handleReplCommand(
         console.log(ansi.dim(`Модель уже активна: ${formatModelStatus(state.modelSettings)}`));
       } else {
         try {
-          await options.saveModelId(command.id);
-          state.modelSettings = selectModel(state.modelSettings, command.id);
+          const vision = await options.saveModelId(command.id);
+          state.modelSettings = { ...state.modelSettings, id: command.id, vision };
           state.model = options.createAgentModel(state.modelSettings);
           state.summarizer = options.createContextSummarizer(state.modelSettings);
           console.log(

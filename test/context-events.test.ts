@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentEvent } from "../src/core/agent.js";
+import type { HistoryEvent } from "../src/core/agent.js";
 import { activeContextEvents, createCompactionPlan } from "../src/core/context-events.js";
 
-function finish(answer: string): AgentEvent {
+function finish(answer: string): HistoryEvent {
   return { type: "decision", decision: { type: "finish", answer } };
 }
 
 test("compaction plan summarizes old events and retains the last two user turns", () => {
-  const events: AgentEvent[] = [
+  const events: HistoryEvent[] = [
     { type: "task", content: "Первый ход" },
     finish("Первый ответ"),
     { type: "user", content: "Второй ход" },
@@ -26,13 +26,13 @@ test("compaction plan summarizes old events and retains the last two user turns"
 });
 
 test("active context uses the latest summary without deleting retained events", () => {
-  const retained: AgentEvent[] = [
+  const retained: HistoryEvent[] = [
     { type: "user", content: "Второй ход" },
     finish("Второй ответ"),
     { type: "user", content: "Третий ход" },
     finish("Третий ответ"),
   ];
-  const events: AgentEvent[] = [
+  const events: HistoryEvent[] = [
     { type: "task", content: "Первый ход" },
     finish("Первый ответ"),
     ...retained,
@@ -52,13 +52,13 @@ test("active context uses the latest summary without deleting retained events", 
 });
 
 test("a later compaction flattens the previous summary and retained history", () => {
-  const retained: AgentEvent[] = [
+  const retained: HistoryEvent[] = [
     { type: "user", content: "Второй ход" },
     finish("Второй ответ"),
     { type: "user", content: "Третий ход" },
     finish("Третий ответ"),
   ];
-  const events: AgentEvent[] = [
+  const events: HistoryEvent[] = [
     { type: "compaction", summary: "Первый ход завершён.", retainedEvents: retained },
     { type: "user", content: "Четвёртый ход" },
     finish("Четвёртый ответ"),

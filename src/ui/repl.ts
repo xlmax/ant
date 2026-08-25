@@ -28,7 +28,7 @@ export interface ReplOptions {
   createAgentModel(settings: ModelSettings): AgentModel;
   createContextSummarizer(settings: ModelSettings): ContextSummarizer;
   listModels(): Promise<readonly string[]>;
-  saveModelId(id: string): Promise<void>;
+  saveModelId(id: string): Promise<boolean>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
   saveShowReasoning(enabled: boolean): Promise<void>;
   projectOverrides: ProjectSettingsOverrides;

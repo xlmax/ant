@@ -26,7 +26,6 @@ test("context budget separates messages, tool results, schemas, and images", () 
           ],
         },
       },
-      { type: "tool.output", call, output: { stream: "stdout", content: "ignored" } },
     ],
   });
 

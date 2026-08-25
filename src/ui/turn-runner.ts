@@ -24,11 +24,13 @@ export class TurnRunner {
   }
 
   async run(state: AgentState): Promise<AgentResult> {
-    const { model, environment, renderer, session, limits, workspace } = this.#options;
+    const { model, environment, renderer, session, limits, workspace, showChanges } = this.#options;
     renderer.beginTurn();
 
-    const changes = new TurnChangeTracker(workspace);
-    await changes.begin();
+    // The change tracker takes a Git snapshot and hashes every dirty file, so
+    // it is only attached when the summary will actually be shown.
+    const changes = showChanges ? new TurnChangeTracker(workspace) : undefined;
+    await changes?.begin();
 
     const cancelTurn = new AbortController();
     const onSigint = (): void => {
@@ -43,7 +45,8 @@ export class TurnRunner {
       const result = await runAgent(state, {
         model,
         environment,
-        observers: [session.observer, renderer, changes],
+        historyObserver: session.observer,
+        observers: [renderer, ...(changes ? [changes] : [])],
         onTextDelta: renderer.onTextDelta,
         onReasoningDelta: renderer.onReasoningDelta,
         signal: AbortSignal.any([
@@ -55,7 +58,7 @@ export class TurnRunner {
       });
 
       renderer.printResult(result);
-      if (this.#options.showChanges) {
+      if (changes) {
         renderer.printChangeSummary(await changes.finish());
       }
       return result;

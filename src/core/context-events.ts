@@ -1,41 +1,26 @@
-import type { AgentEvent } from "./agent.js";
+import type { HistoryEvent } from "./agent.js";
 
 export interface ContextSummarizer {
-  summarize(events: readonly AgentEvent[], signal?: AbortSignal): Promise<string>;
+  summarize(events: readonly HistoryEvent[], signal?: AbortSignal): Promise<string>;
 }
 
-function isContextHistoryEvent(event: AgentEvent): boolean {
-  return (
-    event.type === "task" ||
-    event.type === "user" ||
-    event.type === "decision" ||
-    event.type === "observation" ||
-    event.type === "compaction"
-  );
-}
+export function activeContextEvents(events: readonly HistoryEvent[]): HistoryEvent[] {
+  const compactionIndex = events.findLastIndex((event) => event.type === "compaction");
+  if (compactionIndex === -1) return [...events];
 
-export function activeContextEvents(events: readonly AgentEvent[]): AgentEvent[] {
-  const history = events.filter(isContextHistoryEvent);
-  const compactionIndex = history.findLastIndex((event) => event.type === "compaction");
-  if (compactionIndex === -1) return history;
-
-  const compaction = history[compactionIndex];
-  if (!compaction || compaction.type !== "compaction") return history;
-  return [
-    compaction,
-    ...compaction.retainedEvents.filter(isContextHistoryEvent),
-    ...history.slice(compactionIndex + 1),
-  ];
+  const compaction = events[compactionIndex];
+  if (!compaction || compaction.type !== "compaction") return [...events];
+  return [compaction, ...compaction.retainedEvents, ...events.slice(compactionIndex + 1)];
 }
 
 export interface CompactionPlan {
-  eventsToSummarize: AgentEvent[];
-  retainedEvents: AgentEvent[];
+  eventsToSummarize: HistoryEvent[];
+  retainedEvents: HistoryEvent[];
   retainedUserTurns: number;
 }
 
 export function createCompactionPlan(
-  events: readonly AgentEvent[],
+  events: readonly HistoryEvent[],
   retainedUserTurns = 2,
 ): CompactionPlan | undefined {
   if (!Number.isInteger(retainedUserTurns) || retainedUserTurns <= 0) {
@@ -51,7 +36,7 @@ export function createCompactionPlan(
   const retainFrom = userEventIndexes.at(-retainedUserTurns);
   if (retainFrom === undefined || retainFrom <= 0) return undefined;
   const prefix = active.slice(0, retainFrom);
-  const eventsToSummarize = prefix.map((event): AgentEvent =>
+  const eventsToSummarize = prefix.map((event): HistoryEvent =>
     event.type === "compaction"
       ? {
           type: "task",

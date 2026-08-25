@@ -103,7 +103,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
     "vision": false,
     "thinking": { "enabled": true, "effort": "high" }
   },
-  "ui": { "showReasoning": false, "color": true },
+  "ui": { "showReasoning": false, "showChanges": false, "color": true },
   "prompts": { "additionalPaths": ["prompts/local.md"] },
   "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" },
   "limits": {
@@ -143,7 +143,7 @@ There are commands inside — `/help` shows the full list. Key ones: `/new`, `/s
 
 `/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it.
 
-After each turn, Ant prints a short summary: which commands ran and which files changed (based on Git snapshots). It's for visibility and doesn't block anything. Colored output can be disabled with `ui.color: false`.
+After each turn, Ant can print a short summary: which commands ran and which files changed (based on Git snapshots). It's off by default; enable it with `ui.showChanges: true` in settings. It's for visibility and doesn't block anything. Colored output can be disabled with `ui.color: false`.
 
 ### REPL input
 

@@ -6,6 +6,7 @@ import {
   type AgentResult,
   type AgentState,
   type Decision,
+  type HistoryEvent,
   type ModelUsage,
   type Observation,
   type ToolOutputHandler,
@@ -16,11 +17,16 @@ export function createAgentState(task: string): AgentState {
   return { events: [{ type: "task", content: task }] };
 }
 
-async function appendEvent(
+async function appendHistoryEvent(
   state: AgentState,
-  event: AgentEvent,
+  event: HistoryEvent,
+  historyObserver: AgentObserver | undefined,
   observers: readonly AgentObserver[],
 ): Promise<void> {
+  // Strict ordering: 1) persist to the durable journal, 2) mutate in-memory
+  // state, 3) notify UI observers. A failure in any step leaves the journal
+  // and the state consistent with each other — only rendering is skipped.
+  if (historyObserver) await historyObserver.onEvent(event);
   state.events.push(event);
   for (const observer of observers) await observer.onEvent(event);
 }
@@ -91,6 +97,7 @@ export async function runAgent(
     model,
     environment,
     observers = [],
+    historyObserver,
     onTextDelta,
     onReasoningDelta,
     signal,
@@ -108,8 +115,7 @@ export async function runAgent(
     let usage: ModelUsage | undefined;
 
     for (let attempt = 1; attempt <= modelMaxAttempts; attempt += 1) {
-      await appendEvent(
-        state,
+      await notifyEvent(
         { type: "model.requested", attempt, maxAttempts: modelMaxAttempts },
         observers,
       );
@@ -156,8 +162,7 @@ export async function runAgent(
         }
 
         const delayMs = retryDelayMs * 2 ** (attempt - 1);
-        await appendEvent(
-          state,
+        await notifyEvent(
           {
             type: "model.retry",
             reason,
@@ -178,8 +183,8 @@ export async function runAgent(
     }
 
     if (!decision) throw new Error("Модель не вернула решение");
-    if (usage) await appendEvent(state, { type: "model.usage", usage }, observers);
-    await appendEvent(state, { type: "decision", decision }, observers);
+    if (usage) await notifyEvent({ type: "model.usage", usage }, observers);
+    await appendHistoryEvent(state, { type: "decision", decision }, historyObserver, observers);
 
     if (decision.type === "finish") {
       return { status: "completed", answer: decision.answer, state };
@@ -238,7 +243,12 @@ export async function runAgent(
         },
         observers,
       );
-      await appendEvent(state, { type: "observation", call, observation }, observers);
+      await appendHistoryEvent(
+        state,
+        { type: "observation", call, observation },
+        historyObserver,
+        observers,
+      );
     }
   }
 

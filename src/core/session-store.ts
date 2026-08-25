@@ -1,8 +1,8 @@
-import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, stat, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { AgentEvent, AgentObserver, AgentState } from "./agent.js";
+import type { AgentEvent, AgentObserver, AgentState, HistoryEvent } from "./agent.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 
 const SESSION_VERSION = 1;
@@ -88,17 +88,17 @@ function serializeRecord(sessionId: string, event: AgentEvent, timestamp: string
 }
 
 /**
- * Telemetry events are transient process noise: the model ignores them when
- * rebuilding context, so they are not written to the session journal.
+ * Only history events are written to the journal. The allow-list makes a
+ * future lifecycle event fail safe: a type not listed here is simply not
+ * persisted, instead of silently leaking into the session file.
  */
-export function isPersistedEvent(event: AgentEvent): boolean {
+export function isPersistedEvent(event: AgentEvent): event is HistoryEvent {
   return (
-    event.type !== "model.requested" &&
-    event.type !== "model.retry" &&
-    event.type !== "model.usage" &&
-    event.type !== "tool.started" &&
-    event.type !== "tool.output" &&
-    event.type !== "tool.finished"
+    event.type === "task" ||
+    event.type === "user" ||
+    event.type === "decision" ||
+    event.type === "compaction" ||
+    event.type === "observation"
   );
 }
 
@@ -211,17 +211,27 @@ async function readSessionMetadata(
   };
 }
 
-async function readSessionRecords(filePath: string): Promise<SessionRecord[]> {
+interface ReadSessionRecordsResult {
+  records: SessionRecord[];
+  /** Byte length of the clean journal boundary (excludes a torn tail). */
+  validBytes: number;
+  /** True when the final record is valid but the file lacks a trailing newline. */
+  needsNewlineSeparator: boolean;
+}
+
+async function readSessionRecords(filePath: string): Promise<ReadSessionRecordsResult> {
   const content = await readFile(filePath, "utf8");
   const records: SessionRecord[] = [];
   const lines = content.split(/\r?\n/u);
   const hasIncompleteTail = content !== "" && !content.endsWith("\n");
+  let tornTail = false;
   for (const [index, line] of lines.entries()) {
     if (line) {
       try {
         records.push(parseRecord(line, index + 1));
       } catch (error) {
         if (hasIncompleteTail && index === lines.length - 1 && records.length > 0) {
+          tornTail = true;
           break;
         }
         throw error;
@@ -233,7 +243,31 @@ async function readSessionRecords(filePath: string): Promise<SessionRecord[]> {
     throw new Error("Невозможно продолжить пустую сессию");
   }
 
-  return records;
+  // File ends with a newline: every line on disk is a well-formed record.
+  if (!hasIncompleteTail) {
+    return {
+      records,
+      validBytes: Buffer.byteLength(content, "utf8"),
+      needsNewlineSeparator: false,
+    };
+  }
+
+  // No trailing newline. A valid final record must be kept, not truncated:
+  // only a genuinely torn tail gets trimmed back to the previous boundary.
+  if (!tornTail) {
+    return {
+      records,
+      validBytes: Buffer.byteLength(content, "utf8"),
+      needsNewlineSeparator: true,
+    };
+  }
+
+  const lastNewline = content.lastIndexOf("\n");
+  return {
+    records,
+    validBytes: lastNewline < 0 ? 0 : Buffer.byteLength(content.slice(0, lastNewline + 1), "utf8"),
+    needsNewlineSeparator: false,
+  };
 }
 
 class JsonlSessionObserver implements AgentObserver {
@@ -340,7 +374,7 @@ export class JsonlSessionStore {
         }
 
         if (!summary) {
-          summary = summaryFromRecords(id, filePath, await readSessionRecords(filePath));
+          summary = summaryFromRecords(id, filePath, (await readSessionRecords(filePath)).records);
           await writeSessionMetadata(this.#sessionDirectory, summary);
         }
 
@@ -363,13 +397,24 @@ export class JsonlSessionStore {
     session: AgentSession;
   }> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
-    const records = await readSessionRecords(filePath);
+    const { records, validBytes, needsNewlineSeparator } = await readSessionRecords(filePath);
+
+    if (needsNewlineSeparator) {
+      // A valid final record without a trailing newline: keep it untouched and
+      // only add the separator so the next appendFile lands on a new line.
+      await appendFile(filePath, "\n", "utf8");
+    } else if (validBytes < (await stat(filePath)).size) {
+      // A crashed session may end with a torn tail line that the parser
+      // ignored. Trim it so the next appendFile lands on a clean record
+      // boundary instead of concatenating new JSON onto the damaged tail.
+      await truncate(filePath, validBytes);
+    }
 
     const summary = summaryFromRecords(sessionId, filePath, records);
     await writeSessionMetadata(this.#sessionDirectory, summary);
 
     return {
-      state: { events: records.map((record) => record.event) },
+      state: { events: records.map((record) => record.event).filter(isPersistedEvent) },
       session: {
         id: sessionId,
         filePath,

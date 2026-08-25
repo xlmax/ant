@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { activeContextEvents } from "../../core/context-events.js";
-import type { AgentEvent, Decision, ImageAttachment, Observation } from "../../core/agent.js";
+import type { Decision, HistoryEvent, ImageAttachment, Observation } from "../../core/agent.js";
 import { decisionMessage, observationContent } from "./protocol.js";
 import type { DeepSeekContentPart, DeepSeekMessage } from "./protocol.js";
 
@@ -23,7 +23,7 @@ async function imagePart(
 }
 
 export async function buildMessages(
-  events: readonly AgentEvent[],
+  events: readonly HistoryEvent[],
   systemPrompt: string,
   includeReasoning: boolean,
   includeImages: boolean,
@@ -105,13 +105,6 @@ export async function buildMessages(
           pending.observations.set(event.call.id, event.observation);
           await flushPending();
         }
-        break;
-      case "model.requested":
-      case "model.retry":
-      case "model.usage":
-      case "tool.started":
-      case "tool.output":
-      case "tool.finished":
         break;
     }
   }

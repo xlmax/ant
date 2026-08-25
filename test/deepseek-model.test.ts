@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ModelRequestError, type AgentEvent, type ModelInput } from "../src/core/agent.js";
+import { ModelRequestError, type HistoryEvent, type ModelInput } from "../src/core/agent.js";
 import { DeepSeekModel } from "../src/models/deepseek-model.js";
 
 test("DeepSeekModel classifies fetch TypeError as retryable transport failure", async () => {
@@ -89,7 +89,7 @@ test("DeepSeekModel maps tool calls and observations to the API protocol", async
     systemPrompt: "Тестовая системная инструкция.",
     fetch: fetchMock,
   });
-  const events: AgentEvent[] = [{ type: "task", content: "Поздоровайся" }];
+  const events: HistoryEvent[] = [{ type: "task", content: "Поздоровайся" }];
   const input: ModelInput = {
     events,
     tools: [
