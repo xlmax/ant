@@ -6,7 +6,6 @@ import { loadEnvFile } from "node:process";
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import { VERSION } from "./version.js";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
-import { createAgentState, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
 import {
   loadSettings,
@@ -16,7 +15,8 @@ import {
 } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
 import { ToolEnvironment } from "./core/environment.js";
-import { JsonlSessionStore, type AgentSession } from "./core/session-store.js";
+import { JsonlSessionStore } from "./core/session-store.js";
+import { SessionController } from "./core/session-controller.js";
 import type { ContextSummarizer } from "./core/context-events.js";
 import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
@@ -99,16 +99,6 @@ async function createModel(workspace: string): Promise<{
   };
 }
 
-async function appendUserMessage(
-  state: AgentState,
-  session: AgentSession,
-  content: string,
-): Promise<void> {
-  const event = { type: "user" as const, content };
-  state.events.push(event);
-  await session.observer.onEvent(event);
-}
-
 async function runOneShot(
   options: Pick<CliOptions, "task" | "resume">,
   workspace: string,
@@ -118,18 +108,10 @@ async function runOneShot(
   showReasoning: boolean,
   limits: RuntimeLimits,
 ): Promise<void> {
-  let state: AgentState;
-  let session: AgentSession;
-
-  if (options.resume) {
-    const resumed = await store.resume(options.resume);
-    state = resumed.state;
-    session = resumed.session;
-    await appendUserMessage(state, session, options.task);
-  } else {
-    state = createAgentState(options.task);
-    session = await store.create(state);
-  }
+  const sessions = new SessionController(store);
+  if (options.resume) await sessions.resume(options.resume);
+  const prepared = await sessions.prepareUserMessage(options.task);
+  const { state, session } = prepared;
 
   const renderer = new ConsoleRenderer({ showReasoning });
   console.log(`Сессия: ${session.id}`);
