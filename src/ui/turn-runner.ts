@@ -3,7 +3,7 @@ import { runAgent, type AgentModel, type AgentResult, type AgentState } from "..
 import type { ToolEnvironment } from "../core/environment.js";
 import type { AgentSession } from "../core/session-store.js";
 import { ansi } from "./ansi.js";
-import { ConsoleRenderer } from "./console-renderer.js";
+import type { ConsoleRenderer } from "./console-renderer.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface TurnRunnerOptions {
