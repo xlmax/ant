@@ -128,24 +128,37 @@ export function runGlobalUpdate(url: string): Promise<void> {
   }
 
   return new Promise((resolve, reject) => {
-    const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-    const child = spawn(npmCommand, ["install", "-g", url], {
+    const isWindows = process.platform === "win32";
+    const command = isWindows ? "cmd.exe" : "npm";
+    const args = isWindows
+      ? ["/d", "/s", "/c", "npm.cmd", "install", "-g", url]
+      : ["install", "-g", url];
+    const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      ...(process.platform === "win32" ? { shell: true } : {}),
+      shell: false,
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
       process.stdout.write(chunk);
     });
+
+    // npm может печатать в stderr безвредный EPERM при попытке заменить
+    // koffi.node, пока запущенный ant держит его в памяти (Windows). Обновление
+    // при этом проходит успешно, поэтому держим stderr в буфере и показываем
+    // только в случае реального сбоя, чтобы не сыпать шумом в консоль.
+    const stderrChunks: Buffer[] = [];
     child.stderr?.on("data", (chunk: Buffer) => {
-      process.stderr.write(chunk);
+      stderrChunks.push(chunk);
     });
     child.on("error", reject);
     child.on("close", (exitCode) => {
       if (exitCode === 0) {
         resolve();
       } else {
+        if (stderrChunks.length > 0) {
+          process.stderr.write(Buffer.concat(stderrChunks));
+        }
         reject(new Error(`npm install завершился с кодом ${exitCode ?? "неизвестно"}`));
       }
     });
