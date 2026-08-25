@@ -132,6 +132,7 @@ export function runGlobalUpdate(url: string): Promise<void> {
     const child = spawn(npmCommand, ["install", "-g", url], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      ...(process.platform === "win32" ? { shell: true } : {}),
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
