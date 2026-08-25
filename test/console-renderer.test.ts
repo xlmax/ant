@@ -95,6 +95,31 @@ test("Ant and change summaries color their full boundaries", () => {
   }
 });
 
+test("empty reasoning does not render an empty block", async () => {
+  const originalWrite = process.stdout.write;
+  const output: string[] = [];
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    output.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+  configureAnsi(false);
+
+  try {
+    const renderer = new ConsoleRenderer({ showReasoning: true });
+    renderer.beginTurn();
+    renderer.onReasoningDelta("   \n");
+    await renderer.onEvent({
+      type: "decision",
+      decision: { type: "finish", answer: "ok", reasoning: "   " },
+    });
+    const rendered = output.join("");
+    assert.doesNotMatch(rendered, /───/u);
+  } finally {
+    process.stdout.write = originalWrite;
+    configureAnsi(true);
+  }
+});
+
 test("tool output is not streamed and the final observation is not duplicated", async () => {
   const originalWrite = process.stdout.write;
   const output: string[] = [];

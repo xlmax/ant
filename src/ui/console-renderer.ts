@@ -161,6 +161,9 @@ export class ConsoleRenderer implements AgentObserver {
     this.#finalizeSpinner();
 
     if (!this.#reasoningBlockOpen) {
+      if (text.trim() === "") {
+        return;
+      }
       process.stdout.write(`${sectionFooter()}\n`);
       this.#reasoningBlockOpen = true;
     }
@@ -350,7 +353,7 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   private printReasoning(reasoning: string | undefined): void {
-    if (!reasoning) {
+    if (!reasoning || reasoning.trim() === "") {
       return;
     }
 
