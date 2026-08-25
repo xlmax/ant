@@ -42,6 +42,19 @@ export function hasPendingKeyDown(record: WindowsInputRecord | undefined): boole
   return record?.eventType === KEY_EVENT && Boolean(record.bKeyDown);
 }
 
+export function hasPendingKeyDownInBuffer(
+  records: readonly WindowsInputRecord[],
+  count: number,
+): boolean {
+  const limit = Math.min(count, records.length);
+  for (let index = 0; index < limit; index++) {
+    if (hasPendingKeyDown(records[index])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function mapWindowsKeyEvent(event: WindowsKeyEvent): ConsoleInputAction {
   if (event.eventType !== KEY_EVENT || !event.bKeyDown) {
     return { type: "ignore" };

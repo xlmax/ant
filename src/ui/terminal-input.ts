@@ -4,10 +4,15 @@ import type { Interface } from "node:readline/promises";
 import { displayWidth } from "./display-width.js";
 import { InputHistory } from "./input-history.js";
 import { TextEditor, type CursorPosition } from "./text-editor.js";
-import { hasPendingKeyDown, mapWindowsKeyEvent } from "./windows-console-input.js";
+import {
+  hasPendingKeyDownInBuffer,
+  mapWindowsKeyEvent,
+  type WindowsInputRecord,
+} from "./windows-console-input.js";
 
 const STD_INPUT_HANDLE = -10;
 const ENABLE_PROCESSED_INPUT = 0x0001;
+const PEEK_INPUT_RECORDS = 64;
 
 interface InputRecordValue {
   EventType?: number;
@@ -17,6 +22,10 @@ interface InputRecordValue {
     UnicodeChar?: number;
     dwControlKeyState?: number;
   };
+}
+
+interface InputRecordBufferValue {
+  Records?: InputRecordValue[];
 }
 
 async function loadWindowsConsoleApi() {
@@ -29,10 +38,13 @@ async function loadWindowsConsoleApi() {
     UnicodeChar: "uint16",
     dwControlKeyState: "uint32",
   });
-  ffi.struct("AgentInputRecord", {
+  const InputRecord = ffi.struct("AgentInputRecord", {
     EventType: "uint16",
     Padding: "uint16",
     KeyEvent: KeyEventRecord,
+  });
+  ffi.struct("AgentInputRecordBuffer", {
+    Records: ffi.array(InputRecord, PEEK_INPUT_RECORDS),
   });
   const kernel32 = ffi.load("kernel32.dll");
 
@@ -48,7 +60,7 @@ async function loadWindowsConsoleApi() {
       "int32 __stdcall ReadConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
     peekConsoleInputW: kernel32.func(
-      "int32 __stdcall PeekConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
+      "int32 __stdcall PeekConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecordBuffer *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
     flushConsoleInputBuffer: kernel32.func(
       "int32 __stdcall FlushConsoleInputBuffer(void *hConsoleInput)",
@@ -177,18 +189,21 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       }
 
       if (action.type === "submit") {
-        const nextRecord: InputRecordValue = {};
+        const buffer: InputRecordBufferValue = {};
         const eventsPeeked: [number | null] = [null];
-        const peekSucceeded = api.peekConsoleInputW(input, nextRecord, 1, eventsPeeked);
+        const peekSucceeded = api.peekConsoleInputW(
+          input,
+          buffer,
+          PEEK_INPUT_RECORDS,
+          eventsPeeked,
+        );
+        const peekedCount = eventsPeeked[0] ?? 0;
+        const pendingRecords: WindowsInputRecord[] = (buffer.Records ?? []).map((record) => ({
+          eventType: record?.EventType,
+          bKeyDown: record?.KeyEvent?.bKeyDown,
+        }));
 
-        if (
-          peekSucceeded &&
-          eventsPeeked[0] === 1 &&
-          hasPendingKeyDown({
-            eventType: nextRecord.EventType,
-            bKeyDown: nextRecord.KeyEvent?.bKeyDown,
-          })
-        ) {
+        if (peekSucceeded && hasPendingKeyDownInBuffer(pendingRecords, peekedCount)) {
           action = { type: "newline" };
         } else {
           stdout.write("\n");
