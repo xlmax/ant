@@ -6,7 +6,7 @@ import { loadEnvFile } from "node:process";
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import { VERSION } from "./version.js";
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
-import { createAgentState, runAgent, type AgentState } from "./core/agent.js";
+import { createAgentState, type AgentState } from "./core/agent.js";
 import { createCodingTools } from "./coding-tools.js";
 import {
   loadSettings,
@@ -22,7 +22,7 @@ import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
-import { TurnChangeTracker } from "./ui/turn-change-summary.js";
+import { TurnRunner } from "./ui/turn-runner.js";
 
 function createDeepSeekModel(
   apiKey: string,
@@ -132,24 +132,16 @@ async function runOneShot(
   }
 
   const renderer = new ConsoleRenderer({ showReasoning });
-  const changes = new TurnChangeTracker(workspace);
   console.log(`Сессия: ${session.id}`);
-  renderer.beginTurn();
-  await changes.begin();
 
-  const result = await runAgent(state, {
+  const result = await new TurnRunner({
+    workspace,
     model,
     environment,
-    observers: [session.observer, renderer, changes],
-    onTextDelta: renderer.onTextDelta,
-    onReasoningDelta: renderer.onReasoningDelta,
-    signal: AbortSignal.timeout(limits.turnTimeoutSeconds * 1_000),
-    modelRequestTimeoutMs: limits.modelRequestTimeoutSeconds * 1_000,
-    modelMaxAttempts: limits.modelMaxAttempts,
-  });
-
-  renderer.printResult(result);
-  renderer.printChangeSummary(await changes.finish());
+    renderer,
+    session,
+    limits,
+  }).run(state);
 
   if (result.status === "cancelled") {
     process.exitCode = 2;

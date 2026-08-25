@@ -2,7 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
-import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
+import { createAgentState, type AgentModel, type AgentState } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
 import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
@@ -19,7 +19,7 @@ import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./inpu
 import { formatContextStatus } from "./context-status.js";
 import { formatStartScreen, resolveGitBranch } from "./start-screen.js";
 import { formatUpdateNotice } from "./update-notice.js";
-import { TurnChangeTracker } from "./turn-change-summary.js";
+import { TurnRunner } from "./turn-runner.js";
 
 export interface ReplOptions {
   workspace: string;
@@ -392,38 +392,14 @@ export async function runRepl(options: ReplOptions): Promise<void> {
         await appendUserMessage(state, session, input);
       }
 
-      renderer.beginTurn();
-      const changes = new TurnChangeTracker(options.workspace);
-      await changes.begin();
-      const cancelTurn = new AbortController();
-      const onSigint = (): void => {
-        if (!cancelTurn.signal.aborted) {
-          console.log(ansi.yellow("\nОтмена текущего хода…"));
-          cancelTurn.abort();
-        }
-      };
-      process.on("SIGINT", onSigint);
-
-      try {
-        const result = await runAgent(state, {
-          model,
-          environment: options.environment,
-          observers: [session.observer, renderer, changes],
-          onTextDelta: renderer.onTextDelta,
-          onReasoningDelta: renderer.onReasoningDelta,
-          signal: AbortSignal.any([
-            cancelTurn.signal,
-            AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
-          ]),
-          modelRequestTimeoutMs: options.limits.modelRequestTimeoutSeconds * 1_000,
-          modelMaxAttempts: options.limits.modelMaxAttempts,
-        });
-
-        renderer.printResult(result);
-        renderer.printChangeSummary(await changes.finish());
-      } finally {
-        process.removeListener("SIGINT", onSigint);
-      }
+      await new TurnRunner({
+        workspace: options.workspace,
+        model,
+        environment: options.environment,
+        renderer,
+        session,
+        limits: options.limits,
+      }).run(state);
     }
   } finally {
     terminal?.close();
