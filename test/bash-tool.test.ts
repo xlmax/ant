@@ -183,14 +183,11 @@ test("bash abort kills the whole process tree", async () => {
     controller.signal,
   );
 
-  setTimeout(() => {
-    controller.abort();
-  }, 50);
+  const childPid = await readChildPid(pidFilePath);
+  controller.abort();
 
   try {
     await assert.rejects(execution, /Operation aborted/);
-
-    const childPid = await readChildPid(pidFilePath);
     assert.equal(isProcessRunning(childPid), false);
   } finally {
     await cleanupPidFile(pidFilePath);
