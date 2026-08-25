@@ -2,11 +2,11 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
-import type { AgentEvent, AgentModel } from "../core/agent.js";
+import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import { JsonlSessionStore } from "../core/session-store.js";
-import { SessionController, type ActiveSession } from "../core/session-controller.js";
+import { SessionController } from "../core/session-controller.js";
 import { checkForUpdates, isRunningUnderNpm } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
@@ -16,23 +16,9 @@ import { ConsoleRenderer } from "./console-renderer.js";
 import { InputHistory } from "./input-history.js";
 import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./input-frame.js";
 import { readTerminalInput } from "./terminal-input.js";
-import { formatStartScreen, resolveGitBranch, type SessionUsage } from "./start-screen.js";
+import { formatStartScreen, resolveGitBranch } from "./start-screen.js";
 import { formatUpdateNotice } from "./update-notice.js";
 import { TurnRunner } from "./turn-runner.js";
-
-function summarizeUsage(events: readonly AgentEvent[]): SessionUsage | undefined {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let calls = 0;
-  for (const event of events) {
-    if (event.type === "model.usage") {
-      inputTokens += event.usage.inputTokens;
-      outputTokens += event.usage.outputTokens;
-      calls += 1;
-    }
-  }
-  return calls === 0 ? undefined : { inputTokens, outputTokens, calls };
-}
 
 export interface ReplOptions {
   workspace: string;
@@ -72,22 +58,17 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   const sessions = new SessionController(options.store);
 
   const branch = await resolveGitBranch(options.workspace);
-  let resumedSession: ActiveSession | undefined;
-  if (options.resume) {
-    resumedSession = await sessions.resume(options.resume);
-  }
-  const sessionUsage = resumedSession ? summarizeUsage(resumedSession.state.events) : undefined;
   console.log(
     formatStartScreen({
       workspace: options.workspace,
       branch,
       modelSettings: state.modelSettings,
-      ...(sessionUsage === undefined ? {} : { sessionUsage }),
     }),
   );
 
-  if (resumedSession) {
-    console.log(ansi.dim(`Продолжена сессия: ${resumedSession.session.id}`));
+  if (options.resume) {
+    const resumed = await sessions.resume(options.resume);
+    console.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
   }
 
   const updateInfo = isRunningUnderNpm()
