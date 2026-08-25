@@ -6,6 +6,7 @@ export interface UpdateInfo {
 }
 
 const RELEASE_API_URL = "https://api.github.com/repos/xlmax/ant/releases/latest";
+const RELEASE_REPOSITORY_PATH = "/xlmax/ant/releases/download";
 
 function parseVersion(version: string): number[] {
   return version
@@ -15,6 +16,21 @@ function parseVersion(version: string): number[] {
       const match = part.match(/^\d+/u);
       return match ? Number.parseInt(match[0], 10) : 0;
     });
+}
+
+export function isTrustedReleaseAssetUrl(url: string, version: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname === "github.com" &&
+      parsed.search === "" &&
+      parsed.hash === "" &&
+      parsed.pathname === `${RELEASE_REPOSITORY_PATH}/v${version}/ant-${version}.tgz`
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isNewer(latest: string, current: string): boolean {
@@ -53,9 +69,9 @@ export function parseLatestRelease(value: unknown): UpdateInfo | undefined {
           const candidate = asset as Record<string, unknown>;
           if (
             typeof candidate.name === "string" &&
-            candidate.name.startsWith("ant-") &&
-            candidate.name.endsWith(".tgz") &&
-            typeof candidate.browser_download_url === "string"
+            candidate.name === `ant-${version}.tgz` &&
+            typeof candidate.browser_download_url === "string" &&
+            isTrustedReleaseAssetUrl(candidate.browser_download_url, version)
           ) {
             return candidate.browser_download_url;
           }
@@ -107,6 +123,10 @@ export function isRunningUnderNpm(env: NodeJS.ProcessEnv = process.env): boolean
 }
 
 export function runGlobalUpdate(url: string): Promise<void> {
+  if (!isTrustedReleaseAssetUrl(url, url.match(/\/ant-(\d+(?:\.\d+)+)\.tgz$/u)?.[1] ?? "")) {
+    return Promise.reject(new Error("Недоверенный URL установочного файла обновления"));
+  }
+
   return new Promise((resolve, reject) => {
     const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
     const child = spawn(npmCommand, ["install", "-g", url], {

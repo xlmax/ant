@@ -111,7 +111,7 @@ export interface Environment {
     signal?: AbortSignal,
     onOutput?: SingleToolOutputHandler,
   ): Promise<Observation>;
-  executeMany?(
+  executeMany(
     calls: ToolCalls,
     signal?: AbortSignal,
     onOutput?: ToolOutputHandler,

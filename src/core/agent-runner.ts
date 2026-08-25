@@ -198,23 +198,12 @@ export async function runAgent(
     };
     let observations: readonly Observation[];
     try {
-      if (environment.executeMany) {
-        observations = await environment.executeMany(
-          decision.calls,
-          signal,
-          onToolOutput,
-          onToolStarted,
-        );
-      } else {
-        const sequential: Observation[] = [];
-        for (const call of decision.calls) {
-          onToolStarted(call);
-          sequential.push(
-            await environment.execute(call, signal, (output) => onToolOutput(call, output)),
-          );
-        }
-        observations = sequential;
-      }
+      observations = await environment.executeMany(
+        decision.calls,
+        signal,
+        onToolOutput,
+        onToolStarted,
+      );
     } catch (error) {
       await toolEvents;
       if (signal?.aborted) {
