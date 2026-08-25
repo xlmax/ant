@@ -4,7 +4,7 @@ import type { Interface } from "node:readline/promises";
 import { displayWidth } from "./display-width.js";
 import { InputHistory } from "./input-history.js";
 import { TextEditor, type CursorPosition } from "./text-editor.js";
-import { mapWindowsKeyEvent } from "./windows-console-input.js";
+import { hasPendingKeyDown, mapWindowsKeyEvent } from "./windows-console-input.js";
 
 const STD_INPUT_HANDLE = -10;
 const ENABLE_PROCESSED_INPUT = 0x0001;
@@ -47,8 +47,8 @@ async function loadWindowsConsoleApi() {
     readConsoleInputW: kernel32.func(
       "int32 __stdcall ReadConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
-    getNumberOfConsoleInputEvents: kernel32.func(
-      "int32 __stdcall GetNumberOfConsoleInputEvents(void *hConsoleInput, _Out_ uint32 *lpcNumberOfEvents)",
+    peekConsoleInputW: kernel32.func(
+      "int32 __stdcall PeekConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
     flushConsoleInputBuffer: kernel32.func(
       "int32 __stdcall FlushConsoleInputBuffer(void *hConsoleInput)",
@@ -177,13 +177,18 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       }
 
       if (action.type === "submit") {
-        const pending: [number | null] = [null];
-        const hasPending =
-          api.getNumberOfConsoleInputEvents(input, pending) &&
-          pending[0] !== null &&
-          pending[0] > 0;
+        const nextRecord: InputRecordValue = {};
+        const eventsPeeked: [number | null] = [null];
+        const peekSucceeded = api.peekConsoleInputW(input, nextRecord, 1, eventsPeeked);
 
-        if (hasPending) {
+        if (
+          peekSucceeded &&
+          eventsPeeked[0] === 1 &&
+          hasPendingKeyDown({
+            eventType: nextRecord.EventType,
+            bKeyDown: nextRecord.KeyEvent?.bKeyDown,
+          })
+        ) {
           action = { type: "newline" };
         } else {
           stdout.write("\n");
