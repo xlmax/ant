@@ -2,11 +2,12 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
 import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
-import { createAgentState, runAgent, type AgentModel, type AgentState } from "../core/agent.js";
+import type { AgentModel } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
 import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
-import { JsonlSessionStore, type AgentSession } from "../core/session-store.js";
+import { JsonlSessionStore } from "../core/session-store.js";
+import { SessionController } from "../core/session-controller.js";
 import { checkForUpdates, isRunningUnderNpm, runGlobalUpdate } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
@@ -19,7 +20,7 @@ import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "./inpu
 import { formatContextStatus } from "./context-status.js";
 import { formatStartScreen, resolveGitBranch } from "./start-screen.js";
 import { formatUpdateNotice } from "./update-notice.js";
-import { TurnChangeTracker } from "./turn-change-summary.js";
+import { TurnRunner } from "./turn-runner.js";
 
 export interface ReplOptions {
   workspace: string;
@@ -41,16 +42,6 @@ export interface ReplOptions {
   resume?: string;
 }
 
-async function appendUserMessage(
-  state: AgentState,
-  session: AgentSession,
-  content: string,
-): Promise<void> {
-  const event = { type: "user" as const, content };
-  state.events.push(event);
-  await session.observer.onEvent(event);
-}
-
 export async function runRepl(options: ReplOptions): Promise<void> {
   const terminal =
     process.platform === "win32" && stdin.isTTY
@@ -63,8 +54,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   let model = options.model;
   let summarizer = options.summarizer;
   let modelSettings = options.modelSettings;
-  let state: AgentState | undefined;
-  let session: AgentSession | undefined;
+  const sessions = new SessionController(options.store);
 
   const branch = await resolveGitBranch(options.workspace);
   console.log(
@@ -76,10 +66,8 @@ export async function runRepl(options: ReplOptions): Promise<void> {
   );
 
   if (options.resume) {
-    const resumed = await options.store.resume(options.resume);
-    state = resumed.state;
-    session = resumed.session;
-    console.log(ansi.dim(`Продолжена сессия: ${session.id}`));
+    const resumed = await sessions.resume(options.resume);
+    console.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
   }
 
   const updateInfo = isRunningUnderNpm()
@@ -107,15 +95,16 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             return;
 
           case "new":
-            state = undefined;
-            session = undefined;
+            sessions.reset();
             console.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
             continue;
 
           case "session":
             console.log(
-              session
-                ? ansi.dim(`Сессия: ${session.id}\nФайл: ${session.filePath}`)
+              sessions.active
+                ? ansi.dim(
+                    `Сессия: ${sessions.active.session.id}\nФайл: ${sessions.active.session.filePath}`,
+                  )
                 : ansi.dim("Сессия ещё не создана."),
             );
             continue;
@@ -129,7 +118,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               formatContextStatus(
                 estimateContextBudget({
                   systemPrompt: options.systemPrompt,
-                  events: state?.events ?? [],
+                  events: sessions.active?.state.events ?? [],
                   tools: options.environment.tools(),
                   contextWindow: modelSettings.contextWindow,
                   includeImages: modelSettings.vision,
@@ -140,11 +129,11 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             continue;
 
           case "compact": {
-            if (!state || !session) {
+            if (!sessions.active) {
               console.log(ansi.dim("Сессия ещё не создана."));
               continue;
             }
-            const plan = createCompactionPlan(state.events);
+            const plan = createCompactionPlan(sessions.active.state.events);
             if (!plan) {
               console.log(
                 ansi.dim(
@@ -156,7 +145,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
             const before = estimateContextBudget({
               systemPrompt: options.systemPrompt,
-              events: state.events,
+              events: sessions.active.state.events,
               tools: options.environment.tools(),
               contextWindow: modelSettings.contextWindow,
               includeImages: modelSettings.vision,
@@ -180,7 +169,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
               };
               const after = estimateContextBudget({
                 systemPrompt: options.systemPrompt,
-                events: [...state.events, event],
+                events: [...sessions.active.state.events, event],
                 tools: options.environment.tools(),
                 contextWindow: modelSettings.contextWindow,
                 includeImages: modelSettings.vision,
@@ -194,8 +183,8 @@ export async function runRepl(options: ReplOptions): Promise<void> {
                 );
                 continue;
               }
-              state.events.push(event);
-              await session.observer.onEvent(event);
+              sessions.active.state.events.push(event);
+              await sessions.active.session.observer.onEvent(event);
 
               console.log(
                 ansi.green(
@@ -384,46 +373,18 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
       inputHistory.add(input);
 
-      if (!state || !session) {
-        state = createAgentState(input);
-        session = await options.store.create(state);
-        console.log(ansi.dim(`Сессия: ${session.id}`));
-      } else {
-        await appendUserMessage(state, session, input);
-      }
+      const prepared = await sessions.prepareUserMessage(input);
+      const { state, session } = prepared;
+      if (prepared.created) console.log(ansi.dim(`Сессия: ${session.id}`));
 
-      renderer.beginTurn();
-      const changes = new TurnChangeTracker(options.workspace);
-      await changes.begin();
-      const cancelTurn = new AbortController();
-      const onSigint = (): void => {
-        if (!cancelTurn.signal.aborted) {
-          console.log(ansi.yellow("\nОтмена текущего хода…"));
-          cancelTurn.abort();
-        }
-      };
-      process.on("SIGINT", onSigint);
-
-      try {
-        const result = await runAgent(state, {
-          model,
-          environment: options.environment,
-          observers: [session.observer, renderer, changes],
-          onTextDelta: renderer.onTextDelta,
-          onReasoningDelta: renderer.onReasoningDelta,
-          signal: AbortSignal.any([
-            cancelTurn.signal,
-            AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
-          ]),
-          modelRequestTimeoutMs: options.limits.modelRequestTimeoutSeconds * 1_000,
-          modelMaxAttempts: options.limits.modelMaxAttempts,
-        });
-
-        renderer.printResult(result);
-        renderer.printChangeSummary(await changes.finish());
-      } finally {
-        process.removeListener("SIGINT", onSigint);
-      }
+      await new TurnRunner({
+        workspace: options.workspace,
+        model,
+        environment: options.environment,
+        renderer,
+        session,
+        limits: options.limits,
+      }).run(state);
     }
   } finally {
     terminal?.close();
