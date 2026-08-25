@@ -47,6 +47,12 @@ async function loadWindowsConsoleApi() {
     readConsoleInputW: kernel32.func(
       "int32 __stdcall ReadConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
+    getNumberOfConsoleInputEvents: kernel32.func(
+      "int32 __stdcall GetNumberOfConsoleInputEvents(void *hConsoleInput, _Out_ uint32 *lpcNumberOfEvents)",
+    ),
+    flushConsoleInputBuffer: kernel32.func(
+      "int32 __stdcall FlushConsoleInputBuffer(void *hConsoleInput)",
+    ),
   };
 }
 
@@ -142,7 +148,7 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       }
 
       const key = record.KeyEvent;
-      const action = mapWindowsKeyEvent({
+      let action = mapWindowsKeyEvent({
         eventType: record.EventType,
         bKeyDown: key?.bKeyDown,
         virtualKeyCode: key?.wVirtualKeyCode,
@@ -171,14 +177,25 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       }
 
       if (action.type === "submit") {
-        stdout.write("\n");
-        return editor.value;
+        const pending: [number | null] = [null];
+        const hasPending =
+          api.getNumberOfConsoleInputEvents(input, pending) &&
+          pending[0] !== null &&
+          pending[0] > 0;
+
+        if (hasPending) {
+          action = { type: "newline" };
+        } else {
+          stdout.write("\n");
+          return editor.value;
+        }
       }
 
       if (action.type === "cancel") {
         editor.replace("");
         history.reset();
         cursor = redraw(editor, cursor, prompt);
+        api.flushConsoleInputBuffer(input);
         continue;
       }
 
