@@ -326,7 +326,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
             continue;
 
           case "update": {
-            const info = updateInfo ?? (await checkForUpdates(VERSION, AbortSignal.timeout(5_000)));
+            const info = await checkForUpdates(VERSION, AbortSignal.timeout(5_000));
 
             if (!info) {
               console.log(ansi.dim("Вы используете актуальную версию ant."));
