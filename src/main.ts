@@ -22,6 +22,7 @@ import { DeepSeekModel } from "./models/deepseek-model.js";
 import { configureAnsi } from "./ui/ansi.js";
 import { ConsoleRenderer } from "./ui/console-renderer.js";
 import { runRepl } from "./ui/repl.js";
+import { initConsoleSize } from "./ui/console-size.js";
 import { TurnRunner } from "./ui/turn-runner.js";
 
 function createDeepSeekModel(
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
     bashPath,
   } = await createModel(workspace);
   configureAnsi(color);
+  await initConsoleSize();
   const environment = new ToolEnvironment(
     createCodingTools(workspace, bashPath === undefined ? {} : { bashPath }),
   );
