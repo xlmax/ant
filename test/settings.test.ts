@@ -122,6 +122,7 @@ test("saving a selected model updates the global user settings only", async () =
       model: {
         baseUrl: "https://proxy.example",
         id: "deepseek-v4-pro",
+        vision: false,
       },
       ui: { showReasoning: true },
       future: { setting: true },

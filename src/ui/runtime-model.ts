@@ -1,9 +1,10 @@
 import type { ModelSettings, ReasoningEffort } from "../config/settings.js";
+import { modelSupportsVision } from "../core/model-capabilities.js";
 
 export type EffortSelection = ReasoningEffort | "off";
 
 export function selectModel(current: ModelSettings, id: string): ModelSettings {
-  return { ...current, id };
+  return { ...current, id, vision: modelSupportsVision(id) };
 }
 
 export function selectEffort(current: ModelSettings, selection: EffortSelection): ModelSettings {

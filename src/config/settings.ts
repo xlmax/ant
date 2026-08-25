@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { writeFileAtomically } from "../fs/atomic-write.js";
+import { modelSupportsVision } from "../core/model-capabilities.js";
 
 export type ReasoningEffort = "low" | "high" | "max";
 
@@ -410,6 +411,7 @@ export async function loadSettings(
 export interface UserSettingsUpdate {
   model?: {
     id?: string;
+    vision?: boolean;
     thinking?: {
       enabled?: boolean;
       effort?: ReasoningEffort;
@@ -475,7 +477,10 @@ export async function saveUserModelId(
     throw new Error("Настройка model.id должна быть непустой строкой");
   }
 
-  await saveUserSettings({ model: { id: normalizedId } }, homeDirectory);
+  await saveUserSettings(
+    { model: { id: normalizedId, vision: modelSupportsVision(normalizedId) } },
+    homeDirectory,
+  );
 }
 
 export async function saveUserShowReasoning(

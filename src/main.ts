@@ -14,6 +14,7 @@ import {
   saveUserShowReasoning,
 } from "./config/settings.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
+import { modelSupportsVision } from "./core/model-capabilities.js";
 import { ToolEnvironment } from "./core/environment.js";
 import { JsonlSessionStore } from "./core/session-store.js";
 import { SessionController } from "./core/session-controller.js";
@@ -36,7 +37,7 @@ function createDeepSeekModel(
     model: settings.id,
     baseUrl: settings.baseUrl,
     contextWindow: settings.contextWindow,
-    supportsImages: settings.vision,
+    supportsImages: modelSupportsVision(settings.id),
     thinkingEnabled: settings.thinking.enabled,
     reasoningEffort: settings.thinking.effort,
   });
@@ -72,7 +73,10 @@ async function createModel(workspace: string): Promise<{
     loadedSettings.settings.prompts.additionalPaths,
   );
 
-  const modelSettings = loadedSettings.settings.model;
+  const modelSettings = {
+    ...loadedSettings.settings.model,
+    vision: modelSupportsVision(loadedSettings.settings.model.id),
+  };
   const createConfiguredModel = (settings: ModelSettings): DeepSeekModel =>
     createDeepSeekModel(apiKey, systemPrompt.content, settings);
 
