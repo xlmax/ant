@@ -110,6 +110,12 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
     "turnTimeoutSeconds": 900,
     "modelRequestTimeoutSeconds": 90,
     "modelMaxAttempts": 3
+  },
+  "verification": {
+    "enabled": true,
+    "maxRounds": 2,
+    "checks": ["empty-answer", "echo-task", "failed-tools"],
+    "commands": []
   }
 }
 ```
@@ -117,6 +123,28 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
 Only `deepseek` is supported. For a custom vision model, set `model.vision: true`. To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. All app settings live in JSON; keep only `DEEPSEEK_API_KEY` in `.env.local`.
 
 `contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
+
+## Verification gate
+
+Before a turn is allowed to finish, Ant runs a mechanical self-verification gate: deterministic checks against the turn history and the proposed final answer, with no extra model call. If a check fails, the feedback is fed back to the model and the turn continues so it can correct the answer (or keep working). The gate never loops forever — it stops after `verification.maxRounds` extra attempts and then accepts the answer.
+
+Available checks (`verification.checks`):
+
+- `empty-answer` — the turn must not finish with a blank answer;
+- `echo-task` — the answer must not just repeat the task verbatim;
+- `failed-tools` — tool errors from this turn must be acknowledged in the final answer.
+
+Set `verification.enabled: false` to turn the gate off.
+
+### Real command checks (`verification.commands`)
+
+The answer checks above are mechanical but cannot tell whether the work itself is sound — the model could still claim "checks are green" without running anything. To close that gap, list shell commands in `verification.commands` (executed through the `bash` tool). Whenever a turn changed files (`edit`/`write`) and then finishes, every command must exit `0`; otherwise the failing output is fed back to the model and the turn continues (bounded by `verification.maxRounds`), so the finish is blocked until the checks really pass:
+
+```json
+"verification": { "commands": ["npm run check", "npm run format:check"] }
+```
+
+An empty list disables command verification. Command results are appended to the session journal like any other tool result.
 
 ## Interactive mode
 

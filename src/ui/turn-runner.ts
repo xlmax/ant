@@ -1,4 +1,4 @@
-import type { RuntimeLimits } from "../config/settings.js";
+import type { RuntimeLimits, VerificationSettings } from "../config/settings.js";
 import { runAgent, type AgentModel, type AgentResult, type AgentState } from "../core/agent.js";
 import type { ToolEnvironment } from "../core/environment.js";
 import type { AgentSession } from "../core/session-store.js";
@@ -13,6 +13,7 @@ export interface TurnRunnerOptions {
   renderer: ConsoleRenderer;
   session: AgentSession;
   limits: RuntimeLimits;
+  verification?: VerificationSettings;
   showChanges?: boolean;
 }
 
@@ -24,7 +25,8 @@ export class TurnRunner {
   }
 
   async run(state: AgentState): Promise<AgentResult> {
-    const { model, environment, renderer, session, limits, workspace, showChanges } = this.#options;
+    const { model, environment, renderer, session, limits, workspace, showChanges, verification } =
+      this.#options;
     renderer.beginTurn();
 
     // The change tracker takes a Git snapshot and hashes every dirty file, so
@@ -55,6 +57,7 @@ export class TurnRunner {
         ]),
         modelRequestTimeoutMs: limits.modelRequestTimeoutSeconds * 1_000,
         modelMaxAttempts: limits.modelMaxAttempts,
+        ...(verification === undefined ? {} : { verification }),
       });
 
       renderer.printResult(result);

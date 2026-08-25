@@ -100,6 +100,13 @@ export async function buildMessages(
           content: `Ниже дано резюме предыдущей части этой сессии. Используй его как контекст для продолжения работы.\n\n${event.summary}`,
         });
         break;
+      case "verification":
+        await flushPending(true);
+        messages.push({
+          role: "user",
+          content: `[Самопроверка перед завершением хода, попытка ${event.round}/${event.maxRounds}]\n${event.feedback}`,
+        });
+        break;
       case "observation":
         if (pending && pending.decision.calls.some((call) => call.id === event.call.id)) {
           pending.observations.set(event.call.id, event.observation);

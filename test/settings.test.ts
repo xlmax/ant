@@ -247,6 +247,12 @@ test("settings merge global and project layers without environment overrides", a
         modelRequestTimeoutSeconds: 90,
         modelMaxAttempts: 2,
       },
+      verification: {
+        enabled: true,
+        maxRounds: 2,
+        checks: ["empty-answer", "echo-task", "failed-tools"],
+        commands: [],
+      },
     });
     assert.equal(loaded.sources.length, 2);
     assert.deepEqual(loaded.projectOverrides, {

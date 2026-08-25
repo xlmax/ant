@@ -5,7 +5,12 @@ import { loadEnvFile } from "node:process";
 
 import { cliHelp, parseCliOptions, type CliOptions } from "./cli-options.js";
 import { VERSION } from "./version.js";
-import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "./config/settings.js";
+import type {
+  ModelSettings,
+  ProjectSettingsOverrides,
+  RuntimeLimits,
+  VerificationSettings,
+} from "./config/settings.js";
 import { createCodingTools } from "./coding-tools.js";
 import {
   loadSettings,
@@ -60,6 +65,7 @@ async function createModel(workspace: string): Promise<{
   showChanges: boolean;
   color: boolean;
   limits: RuntimeLimits;
+  verification: VerificationSettings;
   bashPath?: string;
 }> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
@@ -108,6 +114,7 @@ async function createModel(workspace: string): Promise<{
     showChanges: loadedSettings.settings.ui.showChanges,
     color: loadedSettings.settings.ui.color,
     limits: loadedSettings.settings.limits,
+    verification: loadedSettings.settings.verification,
     ...(loadedSettings.settings.tools.bashPath === undefined
       ? {}
       : { bashPath: loadedSettings.settings.tools.bashPath }),
@@ -123,6 +130,7 @@ async function runOneShot(
   showReasoning: boolean,
   showChanges: boolean,
   limits: RuntimeLimits,
+  verification: VerificationSettings,
 ): Promise<void> {
   const sessions = new SessionController(store);
   if (options.resume) await sessions.resume(options.resume);
@@ -139,6 +147,7 @@ async function runOneShot(
     renderer,
     session,
     limits,
+    verification,
     showChanges,
   }).run(state);
 
@@ -240,6 +249,7 @@ async function main(): Promise<void> {
     showChanges,
     color,
     limits,
+    verification,
     bashPath,
   } = await createModel(workspace);
   configureAnsi(color);
@@ -266,6 +276,7 @@ async function main(): Promise<void> {
       showReasoning,
       showChanges,
       limits,
+      verification,
       systemPrompt,
       ...(resume === undefined ? {} : { resume }),
     });
@@ -281,6 +292,7 @@ async function main(): Promise<void> {
     showReasoning,
     showChanges,
     limits,
+    verification,
   );
 }
 

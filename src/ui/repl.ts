@@ -1,7 +1,12 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-import type { ModelSettings, ProjectSettingsOverrides, RuntimeLimits } from "../config/settings.js";
+import type {
+  ModelSettings,
+  ProjectSettingsOverrides,
+  RuntimeLimits,
+  VerificationSettings,
+} from "../config/settings.js";
 import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
 import type { ToolEnvironment } from "../core/environment.js";
@@ -37,6 +42,7 @@ export interface ReplOptions {
   showReasoning?: boolean;
   showChanges?: boolean;
   limits: RuntimeLimits;
+  verification?: VerificationSettings;
   systemPrompt: string;
   resume?: string;
 }
@@ -104,6 +110,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
           renderer,
           session,
           limits: options.limits,
+          ...(options.verification === undefined ? {} : { verification: options.verification }),
           showChanges: options.showChanges ?? false,
         }).run(sessionState);
       } catch (error) {

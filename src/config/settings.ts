@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 
 import { writeFileAtomically } from "../fs/atomic-write.js";
 
+import type { VerificationCheck, VerificationSettings } from "../core/verification.js";
+
+export type { VerificationCheck, VerificationSettings };
 export type ReasoningEffort = "low" | "high" | "max";
 
 /**
@@ -48,6 +51,7 @@ export interface AppSettings {
     bashPath?: string;
   };
   limits: RuntimeLimits;
+  verification: VerificationSettings;
 }
 
 export interface ProjectSettingsOverrides {
@@ -87,6 +91,12 @@ type PartialSettings = {
     bashPath?: string | null;
   };
   limits?: Partial<RuntimeLimits>;
+  verification?: {
+    enabled?: boolean;
+    maxRounds?: number;
+    checks?: VerificationCheck[];
+    commands?: string[];
+  };
 };
 
 const defaults: AppSettings = {
@@ -115,7 +125,44 @@ const defaults: AppSettings = {
     modelRequestTimeoutSeconds: 90,
     modelMaxAttempts: 3,
   },
+  verification: {
+    enabled: true,
+    maxRounds: 2,
+    checks: ["empty-answer", "echo-task", "failed-tools"],
+    commands: [],
+  },
 };
+
+const VERIFICATION_CHECKS: readonly VerificationCheck[] = [
+  "empty-answer",
+  "echo-task",
+  "failed-tools",
+];
+
+function optionalVerificationChecks(value: unknown, path: string): VerificationCheck[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Настройка ${path} должна быть массивом`);
+  }
+
+  const checks = value.filter(
+    (item): item is VerificationCheck =>
+      typeof item === "string" && VERIFICATION_CHECKS.includes(item as VerificationCheck),
+  );
+  if (checks.length !== value.length) {
+    throw new Error(
+      `Настройка ${path} содержит неизвестную проверку; допустимы: ${VERIFICATION_CHECKS.join(", ")}`,
+    );
+  }
+  if (checks.length === 0) {
+    throw new Error(`Настройка ${path} должна содержать хотя бы одну проверку`);
+  }
+
+  return checks;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -320,6 +367,26 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     };
   }
 
+  if (value.verification !== undefined) {
+    if (!isRecord(value.verification)) {
+      throw new Error("Настройка verification должна быть объектом");
+    }
+
+    const enabled = optionalBoolean(value.verification.enabled, "verification.enabled");
+    const maxRounds = optionalPositiveInteger(
+      value.verification.maxRounds,
+      "verification.maxRounds",
+    );
+    const checks = optionalVerificationChecks(value.verification.checks, "verification.checks");
+    const commands = optionalStringArray(value.verification.commands, "verification.commands");
+    result.verification = {
+      ...(enabled === undefined ? {} : { enabled }),
+      ...(maxRounds === undefined ? {} : { maxRounds }),
+      ...(checks === undefined ? {} : { checks }),
+      ...(commands === undefined ? {} : { commands }),
+    };
+  }
+
   return result;
 }
 
@@ -356,6 +423,12 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       modelRequestTimeoutSeconds:
         partial.limits?.modelRequestTimeoutSeconds ?? base.limits.modelRequestTimeoutSeconds,
       modelMaxAttempts: partial.limits?.modelMaxAttempts ?? base.limits.modelMaxAttempts,
+    },
+    verification: {
+      enabled: partial.verification?.enabled ?? base.verification.enabled,
+      maxRounds: partial.verification?.maxRounds ?? base.verification.maxRounds,
+      checks: partial.verification?.checks ?? base.verification.checks,
+      commands: partial.verification?.commands ?? base.verification.commands,
     },
   };
 }

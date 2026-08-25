@@ -276,6 +276,14 @@ export class ConsoleRenderer implements AgentObserver {
       case "task":
       case "user":
         break;
+
+      case "verification":
+        console.log(
+          ansi.yellow(
+            `⚠ Самопроверка (${event.round}/${event.maxRounds}): ответ не прошёл гейт, ход продолжается на доработку.`,
+          ),
+        );
+        break;
     }
   }
 

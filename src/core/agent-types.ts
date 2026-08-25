@@ -1,3 +1,5 @@
+import type { VerificationSettings } from "./verification.js";
+
 export interface ToolSpec {
   name: string;
   description: string;
@@ -44,7 +46,13 @@ export type HistoryEvent =
   | { type: "user"; content: string }
   | { type: "decision"; decision: Decision }
   | { type: "compaction"; summary: string; retainedEvents: HistoryEvent[] }
-  | { type: "observation"; call: ToolCall; observation: Observation };
+  | { type: "observation"; call: ToolCall; observation: Observation }
+  | {
+      type: "verification";
+      feedback: string;
+      round: number;
+      maxRounds: number;
+    };
 
 export type LifecycleEvent =
   | { type: "model.requested"; attempt: number; maxAttempts: number }
@@ -147,4 +155,11 @@ export interface AgentDependencies {
   modelRequestTimeoutMs?: number;
   modelMaxAttempts?: number;
   retryDelayMs?: number;
+  /**
+   * Mechanical self-verification gate that runs before a turn is allowed to
+   * complete. When a `finish` decision fails the checks, the feedback is fed
+   * back to the model and the turn continues (up to `maxRounds` extra
+   * rounds). Omitted or `enabled: false` disables the gate entirely.
+   */
+  verification?: VerificationSettings;
 }
