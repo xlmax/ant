@@ -72,7 +72,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
   const updateInfo = isRunningUnderNpm()
     ? undefined
-    : await checkForUpdates(VERSION, AbortSignal.timeout(2_000));
+    : await checkForUpdates(VERSION, AbortSignal.timeout(20_000));
   if (updateInfo) {
     console.log(formatUpdateNotice(updateInfo, VERSION));
   }
