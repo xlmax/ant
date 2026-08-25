@@ -5,6 +5,7 @@ import {
   KEY_EVENT,
   SHIFT_PRESSED,
   VK_RETURN,
+  hasPendingKeyDown,
   mapWindowsKeyEvent,
 } from "../src/ui/windows-console-input.js";
 
@@ -30,4 +31,12 @@ test("Windows console input maps Enter to submit", () => {
     }),
     { type: "submit" },
   );
+});
+
+test("Windows console input does not treat a key-up record as pasted input", () => {
+  assert.equal(hasPendingKeyDown({ eventType: KEY_EVENT, bKeyDown: 0 }), false);
+});
+
+test("Windows console input treats the next key-down as pending pasted input", () => {
+  assert.equal(hasPendingKeyDown({ eventType: KEY_EVENT, bKeyDown: 1 }), true);
 });

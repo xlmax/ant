@@ -18,6 +18,11 @@ export interface WindowsKeyEvent {
   controlKeyState?: number | undefined;
 }
 
+export interface WindowsInputRecord {
+  eventType?: number | undefined;
+  bKeyDown?: number | undefined;
+}
+
 export type ConsoleInputAction =
   | { type: "submit" }
   | { type: "cancel" }
@@ -32,6 +37,10 @@ export type ConsoleInputAction =
   | { type: "end" }
   | { type: "character"; value: string }
   | { type: "ignore" };
+
+export function hasPendingKeyDown(record: WindowsInputRecord | undefined): boolean {
+  return record?.eventType === KEY_EVENT && Boolean(record.bKeyDown);
+}
 
 export function mapWindowsKeyEvent(event: WindowsKeyEvent): ConsoleInputAction {
   if (event.eventType !== KEY_EVENT || !event.bKeyDown) {
