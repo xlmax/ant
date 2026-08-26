@@ -1,4 +1,4 @@
-import { createAgentState, type AgentState, type HistoryEvent } from "./agent.js";
+import { createAgentState, type AgentState, type HistoryEvent } from "../core/agent.js";
 import type { AgentSession, SessionStore } from "./session.js";
 
 export interface ActiveSession {

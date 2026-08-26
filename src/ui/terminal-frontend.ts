@@ -1,6 +1,6 @@
 import type { AntFrontend, FrontendOptions } from "../app/frontend.js";
 import type { AntHostContext } from "../app/host-context.js";
-import { SessionController } from "../core/session-controller.js";
+import { SessionController } from "../app/session-controller.js";
 import { configureAnsi } from "./ansi.js";
 import { ConsoleRenderer } from "./console-renderer.js";
 import { initConsoleSize } from "./console-size.js";

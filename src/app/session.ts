@@ -1,4 +1,4 @@
-import type { AgentObserver, AgentState } from "./agent.js";
+import type { AgentObserver, AgentState } from "../core/agent.js";
 
 export interface AgentSession {
   id: string;

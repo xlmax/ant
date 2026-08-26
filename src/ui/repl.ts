@@ -1,17 +1,17 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-import type { FrontendSettingsCommands } from "../app/frontend.js";
-import type { AntHostContext } from "../app/host-context.js";
 import type {
   ModelSettings,
   ProjectSettingsOverrides,
   RuntimeLimits,
   VerificationSettings,
-} from "../config/settings.js";
+} from "../app/configuration.js";
+import type { FrontendSettingsCommands } from "../app/frontend.js";
+import type { AntHostContext } from "../app/host-context.js";
 import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
-import { SessionController } from "../core/session-controller.js";
+import { SessionController } from "../app/session-controller.js";
 import { checkForUpdates, isRunningUnderNpm } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";

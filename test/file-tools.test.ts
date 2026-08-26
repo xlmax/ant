@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ToolEnvironment } from "../src/core/environment.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 import { createEditTool } from "../src/tools/edit-tool.js";
 import { createWriteTool } from "../src/tools/write-tool.js";
 

@@ -1,4 +1,4 @@
-import type { ModelSettings, ReasoningEffort } from "../config/settings.js";
+import type { ModelSettings, ReasoningEffort } from "../app/configuration.js";
 
 export type EffortSelection = ReasoningEffort | "off";
 

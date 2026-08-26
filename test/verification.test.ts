@@ -9,7 +9,7 @@ import {
   type HistoryEvent,
   type VerificationSettings,
 } from "../src/core/agent.js";
-import { ToolEnvironment } from "../src/core/environment.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 
 const allChecks: VerificationSettings = {
   enabled: true,

@@ -1,7 +1,7 @@
 import type { AgentModel } from "../core/agent.js";
 import { estimateContextBudget } from "../core/context-budget.js";
 import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
-import { SessionController } from "../core/session-controller.js";
+import { SessionController } from "../app/session-controller.js";
 import { checkForUpdates, runGlobalUpdate } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";

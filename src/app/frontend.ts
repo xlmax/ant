@@ -3,7 +3,7 @@ import type {
   ProjectSettingsOverrides,
   RuntimeLimits,
   VerificationSettings,
-} from "../config/settings.js";
+} from "./configuration.js";
 import type { AntHostContext } from "./host-context.js";
 
 export interface FrontendSettingsCommands {

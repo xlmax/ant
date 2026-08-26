@@ -1,7 +1,7 @@
-import type { RuntimeLimits, VerificationSettings } from "../config/settings.js";
+import type { RuntimeLimits, VerificationSettings } from "../app/configuration.js";
 import type { AgentModel, AgentResult, AgentState, Environment } from "../core/agent.js";
 import type { AgentRuntime } from "../core/runtime.js";
-import type { AgentSession } from "../core/session.js";
+import type { AgentSession } from "../app/session.js";
 import { ansi } from "./ansi.js";
 import type { ConsoleRenderer } from "./console-renderer.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 import type { SingleToolOutputHandler } from "../core/agent.js";
-import type { Tool } from "../core/environment.js";
+import type { Tool } from "./tool-environment.js";
 
 const MAX_BYTES = 50 * 1024;
 const MAX_LINES = 2_000;

@@ -6,7 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 
 import type { ImageAttachment } from "../core/agent.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
-import type { Tool, ToolExecutionResult } from "../core/environment.js";
+import type { Tool, ToolExecutionResult } from "./tool-environment.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 const MAX_BYTES = 50 * 1024;

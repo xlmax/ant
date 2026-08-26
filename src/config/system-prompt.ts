@@ -3,12 +3,9 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_PROMPT_PATH = fileURLToPath(new URL("../../prompts/SYSTEM.md", import.meta.url));
+import type { SystemPrompt } from "../app/system-prompt.js";
 
-export interface SystemPrompt {
-  content: string;
-  sources: string[];
-}
+const DEFAULT_PROMPT_PATH = fileURLToPath(new URL("../../prompts/SYSTEM.md", import.meta.url));
 
 async function readOptional(path: string): Promise<string | undefined> {
   try {

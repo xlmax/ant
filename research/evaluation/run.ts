@@ -12,13 +12,13 @@ import {
   type AgentState,
   type ModelInput,
 } from "../../src/core/agent.js";
-import { createCodingTools } from "../../src/coding-tools.js";
+import { createCodingTools } from "../../src/tools/coding-tools.js";
 import { loadSettings } from "../../src/config/settings.js";
 import { loadSystemPrompt } from "../../src/config/system-prompt.js";
-import { ToolEnvironment } from "../../src/core/environment.js";
+import { ToolEnvironment } from "../../src/tools/tool-environment.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
-import { JsonlSessionStore } from "../../src/core/session-store.js";
-import { SessionController } from "../../src/core/session-controller.js";
+import { JsonlSessionStore } from "../../src/sessions/jsonl-session-store.js";
+import { SessionController } from "../../src/app/session-controller.js";
 
 const MAX_MODEL_CALLS = 6;
 const TASK_TIMEOUT_MS = 60_000;

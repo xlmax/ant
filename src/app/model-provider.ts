@@ -1,4 +1,4 @@
-import type { ModelSettings } from "../config/settings.js";
+import type { ModelSettings } from "./configuration.js";
 import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
 

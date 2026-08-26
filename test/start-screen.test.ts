@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelSettings } from "../src/config/settings.js";
+import type { ModelSettings } from "../src/app/configuration.js";
 import { configureAnsi } from "../src/ui/ansi.js";
 import { formatStartScreen } from "../src/ui/start-screen.js";
 import { VERSION } from "../src/version.js";

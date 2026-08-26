@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { minimatch } from "minimatch";
 
-import type { Tool } from "../core/environment.js";
+import type { Tool } from "./tool-environment.js";
 import { walkFiles } from "./file-search.js";
 import { resolveToolPath } from "./path-utils.js";
 import { RegexMatcher } from "./regex-matcher.js";

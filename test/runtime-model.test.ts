@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelSettings } from "../src/config/settings.js";
+import type { ModelSettings } from "../src/app/configuration.js";
 import { formatModelStatus, selectEffort } from "../src/ui/runtime-model.js";
 
 const current: ModelSettings = {

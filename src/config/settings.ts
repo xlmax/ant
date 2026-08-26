@@ -2,12 +2,16 @@ import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
+import type {
+  AppSettings,
+  LoadedSettings,
+  ModelSettings,
+  ProjectSettingsOverrides,
+  ReasoningEffort,
+  RuntimeLimits,
+  VerificationCheck,
+} from "../app/configuration.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
-
-import type { VerificationCheck, VerificationSettings } from "../core/verification.js";
-
-export type { VerificationCheck, VerificationSettings };
-export type ReasoningEffort = "low" | "high" | "max";
 
 /**
  * Vision capability is not reported by the DeepSeek API, so model ids are
@@ -17,54 +21,6 @@ export type ReasoningEffort = "low" | "high" | "max";
  */
 export function resolveVision(id: string, configured?: boolean): boolean {
   return configured ?? /vision/i.test(id);
-}
-
-export interface ModelSettings {
-  provider: "deepseek";
-  id: string;
-  baseUrl: string;
-  contextWindow: number;
-  vision: boolean;
-  thinking: {
-    enabled: boolean;
-    effort: ReasoningEffort;
-  };
-}
-
-export interface RuntimeLimits {
-  turnTimeoutSeconds: number;
-  modelRequestTimeoutSeconds: number;
-  modelMaxAttempts: number;
-}
-
-export interface AppSettings {
-  model: ModelSettings;
-  ui: {
-    showReasoning: boolean;
-    showChanges: boolean;
-    color: boolean;
-  };
-  prompts: {
-    additionalPaths: string[];
-  };
-  tools: {
-    bashPath?: string;
-  };
-  limits: RuntimeLimits;
-  verification: VerificationSettings;
-}
-
-export interface ProjectSettingsOverrides {
-  modelId: boolean;
-  modelThinking: boolean;
-  showReasoning: boolean;
-  showChanges: boolean;
-}
-
-export interface LoadedSettings {
-  settings: AppSettings;
-  sources: string[];
-  projectOverrides: ProjectSettingsOverrides;
 }
 
 type PartialSettings = {

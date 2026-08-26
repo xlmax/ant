@@ -2,21 +2,15 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
 
-import {
-  AntApplication,
-  type AntApplicationModules,
-  type ApplicationOutput,
-} from "../src/app/application.js";
+import { type LoadedSettings, type SettingsModule } from "../src/app/configuration.js";
+import { AntApplication, type AntApplicationModules } from "../src/app/application.js";
 import type { AntFrontend, FrontendOptions } from "../src/app/frontend.js";
 import type { ModelProvider } from "../src/app/model-provider.js";
-import type { LoadedSettings } from "../src/config/settings.js";
-import type { SettingsModule } from "../src/config/settings-module.js";
+import type { SessionList, SessionStore } from "../src/app/session.js";
 import type { AgentModel } from "../src/core/agent.js";
 import type { ContextSummarizer } from "../src/core/context-events.js";
-import { ToolEnvironment } from "../src/core/environment.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
-import type { SessionList, SessionStore } from "../src/core/session.js";
-import { VERSION } from "../src/version.js";
 
 const loadedSettings: LoadedSettings = {
   settings: {
@@ -54,21 +48,11 @@ const loadedSettings: LoadedSettings = {
 interface Harness {
   application: AntApplication;
   calls: string[];
-  output: { logs: string[]; errors: string[] };
   frontendOptions(): FrontendOptions | undefined;
 }
 
 function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }): Harness {
   const calls: string[] = [];
-  const outputState = { logs: [] as string[], errors: [] as string[] };
-  const output: ApplicationOutput = {
-    log(message) {
-      outputState.logs.push(message);
-    },
-    error(message) {
-      outputState.errors.push(message);
-    },
-  };
   let capturedFrontendOptions: FrontendOptions | undefined;
 
   const settings: SettingsModule = {
@@ -138,9 +122,6 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
   const modules: AntApplicationModules = {
     runtime,
     settings,
-    applyEnvironment(workspace) {
-      calls.push(`environment.apply:${workspace}`);
-    },
     async loadSystemPrompt(workspace, additionalPaths) {
       calls.push(`prompt:${workspace}:${additionalPaths.join(",")}`);
       return { content: "system prompt", sources: ["SYSTEM.md"] };
@@ -149,8 +130,8 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
       calls.push(`provider:${options.systemPrompt}`);
       return provider;
     },
-    createSessionStore(directory) {
-      calls.push(`sessions.create:${directory}`);
+    createSessionStore(workspace) {
+      calls.push(`sessions.create:${workspace}`);
       return store;
     },
     createEnvironment(workspace, options) {
@@ -171,13 +152,11 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
       };
       return frontend;
     },
-    output,
   };
 
   return {
     application: new AntApplication(modules),
     calls,
-    output: outputState,
     frontendOptions: () => capturedFrontendOptions,
   };
 }
@@ -186,11 +165,10 @@ test("AntApplication builds modules in order and delegates settings mutations", 
   const harness = createHarness();
   const workspace = join("temporary", "workspace");
 
-  await harness.application.run({ workspace, args: ["Выполни задачу"] });
+  await harness.application.run({ workspace, task: "Выполни задачу" });
 
   assert.deepEqual(harness.calls, [
-    `environment.apply:${workspace}`,
-    `sessions.create:${join(workspace, ".ant", "sessions")}`,
+    `sessions.create:${workspace}`,
     `settings.load:${workspace}`,
     `prompt:${workspace}:extra.md`,
     "provider:system prompt",
@@ -214,20 +192,8 @@ test("AntApplication builds modules in order and delegates settings mutations", 
   ]);
 });
 
-test("AntApplication handles help and version before creating runtime modules", async () => {
-  const help = createHarness();
-  await help.application.run({ workspace: "workspace", args: ["-h"] });
-  assert.deepEqual(help.calls, ["environment.apply:workspace"]);
-  assert.match(help.output.logs[0] ?? "", /Использование: ant/u);
-
-  const version = createHarness();
-  await version.application.run({ workspace: "workspace", args: ["-v"] });
-  assert.deepEqual(version.calls, ["environment.apply:workspace"]);
-  assert.equal(version.output.logs[0], VERSION);
-});
-
-test("AntApplication lists sessions without loading model settings", async () => {
-  const harness = createHarness({
+test("AntApplication lists sessions without creating infrastructure paths", async () => {
+  const list: SessionList = {
     sessions: [
       {
         id: "session-1",
@@ -237,20 +203,14 @@ test("AntApplication lists sessions without loading model settings", async () =>
       },
     ],
     warnings: ["повреждённая сессия"],
-  });
+  };
+  const harness = createHarness(list);
 
-  await harness.application.run({ workspace: "workspace", args: ["-r"] });
-
-  assert.deepEqual(harness.calls, [
-    "environment.apply:workspace",
-    `sessions.create:${join("workspace", ".ant", "sessions")}`,
-    "sessions.list",
-  ]);
-  assert.deepEqual(harness.output.errors, ["Предупреждение: повреждённая сессия"]);
-  assert.match(harness.output.logs.join("\n"), /session-1.*Сохранённая задача/u);
+  assert.equal(await harness.application.listSessions("workspace"), list);
+  assert.deepEqual(harness.calls, ["sessions.create:workspace", "sessions.list"]);
 });
 
-test("AntApplication resolves the latest session before starting the frontend", async () => {
+test("AntApplication resolves the latest session before loading settings", async () => {
   const harness = createHarness({
     sessions: [
       {
@@ -263,7 +223,11 @@ test("AntApplication resolves the latest session before starting the frontend", 
     warnings: [],
   });
 
-  await harness.application.run({ workspace: "workspace", args: ["-c", "Продолжи"] });
+  await harness.application.run({
+    workspace: "workspace",
+    task: "Продолжи",
+    continueLatest: true,
+  });
 
   assert.equal(harness.frontendOptions()?.resume, "latest-session");
   assert.ok(

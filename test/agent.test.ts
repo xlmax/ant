@@ -8,7 +8,7 @@ import {
   type AgentEvent,
   type AgentModel,
 } from "../src/core/agent.js";
-import { ToolEnvironment } from "../src/core/environment.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 import { echoTool } from "./support/echo-tool.js";
 import { StubModel } from "./support/stub-model.js";
 
