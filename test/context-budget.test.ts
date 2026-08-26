@@ -121,6 +121,25 @@ test("context status reports a warning and the largest observations", () => {
   }
 });
 
+test("context budget counts verification feedback as a message", () => {
+  const budget = estimateContextBudget({
+    systemPrompt: "System",
+    contextWindow: 10_000,
+    tools: [],
+    events: [
+      { type: "task", content: "Задача" },
+      {
+        type: "verification",
+        feedback: "x".repeat(4_000),
+        round: 1,
+        maxRounds: 2,
+      },
+    ],
+  });
+
+  assert.ok(budget.breakdown.messages >= 1_000);
+});
+
 test("context budget counts the active compaction instead of superseded history", () => {
   const oldCall = { id: "old", name: "read", input: {} };
   const budget = estimateContextBudget({

@@ -77,6 +77,10 @@ export function estimateContextBudget(options: {
         breakdown.messages += estimateTokens({ summary: event.summary });
         break;
 
+      case "verification":
+        breakdown.messages += estimateTokens(event.feedback);
+        break;
+
       case "observation": {
         const resultTokens = estimateTokens(event.observation);
         const imageTokens = options.includeImages === false ? 0 : estimateImageTokens(event);
