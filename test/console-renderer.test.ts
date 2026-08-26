@@ -21,11 +21,13 @@ test("reasoning output uses muted markdown formatting", async () => {
     renderer.beginTurn();
     renderer.onReasoningDelta("**важно** и `code`\n");
     await renderer.onEvent({ type: "decision", decision: { type: "finish", answer: "" } });
+    await renderer.printResult({ status: "completed", answer: "", state: { events: [] } });
     renderer.beginTurn();
     await renderer.onEvent({
       type: "decision",
       decision: { type: "finish", answer: "", reasoning: "*отдельный блок*" },
     });
+    await renderer.printResult({ status: "completed", answer: "", state: { events: [] } });
 
     const rendered = output.join("");
     const plain = rendered.replaceAll(
@@ -47,7 +49,7 @@ test("reasoning output uses muted markdown formatting", async () => {
   }
 });
 
-test("Ant and change summaries color their full boundaries", () => {
+test("Ant and change summaries color their full boundaries", async () => {
   const originalWrite = process.stdout.write;
   const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
   const output: string[] = [];
@@ -61,12 +63,12 @@ test("Ant and change summaries color their full boundaries", () => {
   try {
     const renderer = new ConsoleRenderer();
     renderer.beginTurn();
-    renderer.printResult({
+    await renderer.printResult({
       status: "completed",
       answer: "Готово",
       state: { events: [] },
     });
-    renderer.printChangeSummary({
+    await renderer.printChangeSummary({
       commands: ["npm test"],
       changedFiles: [{ path: "src/ui/console-renderer.ts", status: "M " }],
       toolWrittenFiles: [],

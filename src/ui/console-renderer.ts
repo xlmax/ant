@@ -7,15 +7,15 @@ import type {
   ToolCall,
 } from "../core/agent.js";
 import { ansi } from "./ansi.js";
-import { renderInlineMarkdown, StreamingMarkdownRenderer } from "./markdown.js";
+import { StreamingMarkdownRenderer } from "./markdown.js";
 import { sectionFooter, sectionHeader } from "./section.js";
+import { TypingPump } from "./typing-pump.js";
 import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 80;
 const TOOL_LABEL_MAX_CHARS = 60;
 const ERROR_REASON_MAX_CHARS = 120;
-const REASONING_MARKER = "◌";
 
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -31,11 +31,6 @@ function singleLine(value: string, maxChars: number): string {
   const chars = Array.from(collapsed);
   if (chars.length <= maxChars) return collapsed;
   return `${chars.slice(0, maxChars - 1).join("")}…`;
-}
-
-function formatReasoningTail(buffer: string, maxChars: number): string {
-  const lines = buffer.split("\n").filter((line) => line.trim() !== "");
-  return singleLine(lines[lines.length - 1] ?? "", maxChars);
 }
 
 function stringProperty(value: unknown, property: string): string | undefined {
@@ -120,24 +115,38 @@ function formatUsage(usage: ModelUsage): string {
   return `${statistics}${" ".repeat(width - statistics.length - model.length)}${model}`;
 }
 
+export interface ConsoleRendererOptions {
+  showReasoning?: boolean;
+  write?: (text: string) => void;
+  interactive?: () => boolean;
+}
+
 export class ConsoleRenderer implements AgentObserver {
   #showReasoning: boolean;
   #streamedText = false;
   #streamedReasoningForDecision = false;
-  #reasoningLineVisible = false;
-  #reasoningBuffer = "";
+  #reasoningMarkdown = new StreamingMarkdownRenderer();
+  #reasoningOpen = false;
   #markdown = new StreamingMarkdownRenderer();
+  readonly #interactive: () => boolean;
+  readonly #typing: TypingPump;
   #usage: ModelUsage | undefined;
   readonly #finishedToolCalls = new Set<string>();
   #activeTools = new Map<string, { name: string; startedAt: number }>();
   #spinnerTimer: ReturnType<typeof setInterval> | undefined;
   #spinnerFrame = 0;
   #spinnerLineVisible = false;
+  #turnCancelled = false;
   #hadTools = false;
   #toolGroupPendingSeparator = false;
 
-  constructor(options: { showReasoning?: boolean } = {}) {
+  constructor(options: ConsoleRendererOptions = {}) {
     this.#showReasoning = options.showReasoning ?? false;
+    this.#interactive = options.interactive ?? (() => process.stdout.isTTY === true);
+    this.#typing = new TypingPump({
+      write: options.write ?? ((text) => process.stdout.write(text)),
+      interactive: this.#interactive,
+    });
   }
 
   get showReasoning(): boolean {
@@ -152,11 +161,14 @@ export class ConsoleRenderer implements AgentObserver {
     this.#finalizeSpinner();
     this.#activeTools.clear();
     this.#spinnerFrame = 0;
+    this.#turnCancelled = false;
     this.#streamedText = false;
     this.#streamedReasoningForDecision = false;
-    this.#reasoningLineVisible = false;
-    this.#reasoningBuffer = "";
+    this.#reasoningMarkdown = new StreamingMarkdownRenderer();
+    this.#reasoningOpen = false;
     this.#markdown = new StreamingMarkdownRenderer();
+    this.#typing.cancel();
+    this.#typing.resetRate();
     this.#usage = undefined;
     this.#finishedToolCalls.clear();
     this.#hadTools = false;
@@ -169,54 +181,65 @@ export class ConsoleRenderer implements AgentObserver {
     }
 
     this.#finalizeSpinner();
-    this.#reasoningBuffer += text;
+
+    if (!this.#reasoningOpen) {
+      if (text.trim() === "") {
+        return;
+      }
+      this.#typing.holdCursor();
+      this.#emitInstant(`${sectionFooter()}\n`);
+      this.#reasoningOpen = true;
+    }
+
     this.#streamedReasoningForDecision = true;
-
-    if (!this.#isInteractive()) {
-      return;
-    }
-
-    const rawTail = formatReasoningTail(this.#reasoningBuffer, this.#reasoningTailMaxChars());
-    if (rawTail === "") {
-      return;
-    }
-
-    const marker = ansi.violet(REASONING_MARKER);
-    const tail = ansi.dimPreservingStyles(renderInlineMarkdown(rawTail));
-    process.stdout.write(`\r\x1b[2K${marker} ${tail}`);
-    this.#reasoningLineVisible = true;
+    this.#typing.observeIncoming(text);
+    this.#emit(ansi.dimPreservingStyles(this.#reasoningMarkdown.push(text)));
   };
 
   onTextDelta = (text: string): void => {
     this.#finalizeSpinner();
     this.closeReasoningBlock();
+    this.#typing.observeIncoming(text);
 
     if (!this.#streamedText) {
+      this.#typing.holdCursor();
       if (this.#hadTools) {
-        process.stdout.write("\n");
+        this.#emitInstant("\n");
       }
-      this.printAgentBlockStart();
+      this.#emitInstant(
+        `${sectionHeader("Ant", (title) => ansi.bold(ansi.green(title)), ansi.green)}\n`,
+      );
       this.#streamedText = true;
     }
 
     if (this.#toolGroupPendingSeparator) {
-      process.stdout.write("\n");
+      this.#emitInstant("\n");
       this.#toolGroupPendingSeparator = false;
     }
 
-    process.stdout.write(this.#markdown.push(text));
+    this.#emit(this.#markdown.push(text));
   };
 
   async onEvent(event: AgentEvent): Promise<void> {
+    if (
+      this.#turnCancelled &&
+      (event.type === "tool.started" ||
+        event.type === "tool.output" ||
+        event.type === "tool.finished" ||
+        event.type === "observation")
+    ) {
+      return;
+    }
+
     switch (event.type) {
       case "model.requested":
         break;
 
       case "model.retry":
-        console.log(
-          ansi.yellow(
+        this.#emitInstant(
+          `${ansi.yellow(
             `⚠ Повтор запроса к модели: ${event.reason}. Попытка ${event.nextAttempt}/${event.maxAttempts} начнётся через ${event.delayMs / 1_000} с.`,
-          ),
+          )}\n`,
         );
         break;
 
@@ -234,10 +257,16 @@ export class ConsoleRenderer implements AgentObserver {
         break;
 
       case "tool.started": {
+        const startedAt = Date.now();
+        await this.#typing.enterLiveMode();
+        if (this.#turnCancelled) {
+          this.#typing.leaveLiveMode();
+          break;
+        }
         this.#eraseSpinner();
         this.#activeTools.set(event.call.id, {
           name: event.call.name,
-          startedAt: Date.now(),
+          startedAt,
         });
         if (this.#streamedText && !this.#toolGroupPendingSeparator) {
           this.#writeLine("");
@@ -267,6 +296,7 @@ export class ConsoleRenderer implements AgentObserver {
           this.#drawSpinner();
         } else {
           this.#stopSpinnerTimer();
+          this.#typing.leaveLiveMode();
           this.#spinnerFrame = 0;
         }
         this.#finishedToolCalls.add(event.call.id);
@@ -275,12 +305,18 @@ export class ConsoleRenderer implements AgentObserver {
 
       case "observation": {
         if (this.#finishedToolCalls.has(event.call.id)) break;
+        await this.#typing.enterLiveMode();
+        if (this.#turnCancelled) {
+          this.#typing.leaveLiveMode();
+          break;
+        }
         this.#eraseSpinner();
         const marker = event.observation.ok ? ansi.green("✓") : ansi.red("✗");
         const detail = event.observation.ok
           ? event.call.name
           : singleLine(event.observation.error ?? "ошибка", ERROR_REASON_MAX_CHARS);
         this.#writeLine(`${marker} ${detail}`);
+        this.#typing.leaveLiveMode();
         break;
       }
 
@@ -289,64 +325,91 @@ export class ConsoleRenderer implements AgentObserver {
         break;
 
       case "verification":
-        console.log(
-          ansi.yellow(
+        this.#emitInstant(
+          `${ansi.yellow(
             `⚠ Самопроверка (${event.round}/${event.maxRounds}): ответ не прошёл гейт, ход продолжается на доработку.`,
-          ),
+          )}\n`,
         );
         break;
     }
   }
 
-  printResult(result: AgentResult): void {
+  async printResult(result: AgentResult): Promise<void> {
     this.#finalizeSpinner();
     switch (result.status) {
       case "completed":
         if (this.#streamedText) {
-          process.stdout.write(this.#markdown.finish());
+          this.#emit(this.#markdown.finish());
           this.printAgentBlockEnd();
         } else {
           const markdown = new StreamingMarkdownRenderer();
+          this.#typing.holdCursor();
+          this.#typing.observeIncoming(result.answer);
           this.printAgentBlockStart();
-          process.stdout.write(markdown.push(result.answer));
-          process.stdout.write(markdown.finish());
+          this.#emit(markdown.push(result.answer));
+          this.#emit(markdown.finish());
           this.printAgentBlockEnd();
         }
         this.printUsage();
+        this.#typing.releaseCursor();
+        await this.#typing.whenIdle();
         break;
 
       case "cancelled":
+        this.#turnCancelled = true;
+        this.#typing.cancel();
         console.error(ansi.red("Агент: работа отменена"));
         break;
     }
   }
 
-  printChangeSummary(summary: TurnChangeSummary): void {
+  async printChangeSummary(summary: TurnChangeSummary): Promise<void> {
     this.#finalizeSpinner();
     const formatted = formatTurnChangeSummary(summary);
     if (!formatted) return;
-    console.log(
+    this.#emitInstant(
       `\n${sectionHeader(
         "Изменения",
         (title) => ansi.bold(ansi.terracotta(title)),
         ansi.terracotta,
-      )}`,
+      )}\n${ansi.dim(formatted.replace(/^Изменения за ход\n?/u, ""))}\n${sectionFooter(
+        ansi.terracotta,
+      )}\n`,
     );
-    console.log(ansi.dim(formatted.replace(/^Изменения за ход\n?/u, "")));
-    console.log(sectionFooter(ansi.terracotta));
+    await this.#typing.whenIdle();
+  }
+
+  printCancellationPending(): void {
+    this.#turnCancelled = true;
+    this.#finalizeSpinner();
+    this.#typing.cancel();
+    this.#emitInstant(`${ansi.yellow("Отмена текущего хода…")}\n`);
+  }
+
+  dispose(): void {
+    this.#finalizeSpinner();
+    this.#typing.cancel();
   }
 
   #writeLine(text: string): void {
-    process.stdout.write(`${text}\n`);
+    this.#typing.writeLiveLine(text);
   }
 
   #isInteractive(): boolean {
-    return process.stdout.isTTY === true;
+    return this.#interactive();
+  }
+
+  #emit(text: string): void {
+    this.#typing.push(text);
+  }
+
+  #emitInstant(text: string): void {
+    this.#typing.pushInstant(text);
   }
 
   #eraseSpinner(): void {
     if (!this.#spinnerLineVisible) return;
-    process.stdout.write("\r\x1b[2K");
+    this.#typing.clearLiveLine();
     this.#spinnerLineVisible = false;
   }
 
@@ -362,7 +425,7 @@ export class ConsoleRenderer implements AgentObserver {
       Date.now() - oldest,
     )}`;
     this.#spinnerFrame += 1;
-    process.stdout.write(`\r\x1b[2K${ansi.yellow(line)}`);
+    this.#typing.updateLiveLine(ansi.yellow(line));
     this.#spinnerLineVisible = true;
   }
 
@@ -382,26 +445,16 @@ export class ConsoleRenderer implements AgentObserver {
     this.#eraseSpinner();
   }
 
-  #reasoningTailMaxChars(): number {
-    const width = process.stdout.columns ?? 80;
-    return Math.max(12, width - 4);
-  }
-
   private closeReasoningBlock(): void {
-    const rawTail = formatReasoningTail(this.#reasoningBuffer, this.#reasoningTailMaxChars());
-    this.#reasoningBuffer = "";
-
-    if (rawTail !== "") {
-      const tail = ansi.dimPreservingStyles(renderInlineMarkdown(rawTail));
-      const line = `${ansi.green("✓")} ${tail}`;
-      if (this.#reasoningLineVisible) {
-        process.stdout.write(`\r\x1b[2K${line}\n`);
-      } else {
-        process.stdout.write(`${line}\n`);
-      }
+    if (!this.#reasoningOpen) {
+      return;
     }
 
-    this.#reasoningLineVisible = false;
+    this.#emit(ansi.dimPreservingStyles(this.#reasoningMarkdown.finish()));
+    this.#emitInstant(`\n${sectionFooter()}\n`);
+    this.#typing.releaseCursor();
+
+    this.#reasoningOpen = false;
   }
 
   private printReasoning(reasoning: string | undefined): void {
@@ -409,27 +462,28 @@ export class ConsoleRenderer implements AgentObserver {
       return;
     }
 
+    this.#typing.holdCursor();
+    this.#emitInstant(`${sectionFooter()}\n`);
+    this.#typing.observeIncoming(reasoning);
     const markdown = new StreamingMarkdownRenderer();
-    const formatted = `${markdown.push(reasoning)}${markdown.finish()}`;
-
-    console.log(sectionFooter());
-    process.stdout.write(`${ansi.dimPreservingStyles(formatted)}\n`);
-    console.log(sectionFooter());
+    this.#emit(ansi.dimPreservingStyles(`${markdown.push(reasoning)}${markdown.finish()}`));
+    this.#emitInstant(`\n${sectionFooter()}\n`);
+    this.#typing.releaseCursor();
   }
 
   private printUsage(): void {
     if (this.#usage) {
-      console.log(ansi.dim(formatUsage(this.#usage)));
+      this.#emitInstant(`${ansi.dim(formatUsage(this.#usage))}\n`);
     }
   }
 
   private printAgentBlockStart(): void {
-    process.stdout.write(
+    this.#emitInstant(
       `${sectionHeader("Ant", (title) => ansi.bold(ansi.green(title)), ansi.green)}\n`,
     );
   }
 
   private printAgentBlockEnd(): void {
-    process.stdout.write(`\n${sectionFooter(ansi.green)}\n`);
+    this.#emitInstant(`\n${sectionFooter(ansi.green)}\n`);
   }
 }

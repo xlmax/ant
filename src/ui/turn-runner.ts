@@ -2,7 +2,6 @@ import type { RuntimeLimits, VerificationSettings } from "../config/settings.js"
 import type { AgentModel, AgentResult, AgentState, Environment } from "../core/agent.js";
 import type { AgentRuntime } from "../core/runtime.js";
 import type { AgentSession } from "../core/session.js";
-import { ansi } from "./ansi.js";
 import type { ConsoleRenderer } from "./console-renderer.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
@@ -47,7 +46,7 @@ export class TurnRunner {
     const cancelTurn = new AbortController();
     const onSigint = (): void => {
       if (!cancelTurn.signal.aborted) {
-        console.log(ansi.yellow("\nОтмена текущего хода…"));
+        renderer.printCancellationPending();
         cancelTurn.abort();
       }
     };
@@ -70,13 +69,14 @@ export class TurnRunner {
         ...(verification === undefined ? {} : { verification }),
       });
 
-      renderer.printResult(result);
+      await renderer.printResult(result);
       if (changes) {
-        renderer.printChangeSummary(await changes.finish());
+        await renderer.printChangeSummary(await changes.finish());
       }
       return result;
     } finally {
       process.removeListener("SIGINT", onSigint);
+      renderer.dispose();
     }
   }
 }
