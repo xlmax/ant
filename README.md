@@ -62,6 +62,8 @@ Ant is assembled by a small `AntHost` from replaceable modules with stable TypeS
 
 The host only composes modules; agent policy remains in the runtime. Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
 
+Layer ownership is explicit: `core/` contains the infrastructure-independent agent domain and ports, `app/` contains application contracts and use cases, while `cli/`, `config/`, `models/`, `sessions/`, `tools/`, and `ui/` are concrete adapters. `main.ts` is the composition root. An AST-based architecture test checks every production layer, rejects outward dependencies, and detects runtime import cycles.
+
 > [!WARNING]
 > Ant has no built-in guardrails: it runs commands and edits files with the same permissions as the user who launched it, and it is not confined to the working directory. Any consequences are your responsibility. Don't run it in directories with sensitive data or use keys with a valuable balance.
 

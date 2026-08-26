@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AntHost } from "../src/app/ant-host.js";
+import type { ModelSettings } from "../src/app/configuration.js";
 import type { AntFrontend } from "../src/app/frontend.js";
 import type { ModelProvider } from "../src/app/model-provider.js";
-import type { ModelSettings } from "../src/config/settings.js";
-import { createAgentState, type AgentModel, type AgentState } from "../src/core/agent.js";
+import {
+  createAgentState,
+  type AgentModel,
+  type AgentState,
+  type Environment,
+} from "../src/core/agent.js";
 import type { ContextSummarizer } from "../src/core/context-events.js";
-import { ToolEnvironment } from "../src/core/environment.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
-import type { SessionList, SessionStore } from "../src/core/session.js";
+import type { SessionList, SessionStore } from "../src/app/session.js";
 
 const settings: ModelSettings = {
   provider: "deepseek",
@@ -86,7 +90,15 @@ test("AntHost composes replaceable runtime, frontend, provider, and session modu
     },
   };
   const sessions = new MemorySessionStore();
-  const environment = new ToolEnvironment([]);
+  const environment: Environment = {
+    tools: () => [],
+    async execute() {
+      return { ok: true, value: "fake environment" };
+    },
+    async executeMany() {
+      return [];
+    },
+  };
   const host = new AntHost({ runtime, provider, sessions, environment });
 
   const frontend: AntFrontend = {

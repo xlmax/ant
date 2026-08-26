@@ -2,8 +2,8 @@ import { appendFile, mkdir, readdir, readFile, stat, truncate } from "node:fs/pr
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { AgentEvent, AgentObserver, AgentState, HistoryEvent } from "./agent.js";
-import type { AgentSession, SessionList, SessionStore, SessionSummary } from "./session.js";
+import type { AgentEvent, AgentObserver, AgentState, HistoryEvent } from "../core/agent.js";
+import type { AgentSession, SessionList, SessionStore, SessionSummary } from "../app/session.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 
 const SESSION_VERSION = 1;

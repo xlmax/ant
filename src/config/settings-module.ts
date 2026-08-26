@@ -1,4 +1,4 @@
-import type { ModelSettings } from "./settings.js";
+import type { SettingsModule } from "../app/configuration.js";
 import {
   loadSettings,
   readExplicitVision,
@@ -6,18 +6,9 @@ import {
   saveUserModelId,
   saveUserModelThinking,
   saveUserShowReasoning,
-  type LoadedSettings,
 } from "./settings.js";
 
-export interface SettingsModule {
-  load(workspace: string): Promise<LoadedSettings>;
-  readExplicitVision(workspace: string): Promise<boolean | undefined>;
-  resolveVision(id: string, configured?: boolean): boolean;
-  saveModelId(id: string): Promise<void>;
-  saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
-  saveShowReasoning(enabled: boolean): Promise<void>;
-}
-
+/** Filesystem-backed adapter for the application configuration port. */
 export const fileSettingsModule: SettingsModule = {
   load: loadSettings,
   readExplicitVision,

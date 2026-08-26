@@ -7,7 +7,7 @@ import type {
   ToolOutputHandler,
   ToolStartedHandler,
   ToolSpec,
-} from "./agent.js";
+} from "../core/agent.js";
 
 export interface ToolExecutionResult {
   kind: "tool-result";

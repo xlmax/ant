@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { ModelSettings } from "../config/settings.js";
+import type { ModelSettings } from "../app/configuration.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
 const execFileAsync = promisify(execFile);

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { SessionController } from "../src/core/session-controller.js";
-import { JsonlSessionStore } from "../src/core/session-store.js";
+import { SessionController } from "../src/app/session-controller.js";
+import { JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
 
 test("session controller creates and appends user messages", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-controller-"));

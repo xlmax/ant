@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Tool } from "../core/environment.js";
+import type { Tool } from "./tool-environment.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 

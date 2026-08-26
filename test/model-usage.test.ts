@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createAgentState, runAgent, type AgentModel, type ModelUsage } from "../src/core/agent.js";
-import { ToolEnvironment } from "../src/core/environment.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 
 const reportedUsage: ModelUsage = {
   provider: "Test",

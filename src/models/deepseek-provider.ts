@@ -1,5 +1,5 @@
 import type { ModelProvider } from "../app/model-provider.js";
-import type { ModelSettings } from "../config/settings.js";
+import type { ModelSettings } from "../app/configuration.js";
 import { DeepSeekModel } from "./deepseek-model.js";
 
 export interface DeepSeekProviderOptions {

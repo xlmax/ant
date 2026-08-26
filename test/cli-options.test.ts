@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cliHelp, parseCliOptions } from "../src/cli-options.js";
+import { cliHelp, parseCliOptions } from "../src/cli/options.js";
 
 test("short CLI keys select help, listing and session resume modes", () => {
   assert.deepEqual(parseCliOptions(["-h"]), {

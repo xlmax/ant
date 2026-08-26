@@ -5,8 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createAgentState, runAgent, type AgentModel } from "../src/core/agent.js";
-import { ToolEnvironment } from "../src/core/environment.js";
-import { isPersistedEvent, JsonlSessionStore } from "../src/core/session-store.js";
+import { isPersistedEvent, JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
+import { ToolEnvironment } from "../src/tools/tool-environment.js";
 import { echoTool } from "./support/echo-tool.js";
 import { StubModel } from "./support/stub-model.js";
 
