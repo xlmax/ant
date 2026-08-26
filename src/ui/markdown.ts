@@ -52,6 +52,11 @@ function renderInline(text: string): string {
   return renderInlineTokens(Lexer.lexInline(text));
 }
 
+/** Renders a single line of inline markdown (no block constructs). */
+export function renderInlineMarkdown(text: string): string {
+  return renderInline(text);
+}
+
 function parseTableRow(line: string): string[] | undefined {
   if (!line.includes("|")) {
     return undefined;

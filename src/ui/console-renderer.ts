@@ -7,7 +7,7 @@ import type {
   ToolCall,
 } from "../core/agent.js";
 import { ansi } from "./ansi.js";
-import { StreamingMarkdownRenderer } from "./markdown.js";
+import { renderInlineMarkdown, StreamingMarkdownRenderer } from "./markdown.js";
 import { sectionFooter, sectionHeader } from "./section.js";
 import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
 
@@ -15,6 +15,7 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 const SPINNER_INTERVAL_MS = 80;
 const TOOL_LABEL_MAX_CHARS = 60;
 const ERROR_REASON_MAX_CHARS = 120;
+const REASONING_MARKER = "◌";
 
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -30,6 +31,11 @@ function singleLine(value: string, maxChars: number): string {
   const chars = Array.from(collapsed);
   if (chars.length <= maxChars) return collapsed;
   return `${chars.slice(0, maxChars - 1).join("")}…`;
+}
+
+function formatReasoningTail(buffer: string, maxChars: number): string {
+  const lines = buffer.split("\n").filter((line) => line.trim() !== "");
+  return singleLine(lines[lines.length - 1] ?? "", maxChars);
 }
 
 function stringProperty(value: unknown, property: string): string | undefined {
@@ -118,8 +124,8 @@ export class ConsoleRenderer implements AgentObserver {
   #showReasoning: boolean;
   #streamedText = false;
   #streamedReasoningForDecision = false;
-  #reasoningBlockOpen = false;
-  #reasoningMarkdown = new StreamingMarkdownRenderer();
+  #reasoningLineVisible = false;
+  #reasoningBuffer = "";
   #markdown = new StreamingMarkdownRenderer();
   #usage: ModelUsage | undefined;
   readonly #finishedToolCalls = new Set<string>();
@@ -148,8 +154,8 @@ export class ConsoleRenderer implements AgentObserver {
     this.#spinnerFrame = 0;
     this.#streamedText = false;
     this.#streamedReasoningForDecision = false;
-    this.#reasoningBlockOpen = false;
-    this.#reasoningMarkdown = new StreamingMarkdownRenderer();
+    this.#reasoningLineVisible = false;
+    this.#reasoningBuffer = "";
     this.#markdown = new StreamingMarkdownRenderer();
     this.#usage = undefined;
     this.#finishedToolCalls.clear();
@@ -163,17 +169,22 @@ export class ConsoleRenderer implements AgentObserver {
     }
 
     this.#finalizeSpinner();
+    this.#reasoningBuffer += text;
+    this.#streamedReasoningForDecision = true;
 
-    if (!this.#reasoningBlockOpen) {
-      if (text.trim() === "") {
-        return;
-      }
-      process.stdout.write(`${sectionFooter()}\n`);
-      this.#reasoningBlockOpen = true;
+    if (!this.#isInteractive()) {
+      return;
     }
 
-    this.#streamedReasoningForDecision = true;
-    process.stdout.write(ansi.dimPreservingStyles(this.#reasoningMarkdown.push(text)));
+    const rawTail = formatReasoningTail(this.#reasoningBuffer, this.#reasoningTailMaxChars());
+    if (rawTail === "") {
+      return;
+    }
+
+    const marker = ansi.violet(REASONING_MARKER);
+    const tail = ansi.dimPreservingStyles(renderInlineMarkdown(rawTail));
+    process.stdout.write(`\r\x1b[2K${marker} ${tail}`);
+    this.#reasoningLineVisible = true;
   };
 
   onTextDelta = (text: string): void => {
@@ -371,12 +382,26 @@ export class ConsoleRenderer implements AgentObserver {
     this.#eraseSpinner();
   }
 
+  #reasoningTailMaxChars(): number {
+    const width = process.stdout.columns ?? 80;
+    return Math.max(12, width - 4);
+  }
+
   private closeReasoningBlock(): void {
-    if (this.#reasoningBlockOpen) {
-      process.stdout.write(ansi.dimPreservingStyles(this.#reasoningMarkdown.finish()));
-      process.stdout.write(`\n${sectionFooter()}\n`);
-      this.#reasoningBlockOpen = false;
+    const rawTail = formatReasoningTail(this.#reasoningBuffer, this.#reasoningTailMaxChars());
+    this.#reasoningBuffer = "";
+
+    if (rawTail !== "") {
+      const tail = ansi.dimPreservingStyles(renderInlineMarkdown(rawTail));
+      const line = `${ansi.green("✓")} ${tail}`;
+      if (this.#reasoningLineVisible) {
+        process.stdout.write(`\r\x1b[2K${line}\n`);
+      } else {
+        process.stdout.write(`${line}\n`);
+      }
     }
+
+    this.#reasoningLineVisible = false;
   }
 
   private printReasoning(reasoning: string | undefined): void {
