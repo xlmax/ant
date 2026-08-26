@@ -76,6 +76,10 @@ function getWindowsConsoleApi(): Promise<WindowsConsoleApi> {
   return windowsConsoleApi;
 }
 
+export function canEraseInline(before: CursorPosition, after: CursorPosition): boolean {
+  return before.row === after.row;
+}
+
 function moveCursor(from: CursorPosition, to: CursorPosition): void {
   const rows = to.row - from.row;
 
@@ -236,7 +240,7 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       const cursorAtEnd = editor.cursorAtEnd;
       const renderedBefore = editor.render(columns, prompt);
       const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
-      const eraseAtEnd =
+      const inlineEraseCandidate =
         cursorAtEnd &&
         action.type === "backspace" &&
         editor.characterBeforeCursor !== undefined &&
@@ -250,17 +254,21 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
         action.type === "home" ||
         action.type === "end";
       editor.apply(action, columns, Math.min(columns, promptWidth));
+      const renderedAfter = editor.render(columns, prompt);
+      // A terminal backspace cannot reliably cross a soft-wrap boundary. Redraw
+      // instead when deleting the first character of a visual line.
+      const eraseInline =
+        inlineEraseCandidate && canEraseInline(renderedBefore.cursor, renderedAfter.cursor);
 
       if (appendAtEnd) {
         stdout.write(action.type === "character" ? action.value : "\n");
-        cursor = editor.render(columns, prompt).cursor;
-      } else if (eraseAtEnd) {
+        cursor = renderedAfter.cursor;
+      } else if (eraseInline) {
         stdout.write("\b \b");
-        cursor = editor.render(columns, prompt).cursor;
+        cursor = renderedAfter.cursor;
       } else if (moveCursorOnly) {
-        const nextCursor = editor.render(columns, prompt).cursor;
-        moveCursor(cursor, nextCursor);
-        cursor = nextCursor;
+        moveCursor(cursor, renderedAfter.cursor);
+        cursor = renderedAfter.cursor;
       } else {
         cursor = redraw(editor, cursor, prompt);
       }
