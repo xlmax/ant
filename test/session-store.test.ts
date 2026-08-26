@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAgentState, runAgent } from "../src/core/agent.js";
+import { createAgentState, runAgent, type AgentModel } from "../src/core/agent.js";
 import { ToolEnvironment } from "../src/core/environment.js";
 import { isPersistedEvent, JsonlSessionStore } from "../src/core/session-store.js";
 import { echoTool } from "./support/echo-tool.js";
@@ -226,6 +226,50 @@ test("session observer records the complete agent loop", async () => {
     assert.equal(result.status, "completed");
     const persistedEvents = result.state.events.filter((event) => isPersistedEvent(event));
     assert.deepEqual(resumed.state.events, persistedEvents);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL session store persists verification events across resume", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+
+  try {
+    const store = new JsonlSessionStore(directory);
+    const state = createAgentState("Расскажи про README");
+    const session = await store.create(state);
+
+    const model: AgentModel = {
+      async decide({ events }) {
+        const verified = events.some((event) => event.type === "verification");
+        return verified
+          ? { type: "finish", answer: "Итог: README — это руководство по Ant." }
+          : { type: "finish", answer: "   " };
+      },
+    };
+
+    const result = await runAgent(state, {
+      model,
+      environment: new ToolEnvironment([]),
+      historyObserver: session.observer,
+      verification: {
+        enabled: true,
+        maxRounds: 2,
+        checks: ["empty-answer", "echo-task", "failed-tools"],
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    if (result.status !== "completed") return;
+    assert.equal(result.state.events.filter((event) => event.type === "verification").length, 1);
+
+    const resumed = await store.resume(session.id);
+    assert.deepEqual(
+      resumed.state.events.map((event) => event.type),
+      ["task", "decision", "verification", "decision"],
+    );
+    const verification = resumed.state.events.find((event) => event.type === "verification");
+    assert.ok(verification?.type === "verification");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

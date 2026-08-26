@@ -98,7 +98,8 @@ export function isPersistedEvent(event: AgentEvent): event is HistoryEvent {
     event.type === "user" ||
     event.type === "decision" ||
     event.type === "compaction" ||
-    event.type === "observation"
+    event.type === "observation" ||
+    event.type === "verification"
   );
 }
 
