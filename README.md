@@ -50,6 +50,18 @@ Ant works with files and the terminal:
 
 This set covers most day-to-day tasks.
 
+## Architecture
+
+Ant is assembled by a small `AntHost` from replaceable modules with stable TypeScript ports:
+
+- `AgentRuntime` — the agent loop (the built-in implementation delegates to `runAgent`);
+- `AntFrontend` — presentation (the built-in implementation is the terminal frontend);
+- `ModelProvider` — model and summarizer construction (DeepSeek is built in);
+- `SessionStore` — durable history (JSONL is built in);
+- `Environment` — the available tools.
+
+The host only composes modules; agent policy remains in the runtime. Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
+
 > [!WARNING]
 > Ant has no built-in guardrails: it runs commands and edits files with the same permissions as the user who launched it, and it is not confined to the working directory. Any consequences are your responsibility. Don't run it in directories with sensitive data or use keys with a valuable balance.
 
@@ -95,7 +107,7 @@ Later files extend earlier ones. The prompt applies to every model call in the c
 
 ### Settings
 
-Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.json` in the working directory. The project file overrides the global one.
+Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.json` in the working directory. The project file overrides the global one except for `model.baseUrl`: because it controls where the API key is sent, it is accepted only from the user-level file.
 
 ```json
 {
@@ -215,6 +227,10 @@ npm run format:check
 npm run lint
 npm run check
 npm test
+npm run test:integration
+npm run test:all
 npm run build
 npm start -- "Read README.md"
 ```
+
+`test:integration` runs a full CLI cycle in temporary directories against a local fake DeepSeek server. It exercises settings, the provider protocol, agent loop, a real file tool, terminal output, and the JSONL journal without using the external network or a paid API key.
