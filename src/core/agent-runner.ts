@@ -1,4 +1,4 @@
-import { verifyTurn } from "./verification.js";
+import { formatVerificationSummary, isMutatingBashCommand, verifyTurn } from "./verification.js";
 
 import {
   ModelRequestError,
@@ -287,6 +287,7 @@ export async function runAgent(
     await appendHistoryEvent(state, { type: "decision", decision }, historyObserver, observers);
 
     if (decision.type === "finish") {
+      let verificationSummary = "";
       if (gate) {
         const outcome = verifyTurn(
           { answer: decision.answer, events: state.events, turnStartIndex },
@@ -311,38 +312,56 @@ export async function runAgent(
         // Mechanical command gate: when the turn changed files and commands
         // are configured, actually run them before allowing the turn to
         // finish. Failing output is fed back to the model to fix.
-        if (gate.commands.length > 0 && madeChanges && verificationRound < gate.maxRounds) {
-          const { passed, feedback } = await runVerificationCommands(
-            gate.commands,
-            verificationRound,
-            state,
-            environment,
-            signal,
-            historyObserver,
-            observers,
-          );
-          if (!passed) {
-            verificationRound += 1;
-            await appendHistoryEvent(
+        if (gate.commands.length > 0 && madeChanges) {
+          if (verificationRound < gate.maxRounds) {
+            const { passed, feedback } = await runVerificationCommands(
+              gate.commands,
+              verificationRound,
               state,
-              {
-                type: "verification",
-                feedback,
-                round: verificationRound,
-                maxRounds: gate.maxRounds,
-              },
+              environment,
+              signal,
               historyObserver,
               observers,
             );
-            continue;
+            if (!passed) {
+              verificationRound += 1;
+              await appendHistoryEvent(
+                state,
+                {
+                  type: "verification",
+                  feedback,
+                  round: verificationRound,
+                  maxRounds: gate.maxRounds,
+                },
+                historyObserver,
+                observers,
+              );
+              continue;
+            }
+            verificationSummary = formatVerificationSummary(gate.commands, true);
+          } else {
+            // Attempts exhausted: finish anyway, but report the failure so the
+            // user can see the checks did not pass.
+            verificationSummary = formatVerificationSummary(gate.commands, false);
           }
         }
       }
-      return { status: "completed", answer: decision.answer, state };
+      const answer = decision.answer;
+      return {
+        status: "completed",
+        answer,
+        state,
+        ...(verificationSummary === "" ? {} : { verificationSummary }),
+      };
     }
 
     for (const call of decision.calls) {
-      if (call.name === "edit" || call.name === "write") madeChanges = true;
+      if (call.name === "edit" || call.name === "write") {
+        madeChanges = true;
+      } else if (call.name === "bash") {
+        const command = (call.input as { command?: string } | undefined)?.command ?? "";
+        if (isMutatingBashCommand(command)) madeChanges = true;
+      }
     }
 
     const startedAt = new Map<string, number>();

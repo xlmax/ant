@@ -45,6 +45,53 @@ export interface VerificationInput {
 
 const FEEDBACK_INTRO = "Механическая самопроверка перед завершением хода выявила проблемы:";
 
+/**
+ * Extracts a short failure signature from an error message: an error code
+ * (`ENOENT`, `EACCES`) or an error type (`TypeError`, `ReferenceError`).
+ * Used instead of the full message so the answer only needs to name the
+ * error, not quote the whole text (which often includes a path).
+ */
+function errorSignature(error: string): string | undefined {
+  const code = error.match(/^[A-Z][A-Z0-9_]{1,20}(?=:)/u);
+  if (code) return code[0];
+  const type = error.match(/([A-Z][A-Za-z]+Error)(?=:)/u);
+  return type?.[0];
+}
+
+/** Words that acknowledge a failure even when the exact error text is not quoted. */
+const FAILURE_WORDS = [
+  "ошибк",
+  "не удалось",
+  "не найден",
+  "недоступн",
+  "отказ",
+  "fail",
+  "error",
+  "not found",
+];
+
+function acknowledgesError(answer: string, error: string): boolean {
+  const lower = answer.toLowerCase();
+  const signature = errorSignature(error);
+  if (signature !== undefined && lower.includes(signature.toLowerCase())) {
+    return true;
+  }
+  // No error code in the answer — accept a generic failure acknowledgment.
+  return FAILURE_WORDS.some((word) => lower.includes(word));
+}
+
+/**
+ * Heuristic for whether a bash command mutates the workspace, so the command
+ * gate fires even when the model edits files through the shell instead of the
+ * `edit`/`write` tools (e.g. `echo x >> file`, `sed -i`, `rm`). Read-only
+ * commands (`ls`, `git log`, `npm test`) must not match.
+ */
+export function isMutatingBashCommand(command: string): boolean {
+  return /(>>|>|sed\s+-i|\brm\b|\bmv\b|\bcp\b|\btouch\b|\bmkdir\b|\brmdir\b|\bchmod\b|\bchown\b|\binstall\b|\bdel\b|\bren\b)/u.test(
+    command,
+  );
+}
+
 function lastTaskContent(events: readonly HistoryEvent[]): string | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
@@ -86,7 +133,6 @@ export function verifyTurn(
 
   // 3. Tool errors from this turn must be acknowledged in the final answer.
   if (enabled.has("failed-tools")) {
-    const answerLower = answer.toLowerCase();
     const failures = new Map<string, string>();
     for (const event of input.events.slice(input.turnStartIndex)) {
       if (event.type !== "observation" || event.observation.ok) continue;
@@ -97,7 +143,7 @@ export function verifyTurn(
 
     const unaddressed = [...failures.entries()].filter(([, error]) => {
       if (error === "") return true; // no error text -> cannot be acknowledged
-      return answer === "" || !answerLower.includes(error.toLowerCase());
+      return !acknowledgesError(answer, error);
     });
 
     if (unaddressed.length > 0) {
@@ -119,4 +165,40 @@ export function verifyTurn(
         .join("\n")}\nИсправь ответ (продолжи работу при необходимости) и заверши ход заново.`;
 
   return { ok, issues, feedback };
+}
+
+/**
+ * Renders the mechanical-check summary shown after the final answer, so the
+ * user sees which commands were actually run (and whether they passed) before
+ * the turn completed. Returns an empty string when there is nothing to report.
+ */
+export function formatVerificationSummary(commands: readonly string[], passed: boolean): string {
+  if (commands.length === 0) {
+    return "";
+  }
+
+  const checks = commands.map((command) => `\`${command}\` ${passed ? "✓" : "✗"}`).join(" · ");
+  const headline = passed
+    ? "Проверки перед завершением хода:"
+    : "Проверки перед завершением хода не пройдены (лимит попыток исчерпан):";
+  return `${headline} ${checks}`;
+}
+
+/**
+ * Returns a stable identifier describing the last tooling that reported a
+ * problem in the current turn, used purely for diagnostics and bookkeeping.
+ */
+export function lastFailureSource(input: VerificationInput): string | undefined {
+  const failures = new Map<string, string>();
+  for (const event of input.events.slice(input.turnStartIndex)) {
+    if (event.type === "observation" && !event.observation.ok) {
+      failures.set(event.call.name, event.observation.error ?? "");
+    }
+  }
+  const source = [...failures.entries()].reduce<string | undefined>(
+    (acc, [name, error]) =>
+      acc ?? `${name}${error ? `: ${errorSignature(error) ?? "unknown"}` : ""}`,
+    undefined,
+  );
+  return source;
 }

@@ -2,6 +2,10 @@
 
 Ant is a compact coding agent that lives in your terminal. You describe a task in plain language, and it reads the project, runs commands, and edits files.
 
+## Usage
+
+After installing, launch Ant in your project directory with `ant` (or `npm run dev` when developing from source) and describe what you want in plain language — for example, `ant "Refactor the logger and add tests"`. Ant inspects the project with its `read`, `grep`, `glob`, and `bash` tools, then edits files and runs commands to complete the task, confirming what changed and answering follow-up questions in the same session.
+
 ## Installation
 
 ### Prebuilt
@@ -132,7 +136,7 @@ Available checks (`verification.checks`):
 
 - `empty-answer` — the turn must not finish with a blank answer;
 - `echo-task` — the answer must not just repeat the task verbatim;
-- `failed-tools` — tool errors from this turn must be acknowledged in the final answer.
+- `failed-tools` — tool errors from this turn must be acknowledged in the final answer (by error code such as `ENOENT`, or by a failure phrase — quoting the full error text is not required).
 
 Set `verification.enabled: false` to turn the gate off.
 
@@ -144,7 +148,7 @@ The answer checks above are mechanical but cannot tell whether the work itself i
 "verification": { "commands": ["npm run check", "npm run format:check"] }
 ```
 
-An empty list disables command verification. Command results are appended to the session journal like any other tool result.
+An empty list disables command verification. Command results are appended to the session journal like any other tool result, and after the answer Ant prints a short summary line — `Проверки перед завершением хода: npm run check ✓ · npm run format:check ✓` — or `✗` with a note when the attempts were exhausted.
 
 ## Interactive mode
 
