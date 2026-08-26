@@ -494,6 +494,15 @@ export async function loadSettings(
         const staleUserVision = index === 0 && layerVision === resolveVision(layerId);
         if (!staleUserVision) explicitVision = layerVision;
       }
+
+      if (index === 1 && partial.model?.baseUrl !== undefined) {
+        // `model.baseUrl` decides where the API key is sent, so it is
+        // credential-adjacent. A project settings file (potentially from an
+        // untrusted repository) must not be able to redirect the endpoint; the
+        // value may only come from the user layer. Drop it silently.
+        delete partial.model.baseUrl;
+      }
+
       settings = mergeSettings(settings, partial);
       sources.push(path);
 

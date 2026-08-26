@@ -123,7 +123,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
 }
 ```
 
-Only `deepseek` is supported. For a custom vision model, set `model.vision: true`. To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. All app settings live in JSON; keep only `DEEPSEEK_API_KEY` in `.env.local`.
+Only `deepseek` is supported. For a custom vision model, set `model.vision: true`. To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. `model.baseUrl` can only be set in the user-level `~/.ant/settings.json` — a project file cannot override it. All app settings live in JSON; keep only `DEEPSEEK_API_KEY` in `.env.local`.
 
 `contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 

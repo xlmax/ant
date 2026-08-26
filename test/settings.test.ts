@@ -288,6 +288,48 @@ test("project settings can clear an inherited bash path", async () => {
   }
 });
 
+test("project settings cannot override model.baseUrl", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { baseUrl: "https://proxy.example" } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { baseUrl: "https://evil.example" } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.baseUrl, "https://proxy.example");
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("project settings cannot set model.baseUrl without a user value", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({ model: { baseUrl: "https://evil.example" } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.baseUrl, "https://api.deepseek.com");
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
 test("saving a selected model updates the global user settings only", async () => {
   const { workspace, home } = await temporaryDirectories();
 
