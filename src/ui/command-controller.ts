@@ -45,7 +45,11 @@ export async function handleReplCommand(
       console.log(
         sessions.active
           ? ansi.dim(
-              `Сессия: ${sessions.active.session.id}\nФайл: ${sessions.active.session.filePath}`,
+              `Сессия: ${sessions.active.session.id}${
+                sessions.active.session.location
+                  ? `\nХранилище: ${sessions.active.session.location}`
+                  : ""
+              }`,
             )
           : ansi.dim("Сессия ещё не создана."),
       );
@@ -61,7 +65,7 @@ export async function handleReplCommand(
           estimateContextBudget({
             systemPrompt: options.systemPrompt,
             events: sessions.active?.state.events ?? [],
-            tools: options.environment.tools(),
+            tools: options.host.environment.tools(),
             contextWindow: state.modelSettings.contextWindow,
             includeImages: state.modelSettings.vision,
             includeReasoning: state.modelSettings.thinking.enabled,
@@ -86,7 +90,7 @@ export async function handleReplCommand(
       const before = estimateContextBudget({
         systemPrompt: options.systemPrompt,
         events: sessions.active.state.events,
-        tools: options.environment.tools(),
+        tools: options.host.environment.tools(),
         contextWindow: state.modelSettings.contextWindow,
         includeImages: state.modelSettings.vision,
         includeReasoning: state.modelSettings.thinking.enabled,
@@ -110,7 +114,7 @@ export async function handleReplCommand(
         const after = estimateContextBudget({
           systemPrompt: options.systemPrompt,
           events: [...sessions.active.state.events, event],
-          tools: options.environment.tools(),
+          tools: options.host.environment.tools(),
           contextWindow: state.modelSettings.contextWindow,
           includeImages: state.modelSettings.vision,
           includeReasoning: state.modelSettings.thinking.enabled,
@@ -149,7 +153,7 @@ export async function handleReplCommand(
       } else {
         renderer.setShowReasoning(command.enabled);
         try {
-          await options.saveShowReasoning(command.enabled);
+          await options.settings.saveShowReasoning(command.enabled);
           console.log(
             ansi.dim(`Рассуждения ${command.enabled ? "включены" : "выключены"} и сохранены.`),
           );
@@ -173,7 +177,7 @@ export async function handleReplCommand(
     case "model":
       if (command.list) {
         try {
-          const models = await options.listModels();
+          const models = await options.host.provider.listModels(state.modelSettings);
           console.log(ansi.bold("Доступные модели DeepSeek:"));
           if (models.length === 0) console.log(ansi.dim("Provider не вернул доступные модели."));
           for (const id of models)
@@ -191,10 +195,10 @@ export async function handleReplCommand(
         console.log(ansi.dim(`Модель уже активна: ${formatModelStatus(state.modelSettings)}`));
       } else {
         try {
-          const vision = await options.saveModelId(command.id);
+          const vision = await options.settings.saveModelId(command.id);
           state.modelSettings = { ...state.modelSettings, id: command.id, vision };
-          state.model = options.createAgentModel(state.modelSettings);
-          state.summarizer = options.createContextSummarizer(state.modelSettings);
+          state.model = options.host.provider.createAgentModel(state.modelSettings);
+          state.summarizer = options.host.provider.createContextSummarizer(state.modelSettings);
           console.log(
             ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(state.modelSettings)}`),
           );
@@ -224,11 +228,11 @@ export async function handleReplCommand(
           nextSettings.thinking.effort !== state.modelSettings.thinking.effort;
         if (changed) {
           state.modelSettings = nextSettings;
-          state.model = options.createAgentModel(state.modelSettings);
-          state.summarizer = options.createContextSummarizer(state.modelSettings);
+          state.model = options.host.provider.createAgentModel(state.modelSettings);
+          state.summarizer = options.host.provider.createContextSummarizer(state.modelSettings);
         }
         try {
-          await options.saveThinking(nextSettings.thinking);
+          await options.settings.saveThinking(nextSettings.thinking);
           console.log(
             ansi.dim(
               changed

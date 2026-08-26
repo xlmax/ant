@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
+import type { FrontendSettingsCommands } from "../app/frontend.js";
+import type { AntHostContext } from "../app/host-context.js";
 import type {
   ModelSettings,
   ProjectSettingsOverrides,
@@ -9,8 +11,6 @@ import type {
 } from "../config/settings.js";
 import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
-import type { ToolEnvironment } from "../core/environment.js";
-import { JsonlSessionStore } from "../core/session-store.js";
 import { SessionController } from "../core/session-controller.js";
 import { checkForUpdates, isRunningUnderNpm } from "../updates/updates.js";
 import { VERSION } from "../version.js";
@@ -27,18 +27,12 @@ import { TurnRunner } from "./turn-runner.js";
 
 export interface ReplOptions {
   workspace: string;
+  host: AntHostContext;
   model: AgentModel;
   summarizer: ContextSummarizer;
   modelSettings: ModelSettings;
-  createAgentModel(settings: ModelSettings): AgentModel;
-  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
-  listModels(): Promise<readonly string[]>;
-  saveModelId(id: string): Promise<boolean>;
-  saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
-  saveShowReasoning(enabled: boolean): Promise<void>;
+  settings: FrontendSettingsCommands;
   projectOverrides: ProjectSettingsOverrides;
-  environment: ToolEnvironment;
-  store: JsonlSessionStore;
   showReasoning?: boolean;
   showChanges?: boolean;
   limits: RuntimeLimits;
@@ -61,7 +55,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     modelSettings: options.modelSettings,
     summarizer: options.summarizer,
   };
-  const sessions = new SessionController(options.store);
+  const sessions = new SessionController(options.host.sessions);
 
   const branch = await resolveGitBranch(options.workspace);
   console.log(
@@ -105,8 +99,9 @@ export async function runRepl(options: ReplOptions): Promise<void> {
       try {
         await new TurnRunner({
           workspace: options.workspace,
+          runtime: options.host.runtime,
           model: state.model,
-          environment: options.environment,
+          environment: options.host.environment,
           renderer,
           session,
           limits: options.limits,

@@ -1,15 +1,16 @@
 import type { RuntimeLimits, VerificationSettings } from "../config/settings.js";
-import { runAgent, type AgentModel, type AgentResult, type AgentState } from "../core/agent.js";
-import type { ToolEnvironment } from "../core/environment.js";
-import type { AgentSession } from "../core/session-store.js";
+import type { AgentModel, AgentResult, AgentState, Environment } from "../core/agent.js";
+import type { AgentRuntime } from "../core/runtime.js";
+import type { AgentSession } from "../core/session.js";
 import { ansi } from "./ansi.js";
 import type { ConsoleRenderer } from "./console-renderer.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface TurnRunnerOptions {
   workspace: string;
+  runtime: AgentRuntime;
   model: AgentModel;
-  environment: ToolEnvironment;
+  environment: Environment;
   renderer: ConsoleRenderer;
   session: AgentSession;
   limits: RuntimeLimits;
@@ -25,8 +26,17 @@ export class TurnRunner {
   }
 
   async run(state: AgentState): Promise<AgentResult> {
-    const { model, environment, renderer, session, limits, workspace, showChanges, verification } =
-      this.#options;
+    const {
+      runtime,
+      model,
+      environment,
+      renderer,
+      session,
+      limits,
+      workspace,
+      showChanges,
+      verification,
+    } = this.#options;
     renderer.beginTurn();
 
     // The change tracker takes a Git snapshot and hashes every dirty file, so
@@ -44,7 +54,7 @@ export class TurnRunner {
     process.on("SIGINT", onSigint);
 
     try {
-      const result = await runAgent(state, {
+      const result = await runtime.run(state, {
         model,
         environment,
         historyObserver: session.observer,

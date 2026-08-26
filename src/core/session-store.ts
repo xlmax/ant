@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { AgentEvent, AgentObserver, AgentState, HistoryEvent } from "./agent.js";
+import type { AgentSession, SessionList, SessionStore, SessionSummary } from "./session.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 
 const SESSION_VERSION = 1;
@@ -15,23 +16,13 @@ interface SessionRecord {
   event: AgentEvent;
 }
 
-export interface AgentSession {
-  id: string;
+export interface JsonlAgentSession extends AgentSession {
   filePath: string;
-  observer: AgentObserver;
+  location: string;
 }
 
-export interface SessionSummary {
-  id: string;
+interface JsonlSessionSummary extends SessionSummary {
   filePath: string;
-  createdAt: string;
-  updatedAt: string;
-  task: string;
-}
-
-export interface SessionList {
-  sessions: SessionSummary[];
-  warnings: string[];
 }
 
 function assertSessionId(sessionId: string): void {
@@ -107,7 +98,7 @@ function summaryFromRecords(
   id: string,
   filePath: string,
   records: readonly SessionRecord[],
-): SessionSummary {
+): JsonlSessionSummary {
   if (records.some((record) => record.sessionId !== id)) {
     throw new Error("Идентификатор сессии не совпадает с содержимым файла");
   }
@@ -126,7 +117,7 @@ function summaryFromRecords(
 
 async function writeSessionMetadata(
   sessionDirectory: string,
-  summary: SessionSummary,
+  summary: JsonlSessionSummary,
 ): Promise<void> {
   try {
     const fileStat = await stat(summary.filePath);
@@ -156,7 +147,7 @@ async function writeSessionMetadata(
 async function readSessionMetadata(
   sessionDirectory: string,
   id: string,
-): Promise<SessionSummary | undefined> {
+): Promise<JsonlSessionSummary | undefined> {
   const filePath = sessionMetadataPath(sessionDirectory, id);
   let content: string;
 
@@ -275,9 +266,9 @@ class JsonlSessionObserver implements AgentObserver {
   readonly #sessionDirectory: string;
   readonly #sessionId: string;
   readonly #filePath: string;
-  #summary: SessionSummary;
+  #summary: JsonlSessionSummary;
 
-  constructor(sessionDirectory: string, summary: SessionSummary) {
+  constructor(sessionDirectory: string, summary: JsonlSessionSummary) {
     this.#sessionDirectory = sessionDirectory;
     this.#sessionId = summary.id;
     this.#filePath = summary.filePath;
@@ -300,19 +291,19 @@ class JsonlSessionObserver implements AgentObserver {
   }
 }
 
-export class JsonlSessionStore {
+export class JsonlSessionStore implements SessionStore {
   readonly #sessionDirectory: string;
 
   constructor(sessionDirectory: string) {
     this.#sessionDirectory = sessionDirectory;
   }
 
-  async create(state: AgentState): Promise<AgentSession> {
+  async create(state: AgentState): Promise<JsonlAgentSession> {
     const id = randomUUID();
     const filePath = sessionFilePath(this.#sessionDirectory, id);
     const createdAt = new Date().toISOString();
     const task = state.events.find((event) => event.type === "task");
-    const summary: SessionSummary = {
+    const summary: JsonlSessionSummary = {
       id,
       filePath,
       createdAt,
@@ -333,6 +324,7 @@ export class JsonlSessionStore {
     return {
       id,
       filePath,
+      location: filePath,
       observer: new JsonlSessionObserver(this.#sessionDirectory, summary),
     };
   }
@@ -352,7 +344,7 @@ export class JsonlSessionStore {
       throw error;
     }
 
-    const sessions: SessionSummary[] = [];
+    const sessions: JsonlSessionSummary[] = [];
     const warnings: string[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
@@ -367,7 +359,7 @@ export class JsonlSessionStore {
       const filePath = sessionFilePath(this.#sessionDirectory, id);
 
       try {
-        let summary: SessionSummary | undefined;
+        let summary: JsonlSessionSummary | undefined;
         try {
           summary = await readSessionMetadata(this.#sessionDirectory, id);
         } catch {
@@ -388,14 +380,16 @@ export class JsonlSessionStore {
     }
 
     return {
-      sessions: sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+      sessions: sessions
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map(({ id, createdAt, updatedAt, task }) => ({ id, createdAt, updatedAt, task })),
       warnings,
     };
   }
 
   async resume(sessionId: string): Promise<{
     state: AgentState;
-    session: AgentSession;
+    session: JsonlAgentSession;
   }> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
     const { records, validBytes, needsNewlineSeparator } = await readSessionRecords(filePath);
@@ -419,6 +413,7 @@ export class JsonlSessionStore {
       session: {
         id: sessionId,
         filePath,
+        location: filePath,
         observer: new JsonlSessionObserver(this.#sessionDirectory, summary),
       },
     };

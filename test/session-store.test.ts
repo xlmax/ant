@@ -16,6 +16,7 @@ test("JSONL session store persists and resumes agent events", async () => {
   try {
     const store = new JsonlSessionStore(directory);
     const session = await store.create(createAgentState("Исходная задача"));
+    assert.equal(session.location, session.filePath);
 
     await session.observer.onEvent({
       type: "model.requested",
@@ -78,6 +79,7 @@ test("JSONL session store lists saved sessions and their tasks", async () => {
     assert.equal(tasks.get(first.id), "Первая задача");
     assert.equal(tasks.get(second.id), "Вторая задача");
     assert.ok(sessions.every((session) => session.updatedAt.endsWith("Z")));
+    assert.ok(sessions.every((session) => !("filePath" in session)));
     assert.equal(warnings.length, 1);
     assert.match(warnings[0] ?? "", new RegExp(brokenId, "u"));
     assert.match(warnings[0] ?? "", /строке 2/u);

@@ -1,5 +1,5 @@
 import { createAgentState, type AgentState, type HistoryEvent } from "./agent.js";
-import { JsonlSessionStore, type AgentSession } from "./session-store.js";
+import type { AgentSession, SessionStore } from "./session.js";
 
 export interface ActiveSession {
   state: AgentState;
@@ -11,10 +11,10 @@ export interface PreparedUserMessage extends ActiveSession {
 }
 
 export class SessionController {
-  readonly #store: JsonlSessionStore;
+  readonly #store: SessionStore;
   #active: ActiveSession | undefined;
 
-  constructor(store: JsonlSessionStore) {
+  constructor(store: SessionStore) {
     this.#store = store;
   }
 
