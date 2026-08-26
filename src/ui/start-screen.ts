@@ -21,13 +21,6 @@ function normalizePath(workspace: string): string {
   return workspace.replaceAll("\\", "/");
 }
 
-function formatModelShort(settings: ModelSettings): string {
-  const thinking = settings.thinking.enabled
-    ? `thinking ${settings.thinking.effort}`
-    : "thinking off";
-  return `${settings.provider}/${settings.id} · ${thinking}`;
-}
-
 export async function resolveGitBranch(workspace: string): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync("git", ["branch", "--show-current"], {
@@ -46,20 +39,27 @@ export function formatStartScreen(options: {
   branch: string | undefined;
   modelSettings: ModelSettings;
 }): string {
-  const location =
-    options.branch === undefined
-      ? normalizePath(options.workspace)
-      : `${normalizePath(options.workspace)} · ${options.branch}`;
+  const model = `${options.modelSettings.provider}/${options.modelSettings.id}`;
+  const thinking = options.modelSettings.thinking.enabled
+    ? `think: ${options.modelSettings.thinking.effort}`
+    : "think: off";
   const commands = TOP_COMMANDS.map((command) => ansi.cyan(command)).join(ansi.dim("  "));
 
-  return [
+  const lines: string[] = [
     "",
-    ...LOGO.map((line) => ansi.bold(ansi.terracotta(line))),
+    ...LOGO.map((line) => " " + ansi.bold(ansi.terracotta(line))),
     "",
-    ansi.dim(`ant ${VERSION}`),
-    ansi.dim(formatModelShort(options.modelSettings)),
-    ansi.dim(location),
+    " " + ansi.dim(`Agentic Native Tool · v${VERSION}`),
     "",
-    commands,
-  ].join("\n");
+    " " + ansi.dim("●") + " " + model + " " + ansi.dim(`· ${thinking}`),
+    " " + ansi.dim("▸") + " " + ansi.dim(normalizePath(options.workspace)),
+  ];
+
+  if (options.branch !== undefined) {
+    lines.push(" " + ansi.dim("└") + " " + ansi.dim(options.branch));
+  }
+
+  lines.push("", " " + ansi.dim("›") + " " + commands);
+
+  return lines.join("\n");
 }

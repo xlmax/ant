@@ -24,9 +24,10 @@ test("start screen shows logo, version, model, location and commands", () => {
   });
 
   assert.match(screen, /█████╗/u);
-  assert.ok(screen.includes(`ant ${VERSION}`));
-  assert.match(screen, /deepseek\/deepseek-v4-flash · thinking high/u);
-  assert.match(screen, /C:\/Projects\/aiAgent · dev/u);
+  assert.ok(screen.includes(`Agentic Native Tool · v${VERSION}`));
+  assert.match(screen, /● deepseek\/deepseek-v4-flash · think: high/u);
+  assert.match(screen, /▸ C:\/Projects\/aiAgent/u);
+  assert.match(screen, /└ dev/u);
   assert.match(screen, /\/model/u);
   assert.match(screen, /\/exit/u);
 });
@@ -39,6 +40,6 @@ test("start screen hides git branch when absent", () => {
     modelSettings: settings,
   });
 
-  assert.match(screen, /\/home\/user\/project/u);
-  assert.doesNotMatch(screen, / · dev/u);
+  assert.match(screen, /▸ \/home\/user\/project/u);
+  assert.doesNotMatch(screen, /└ /u);
 });
