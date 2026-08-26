@@ -3,8 +3,6 @@ import test from "node:test";
 
 import {
   createAgentState,
-  formatVerificationSummary,
-  isMutatingBashCommand,
   runAgent,
   verifyTurn,
   type AgentModel,
@@ -17,7 +15,6 @@ const allChecks: VerificationSettings = {
   enabled: true,
   maxRounds: 2,
   checks: ["empty-answer", "echo-task", "failed-tools"],
-  commands: [],
 };
 
 function baseEvents(): HistoryEvent[] {
@@ -137,13 +134,6 @@ test("verifyTurn passes a paraphrase that acknowledges the failure without the e
   assert.equal(outcome.ok, true);
 });
 
-test("formatVerificationSummary renders passed and failed check lists", () => {
-  assert.equal(formatVerificationSummary([], true), "");
-  assert.match(formatVerificationSummary(["npm run check"], true), /npm run check.*✓/u);
-  assert.match(formatVerificationSummary(["npm run check", "npm run format:check"], true), /✓.*✓/u);
-  assert.match(formatVerificationSummary(["npm run check"], false), /не пройдены.*✗/u);
-});
-
 test("verifyTurn ignores failures from earlier turns outside the gate window", () => {
   const events: HistoryEvent[] = [
     ...baseEvents(),
@@ -233,221 +223,4 @@ test("verification is disabled when enabled is false", async () => {
     result.state.events.some((event) => event.type === "verification"),
     false,
   );
-});
-
-const editTool = {
-  spec: { name: "edit", description: "edits a file", inputSchema: { type: "object" } },
-  async execute() {
-    return { ok: true };
-  },
-};
-
-function bashTool(handler: (command: string) => { exitCode: number; output: string }) {
-  return {
-    spec: { name: "bash", description: "runs a command", inputSchema: { type: "object" } },
-    async execute(input: unknown) {
-      const command = (input as { command?: string }).command ?? "";
-      return handler(command);
-    },
-  };
-}
-
-test("isMutatingBashCommand detects shell file mutations", () => {
-  assert.equal(isMutatingBashCommand('echo "x" >> test.txt'), true);
-  assert.equal(isMutatingBashCommand('echo "x" > test.txt'), true);
-  assert.equal(isMutatingBashCommand("sed -i s/a/b/ file.txt"), true);
-  assert.equal(isMutatingBashCommand("rm -rf node_modules"), true);
-  assert.equal(isMutatingBashCommand("mv a b"), true);
-  assert.equal(isMutatingBashCommand("cp a b"), true);
-  assert.equal(isMutatingBashCommand("mkdir -p dist"), true);
-  assert.equal(isMutatingBashCommand("touch .gitkeep"), true);
-});
-
-test("isMutatingBashCommand ignores read-only commands", () => {
-  assert.equal(isMutatingBashCommand("tail -5 test.txt"), false);
-  assert.equal(isMutatingBashCommand("git log --oneline -5"), false);
-  assert.equal(isMutatingBashCommand("npm test"), false);
-  assert.equal(isMutatingBashCommand("ls -la"), false);
-  assert.equal(isMutatingBashCommand("node -v"), false);
-});
-
-test("verification commands run when the model mutates files through bash", async () => {
-  let bashRuns = 0;
-  const bash = bashTool(() => {
-    bashRuns += 1;
-    return { exitCode: 0, output: "ok" };
-  });
-  const model: AgentModel = {
-    async decide({ events }) {
-      const observations = events.filter((event) => event.type === "observation");
-      return observations.length === 0
-        ? {
-            type: "tools",
-            calls: [{ id: "b-1", name: "bash", input: { command: 'echo "x" >> test.txt' } }],
-          }
-        : { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Задача"), {
-    model,
-    environment: new ToolEnvironment([bash]),
-    verification: { ...allChecks, commands: ["npm run check"] },
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  assert.equal(bashRuns, 2); // the mutation itself + the verification command
-  assert.equal(result.answer, "Готово");
-  assert.match(result.verificationSummary ?? "", /Проверки перед завершением хода/u);
-});
-
-test("verification commands run after an editing turn and all pass", async () => {
-  const bash = bashTool(() => ({ exitCode: 0, output: "ok" }));
-  const model: AgentModel = {
-    async decide({ events }) {
-      const observations = events.filter((event) => event.type === "observation");
-      return observations.length === 0
-        ? {
-            type: "tools",
-            calls: [
-              {
-                id: "edit-1",
-                name: "edit",
-                input: { path: "a.txt", oldText: "x", newText: "y" },
-              },
-            ],
-          }
-        : { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Измени файл"), {
-    model,
-    environment: new ToolEnvironment([editTool, bash]),
-    verification: { ...allChecks, commands: ["npm run check"] },
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  assert.equal(result.answer, "Готово");
-  assert.match(result.verificationSummary ?? "", /Проверки перед завершением хода/u);
-  assert.match(result.verificationSummary ?? "", /`npm run check` ✓/u);
-  const verifyObservations = result.state.events.filter(
-    (event) => event.type === "observation" && event.call.id.startsWith("verify-cmd-"),
-  );
-  assert.equal(verifyObservations.length, 1);
-});
-
-test("a failing verification command re-prompts the model until it passes", async () => {
-  let runs = 0;
-  const bash = bashTool(() => {
-    runs += 1;
-    return runs === 1 ? { exitCode: 1, output: "check failed" } : { exitCode: 0, output: "ok" };
-  });
-  let calls = 0;
-  const model: AgentModel = {
-    async decide({ events }) {
-      calls += 1;
-      const observations = events.filter((event) => event.type === "observation");
-      return observations.length === 0
-        ? { type: "tools", calls: [{ id: "edit-1", name: "edit", input: {} }] }
-        : { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Задача"), {
-    model,
-    environment: new ToolEnvironment([editTool, bash]),
-    verification: { ...allChecks, commands: ["npm run check"] },
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  assert.equal(runs, 2);
-  assert.equal(calls, 3);
-  assert.equal(result.state.events.filter((event) => event.type === "verification").length, 1);
-  assert.match(result.verificationSummary ?? "", /Проверки перед завершением хода/u);
-  assert.match(result.verificationSummary ?? "", /✓/u);
-});
-
-test("verification stops after maxRounds and reports the failed checks in the answer", async () => {
-  const bash = bashTool(() => ({ exitCode: 1, output: "always broken" }));
-  let calls = 0;
-  const model: AgentModel = {
-    async decide({ events }) {
-      calls += 1;
-      const observations = events.filter((event) => event.type === "observation");
-      return observations.length === 0
-        ? { type: "tools", calls: [{ id: "edit-1", name: "edit", input: {} }] }
-        : { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Задача"), {
-    model,
-    environment: new ToolEnvironment([editTool, bash]),
-    verification: { ...allChecks, commands: ["npm run check"] },
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  // One initial finish + maxRounds retries, then the answer is accepted.
-  assert.equal(calls, 1 + allChecks.maxRounds + 1);
-  assert.equal(
-    result.state.events.filter((event) => event.type === "verification").length,
-    allChecks.maxRounds,
-  );
-  assert.match(result.verificationSummary ?? "", /не пройдены/u);
-  assert.match(result.verificationSummary ?? "", /✗/u);
-});
-
-test("verification commands do not run when the turn made no edits", async () => {
-  let bashRuns = 0;
-  const bash = bashTool(() => {
-    bashRuns += 1;
-    return { exitCode: 0, output: "ok" };
-  });
-  const model: AgentModel = {
-    async decide() {
-      return { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Вопрос"), {
-    model,
-    environment: new ToolEnvironment([bash]),
-    verification: { ...allChecks, commands: ["npm run check"] },
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  assert.equal(bashRuns, 0);
-  assert.equal(result.verificationSummary, undefined);
-});
-
-test("verification commands do not run when commands is empty", async () => {
-  let bashRuns = 0;
-  const bash = bashTool(() => {
-    bashRuns += 1;
-    return { exitCode: 0, output: "ok" };
-  });
-  const model: AgentModel = {
-    async decide({ events }) {
-      const observations = events.filter((event) => event.type === "observation");
-      return observations.length === 0
-        ? { type: "tools", calls: [{ id: "edit-1", name: "edit", input: {} }] }
-        : { type: "finish", answer: "Готово" };
-    },
-  };
-
-  const result = await runAgent(createAgentState("Задача"), {
-    model,
-    environment: new ToolEnvironment([editTool, bash]),
-    verification: allChecks,
-  });
-
-  assert.equal(result.status, "completed");
-  if (result.status !== "completed") return;
-  assert.equal(bashRuns, 0);
 });

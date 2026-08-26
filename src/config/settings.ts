@@ -95,7 +95,6 @@ type PartialSettings = {
     enabled?: boolean;
     maxRounds?: number;
     checks?: VerificationCheck[];
-    commands?: string[];
   };
 };
 
@@ -129,7 +128,6 @@ const defaults: AppSettings = {
     enabled: true,
     maxRounds: 2,
     checks: ["empty-answer", "echo-task", "failed-tools"],
-    commands: [],
   },
 };
 
@@ -378,12 +376,10 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       "verification.maxRounds",
     );
     const checks = optionalVerificationChecks(value.verification.checks, "verification.checks");
-    const commands = optionalStringArray(value.verification.commands, "verification.commands");
     result.verification = {
       ...(enabled === undefined ? {} : { enabled }),
       ...(maxRounds === undefined ? {} : { maxRounds }),
       ...(checks === undefined ? {} : { checks }),
-      ...(commands === undefined ? {} : { commands }),
     };
   }
 
@@ -428,7 +424,6 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       enabled: partial.verification?.enabled ?? base.verification.enabled,
       maxRounds: partial.verification?.maxRounds ?? base.verification.maxRounds,
       checks: partial.verification?.checks ?? base.verification.checks,
-      commands: partial.verification?.commands ?? base.verification.commands,
     },
   };
 }

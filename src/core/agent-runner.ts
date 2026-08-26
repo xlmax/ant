@@ -1,4 +1,4 @@
-import { formatVerificationSummary, isMutatingBashCommand, verifyTurn } from "./verification.js";
+import { verifyTurn } from "./verification.js";
 
 import {
   ModelRequestError,
@@ -8,12 +8,9 @@ import {
   type AgentResult,
   type AgentState,
   type Decision,
-  type Environment,
   type HistoryEvent,
   type ModelUsage,
   type Observation,
-  type ToolCall,
-  type ToolCalls,
   type ToolOutputHandler,
   type ToolStartedHandler,
 } from "./agent-types.js";
@@ -38,93 +35,6 @@ async function appendHistoryEvent(
 
 async function notifyEvent(event: AgentEvent, observers: readonly AgentObserver[]): Promise<void> {
   for (const observer of observers) await observer.onEvent(event);
-}
-
-function commandObservationPassed(observation: Observation): boolean {
-  if (!observation.ok) return false;
-  const value = observation.value as { exitCode?: number } | undefined;
-  return value?.exitCode === 0;
-}
-
-/**
- * Runs the configured verification commands through the `bash` tool, appends
- * every result to the journal and in-memory history, and reports whether all
- * of them passed. This is the mechanical part of the gate: the commands
- * really run and their output is persisted, so the model cannot claim a
- * check passed on its word alone.
- */
-async function runVerificationCommands(
-  commands: readonly string[],
-  round: number,
-  state: AgentState,
-  environment: Environment,
-  signal: AbortSignal | undefined,
-  historyObserver: AgentObserver | undefined,
-  observers: readonly AgentObserver[],
-): Promise<{ passed: boolean; feedback: string }> {
-  const calls = commands.map((command, index): ToolCall => ({
-    id: `verify-cmd-${round}-${index}`,
-    name: "bash",
-    input: { command },
-  }));
-
-  let toolEvents = Promise.resolve();
-  const onStarted: ToolStartedHandler = (call) => {
-    toolEvents = toolEvents.then(() => notifyEvent({ type: "tool.started", call }, observers));
-  };
-  const onOutput: ToolOutputHandler = (call, output) => {
-    toolEvents = toolEvents.then(() =>
-      notifyEvent({ type: "tool.output", call, output }, observers),
-    );
-  };
-
-  const startedAt = Date.now();
-  let observations: readonly Observation[];
-  try {
-    observations = await environment.executeMany(calls as ToolCalls, signal, onOutput, onStarted);
-  } catch (error) {
-    await toolEvents;
-    return {
-      passed: false,
-      feedback: `Команды проверки не запустились: ${String(error)}\nИсправь проблему и заверши ход заново.`,
-    };
-  }
-  await toolEvents;
-
-  const failed: string[] = [];
-  for (const [index, call] of calls.entries()) {
-    const observation = observations[index];
-    if (!observation) {
-      throw new Error(`Environment did not return an observation for tool call ${call.id}`);
-    }
-    await appendHistoryEvent(
-      state,
-      { type: "observation", call, observation },
-      historyObserver,
-      observers,
-    );
-    await notifyEvent(
-      { type: "tool.finished", call, observation, durationMs: Date.now() - startedAt },
-      observers,
-    );
-
-    if (!commandObservationPassed(observation)) {
-      const value = observation.value as { exitCode?: number; output?: unknown } | undefined;
-      const output = observation.ok ? String(value?.output ?? "") : (observation.error ?? "");
-      failed.push(
-        `- \`${commands[index]}\` (exit ${value?.exitCode ?? "?"}): ${output === "" ? "нет вывода" : output.slice(0, 300)}`,
-      );
-    }
-  }
-
-  if (failed.length === 0) {
-    return { passed: true, feedback: "" };
-  }
-
-  return {
-    passed: false,
-    feedback: `Команды проверки не прошли:\n${failed.join("\n")}\nИсправь ошибки и заверши ход заново.`,
-  };
 }
 
 function retryReason(error: unknown, requestTimedOut: boolean): string | undefined {
@@ -207,7 +117,6 @@ export async function runAgent(
   // earlier turns, so the verification gate only inspects events added below.
   const turnStartIndex = state.events.length;
   let verificationRound = 0;
-  let madeChanges = false;
   const gate = verification?.enabled === true ? verification : undefined;
 
   while (!signal?.aborted) {
@@ -287,7 +196,6 @@ export async function runAgent(
     await appendHistoryEvent(state, { type: "decision", decision }, historyObserver, observers);
 
     if (decision.type === "finish") {
-      let verificationSummary = "";
       if (gate) {
         const outcome = verifyTurn(
           { answer: decision.answer, events: state.events, turnStartIndex },
@@ -308,60 +216,8 @@ export async function runAgent(
           );
           continue;
         }
-
-        // Mechanical command gate: when the turn changed files and commands
-        // are configured, actually run them before allowing the turn to
-        // finish. Failing output is fed back to the model to fix.
-        if (gate.commands.length > 0 && madeChanges) {
-          if (verificationRound < gate.maxRounds) {
-            const { passed, feedback } = await runVerificationCommands(
-              gate.commands,
-              verificationRound,
-              state,
-              environment,
-              signal,
-              historyObserver,
-              observers,
-            );
-            if (!passed) {
-              verificationRound += 1;
-              await appendHistoryEvent(
-                state,
-                {
-                  type: "verification",
-                  feedback,
-                  round: verificationRound,
-                  maxRounds: gate.maxRounds,
-                },
-                historyObserver,
-                observers,
-              );
-              continue;
-            }
-            verificationSummary = formatVerificationSummary(gate.commands, true);
-          } else {
-            // Attempts exhausted: finish anyway, but report the failure so the
-            // user can see the checks did not pass.
-            verificationSummary = formatVerificationSummary(gate.commands, false);
-          }
-        }
       }
-      const answer = decision.answer;
-      return {
-        status: "completed",
-        answer,
-        state,
-        ...(verificationSummary === "" ? {} : { verificationSummary }),
-      };
-    }
-
-    for (const call of decision.calls) {
-      if (call.name === "edit" || call.name === "write") {
-        madeChanges = true;
-      } else if (call.name === "bash") {
-        const command = (call.input as { command?: string } | undefined)?.command ?? "";
-        if (isMutatingBashCommand(command)) madeChanges = true;
-      }
+      return { status: "completed", answer: decision.answer, state };
     }
 
     const startedAt = new Map<string, number>();

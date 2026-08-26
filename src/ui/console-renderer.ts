@@ -301,9 +301,6 @@ export class ConsoleRenderer implements AgentObserver {
           process.stdout.write(markdown.finish());
           this.printAgentBlockEnd();
         }
-        if (result.verificationSummary !== undefined) {
-          console.log(ansi.dim(result.verificationSummary));
-        }
         this.printUsage();
         break;
 

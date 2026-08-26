@@ -118,8 +118,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
   "verification": {
     "enabled": true,
     "maxRounds": 2,
-    "checks": ["empty-answer", "echo-task", "failed-tools"],
-    "commands": []
+    "checks": ["empty-answer", "echo-task", "failed-tools"]
   }
 }
 ```
@@ -139,16 +138,6 @@ Available checks (`verification.checks`):
 - `failed-tools` — tool errors from this turn must be acknowledged in the final answer (by error code such as `ENOENT`, or by a failure phrase — quoting the full error text is not required).
 
 Set `verification.enabled: false` to turn the gate off.
-
-### Real command checks (`verification.commands`)
-
-The answer checks above are mechanical but cannot tell whether the work itself is sound — the model could still claim "checks are green" without running anything. To close that gap, list shell commands in `verification.commands` (executed through the `bash` tool). Whenever a turn changed files (`edit`/`write`) and then finishes, every command must exit `0`; otherwise the failing output is fed back to the model and the turn continues (bounded by `verification.maxRounds`), so the finish is blocked until the checks really pass:
-
-```json
-"verification": { "commands": ["npm run check", "npm run format:check"] }
-```
-
-An empty list disables command verification. Command results are appended to the session journal like any other tool result, and after the answer Ant prints a short summary line — `Проверки перед завершением хода: npm run check ✓ · npm run format:check ✓` — or `✗` with a note when the attempts were exhausted.
 
 ## Interactive mode
 

@@ -132,17 +132,7 @@ export interface Environment {
 }
 
 export type AgentResult =
-  | {
-      status: "completed";
-      answer: string;
-      /**
-       * Optional mechanical-check summary (which verification commands ran and
-       * whether they passed). Kept separate from `answer` so the UI can render
-       * it even when the answer itself was already streamed live.
-       */
-      verificationSummary?: string;
-      state: AgentState;
-    }
+  | { status: "completed"; answer: string; state: AgentState }
   | { status: "cancelled"; state: AgentState };
 
 export interface AgentObserver {

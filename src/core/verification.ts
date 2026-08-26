@@ -13,13 +13,6 @@ export interface VerificationSettings {
   enabled: boolean;
   maxRounds: number;
   checks: readonly VerificationCheck[];
-  /**
-   * Shell commands (run through the `bash` tool) that must all exit 0 before
-   * a turn that changed files is allowed to finish. This is the mechanical
-   * part of the gate: the checks really run, the model cannot claim they
-   * passed on its word. Empty array disables command verification.
-   */
-  commands: readonly string[];
 }
 
 export interface VerificationIssue {
@@ -78,18 +71,6 @@ function acknowledgesError(answer: string, error: string): boolean {
   }
   // No error code in the answer — accept a generic failure acknowledgment.
   return FAILURE_WORDS.some((word) => lower.includes(word));
-}
-
-/**
- * Heuristic for whether a bash command mutates the workspace, so the command
- * gate fires even when the model edits files through the shell instead of the
- * `edit`/`write` tools (e.g. `echo x >> file`, `sed -i`, `rm`). Read-only
- * commands (`ls`, `git log`, `npm test`) must not match.
- */
-export function isMutatingBashCommand(command: string): boolean {
-  return /(>>|>|sed\s+-i|\brm\b|\bmv\b|\bcp\b|\btouch\b|\bmkdir\b|\brmdir\b|\bchmod\b|\bchown\b|\binstall\b|\bdel\b|\bren\b)/u.test(
-    command,
-  );
 }
 
 function lastTaskContent(events: readonly HistoryEvent[]): string | undefined {
@@ -165,40 +146,4 @@ export function verifyTurn(
         .join("\n")}\nИсправь ответ (продолжи работу при необходимости) и заверши ход заново.`;
 
   return { ok, issues, feedback };
-}
-
-/**
- * Renders the mechanical-check summary shown after the final answer, so the
- * user sees which commands were actually run (and whether they passed) before
- * the turn completed. Returns an empty string when there is nothing to report.
- */
-export function formatVerificationSummary(commands: readonly string[], passed: boolean): string {
-  if (commands.length === 0) {
-    return "";
-  }
-
-  const checks = commands.map((command) => `\`${command}\` ${passed ? "✓" : "✗"}`).join(" · ");
-  const headline = passed
-    ? "Проверки перед завершением хода:"
-    : "Проверки перед завершением хода не пройдены (лимит попыток исчерпан):";
-  return `${headline} ${checks}`;
-}
-
-/**
- * Returns a stable identifier describing the last tooling that reported a
- * problem in the current turn, used purely for diagnostics and bookkeeping.
- */
-export function lastFailureSource(input: VerificationInput): string | undefined {
-  const failures = new Map<string, string>();
-  for (const event of input.events.slice(input.turnStartIndex)) {
-    if (event.type === "observation" && !event.observation.ok) {
-      failures.set(event.call.name, event.observation.error ?? "");
-    }
-  }
-  const source = [...failures.entries()].reduce<string | undefined>(
-    (acc, [name, error]) =>
-      acc ?? `${name}${error ? `: ${errorSignature(error) ?? "unknown"}` : ""}`,
-    undefined,
-  );
-  return source;
 }
