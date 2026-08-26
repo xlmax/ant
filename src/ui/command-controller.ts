@@ -34,6 +34,9 @@ export async function handleReplCommand(
 
   switch (command.type) {
     case "exit":
+      if (sessions.active) {
+        console.log(ansi.dim(`Для продолжения сессии: ant -s ${sessions.active.session.id}`));
+      }
       return "exit";
 
     case "new":
