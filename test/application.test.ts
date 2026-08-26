@@ -22,7 +22,7 @@ const loadedSettings: LoadedSettings = {
       vision: false,
       thinking: { enabled: true, effort: "high" },
     },
-    ui: { showReasoning: false, showChanges: false, color: false },
+    ui: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: false },
     prompts: { additionalPaths: ["extra.md"] },
     tools: {},
     limits: {
@@ -40,7 +40,7 @@ const loadedSettings: LoadedSettings = {
   projectOverrides: {
     modelId: false,
     modelThinking: false,
-    showReasoning: false,
+    reasoningMode: false,
     showChanges: false,
   },
 };
@@ -74,8 +74,8 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
     async saveThinking(thinking) {
       calls.push(`settings.thinking:${thinking.enabled}/${thinking.effort}`);
     },
-    async saveShowReasoning(enabled) {
-      calls.push(`settings.reasoning:${enabled}`);
+    async saveReasoningMode(mode) {
+      calls.push(`settings.reasoning:${mode}`);
     },
   };
 
@@ -182,13 +182,13 @@ test("AntApplication builds modules in order and delegates settings mutations", 
   assert.equal(options.modelSettings, loadedSettings.settings.model);
   assert.equal(await options.settings.saveModelId("custom-vision"), true);
   await options.settings.saveThinking({ enabled: false, effort: "max" });
-  await options.settings.saveShowReasoning(true);
+  await options.settings.saveReasoningMode("compact");
   assert.deepEqual(harness.calls.slice(-5), [
     "settings.model:custom-vision",
     `settings.vision:${workspace}`,
     "settings.resolve:custom-vision/undefined",
     "settings.thinking:false/max",
-    "settings.reasoning:true",
+    "settings.reasoning:compact",
   ]);
 });
 

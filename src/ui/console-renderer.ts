@@ -1,3 +1,4 @@
+import type { ReasoningDisplayMode } from "../app/configuration.js";
 import type {
   AgentEvent,
   AgentObserver,
@@ -8,6 +9,7 @@ import type {
 } from "../core/agent.js";
 import { ansi } from "./ansi.js";
 import { StreamingMarkdownRenderer } from "./markdown.js";
+import { consoleWidth } from "./console-size.js";
 import { sectionFooter, sectionHeader } from "./section.js";
 import { TypingPump } from "./typing-pump.js";
 import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
@@ -116,17 +118,22 @@ function formatUsage(usage: ModelUsage): string {
 }
 
 export interface ConsoleRendererOptions {
+  reasoningMode?: ReasoningDisplayMode;
+  reasoningMaxLines?: number;
+  /** Legacy test/adapter option: true maps to full, false to off. */
   showReasoning?: boolean;
   write?: (text: string) => void;
   interactive?: () => boolean;
 }
 
 export class ConsoleRenderer implements AgentObserver {
-  #showReasoning: boolean;
+  #reasoningMode: ReasoningDisplayMode;
+  readonly #reasoningMaxLines: number;
   #streamedText = false;
   #streamedReasoningForDecision = false;
   #reasoningMarkdown = new StreamingMarkdownRenderer();
   #reasoningOpen = false;
+  #reasoningCompact = false;
   #markdown = new StreamingMarkdownRenderer();
   readonly #interactive: () => boolean;
   readonly #typing: TypingPump;
@@ -141,7 +148,9 @@ export class ConsoleRenderer implements AgentObserver {
   #toolGroupPendingSeparator = false;
 
   constructor(options: ConsoleRendererOptions = {}) {
-    this.#showReasoning = options.showReasoning ?? false;
+    this.#reasoningMode =
+      options.reasoningMode ?? (options.showReasoning === true ? "full" : "off");
+    this.#reasoningMaxLines = Math.min(20, Math.max(1, options.reasoningMaxLines ?? 6));
     this.#interactive = options.interactive ?? (() => process.stdout.isTTY === true);
     this.#typing = new TypingPump({
       write: options.write ?? ((text) => process.stdout.write(text)),
@@ -149,12 +158,16 @@ export class ConsoleRenderer implements AgentObserver {
     });
   }
 
-  get showReasoning(): boolean {
-    return this.#showReasoning;
+  get reasoningMode(): ReasoningDisplayMode {
+    return this.#reasoningMode;
   }
 
-  setShowReasoning(showReasoning: boolean): void {
-    this.#showReasoning = showReasoning;
+  get reasoningMaxLines(): number {
+    return this.#reasoningMaxLines;
+  }
+
+  setReasoningMode(reasoningMode: ReasoningDisplayMode): void {
+    this.#reasoningMode = reasoningMode;
   }
 
   beginTurn(): void {
@@ -164,8 +177,9 @@ export class ConsoleRenderer implements AgentObserver {
     this.#turnCancelled = false;
     this.#streamedText = false;
     this.#streamedReasoningForDecision = false;
-    this.#reasoningMarkdown = new StreamingMarkdownRenderer();
+    this.#reasoningMarkdown = this.#createReasoningMarkdown();
     this.#reasoningOpen = false;
+    this.#reasoningCompact = false;
     this.#markdown = new StreamingMarkdownRenderer();
     this.#typing.cancel();
     this.#typing.resetRate();
@@ -176,7 +190,7 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   onReasoningDelta = (text: string): void => {
-    if (!this.#showReasoning) {
+    if (this.#reasoningMode === "off") {
       return;
     }
 
@@ -186,14 +200,29 @@ export class ConsoleRenderer implements AgentObserver {
       if (text.trim() === "") {
         return;
       }
-      this.#typing.holdCursor();
-      this.#emitInstant(`${sectionFooter()}\n`);
+      this.#reasoningCompact = this.#reasoningMode === "compact" && this.#isInteractive();
+      if (this.#reasoningCompact) {
+        this.#typing.beginViewport({
+          maxRows: this.#reasoningMaxLines,
+          width: consoleWidth,
+          frame: sectionFooter,
+          styleRow: ansi.dim,
+        });
+      } else {
+        this.#typing.holdCursor();
+        this.#emitInstant(`${sectionFooter()}\n`);
+      }
       this.#reasoningOpen = true;
     }
 
     this.#streamedReasoningForDecision = true;
     this.#typing.observeIncoming(text);
-    this.#emit(ansi.dimPreservingStyles(this.#reasoningMarkdown.push(text)));
+    const rendered = this.#reasoningMarkdown.push(text);
+    if (this.#reasoningCompact) {
+      this.#typing.pushViewport(rendered);
+    } else {
+      this.#emit(ansi.dimPreservingStyles(rendered));
+    }
   };
 
   onTextDelta = (text: string): void => {
@@ -249,7 +278,7 @@ export class ConsoleRenderer implements AgentObserver {
 
       case "decision":
         this.closeReasoningBlock();
-        if (this.#showReasoning && !this.#streamedReasoningForDecision) {
+        if (this.#reasoningMode !== "off" && !this.#streamedReasoningForDecision) {
           this.printReasoning(event.decision.reasoning);
         }
         this.#streamedReasoningForDecision = false;
@@ -450,11 +479,18 @@ export class ConsoleRenderer implements AgentObserver {
       return;
     }
 
-    this.#emit(ansi.dimPreservingStyles(this.#reasoningMarkdown.finish()));
-    this.#emitInstant(`\n${sectionFooter()}\n`);
-    this.#typing.releaseCursor();
+    const tail = this.#reasoningMarkdown.finish();
+    if (this.#reasoningCompact) {
+      this.#typing.pushViewport(tail);
+      this.#typing.closeViewport();
+    } else {
+      this.#emit(ansi.dimPreservingStyles(tail));
+      this.#emitInstant(`\n${sectionFooter()}\n`);
+      this.#typing.releaseCursor();
+    }
 
     this.#reasoningOpen = false;
+    this.#reasoningCompact = false;
   }
 
   private printReasoning(reasoning: string | undefined): void {
@@ -462,13 +498,32 @@ export class ConsoleRenderer implements AgentObserver {
       return;
     }
 
-    this.#typing.holdCursor();
-    this.#emitInstant(`${sectionFooter()}\n`);
     this.#typing.observeIncoming(reasoning);
-    const markdown = new StreamingMarkdownRenderer();
-    this.#emit(ansi.dimPreservingStyles(`${markdown.push(reasoning)}${markdown.finish()}`));
-    this.#emitInstant(`\n${sectionFooter()}\n`);
-    this.#typing.releaseCursor();
+    const compact = this.#reasoningMode === "compact" && this.#isInteractive();
+    const markdown = this.#createReasoningMarkdown();
+    const rendered = `${markdown.push(reasoning)}${markdown.finish()}`;
+    if (compact) {
+      this.#typing.beginViewport({
+        maxRows: this.#reasoningMaxLines,
+        width: consoleWidth,
+        frame: sectionFooter,
+        styleRow: ansi.dim,
+      });
+      this.#typing.pushViewport(rendered);
+      this.#typing.closeViewport();
+    } else {
+      this.#typing.holdCursor();
+      this.#emitInstant(`${sectionFooter()}\n`);
+      this.#emit(ansi.dimPreservingStyles(rendered));
+      this.#emitInstant(`\n${sectionFooter()}\n`);
+      this.#typing.releaseCursor();
+    }
+  }
+
+  #createReasoningMarkdown(): StreamingMarkdownRenderer {
+    return this.#reasoningMode === "compact" && this.#isInteractive()
+      ? new StreamingMarkdownRenderer({ maxTableWidth: consoleWidth })
+      : new StreamingMarkdownRenderer();
   }
 
   private printUsage(): void {

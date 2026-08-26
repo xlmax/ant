@@ -55,6 +55,32 @@ test("streaming markdown renderer aligns a completed table", () => {
   );
 });
 
+test("streaming markdown renderer truncates wide tables to one terminal row per record", () => {
+  const renderer = new StreamingMarkdownRenderer({ maxTableWidth: () => 28 });
+
+  renderer.push(
+    "| Инструмент | Выполненная команда |\n| --- | --- |\n| bash | npm run test:integration with extras |\n",
+  );
+  const rendered = renderer.finish();
+  const lines = rendered.split("\n");
+
+  assert.equal(lines.length, 3);
+  assert.ok(lines.every((line) => displayWidth(line) <= 28));
+  assert.match(rendered, /…/u);
+  assert.match(rendered, /bash/u);
+});
+
+test("streaming markdown renderer hides excess columns in a very narrow terminal", () => {
+  const renderer = new StreamingMarkdownRenderer({ maxTableWidth: () => 8 });
+
+  renderer.push("| one | two | three |\n| --- | --- | --- |\n| a | b | c |\n");
+  const lines = renderer.finish().split("\n");
+
+  assert.ok(lines.every((line) => displayWidth(line) <= 8));
+  assert.match(lines[0] ?? "", /…/u);
+  assert.equal(lines.length, 3);
+});
+
 test("streaming markdown renderer aligns wide Unicode table cells", () => {
   const renderer = new StreamingMarkdownRenderer();
 

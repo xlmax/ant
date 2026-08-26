@@ -2,6 +2,7 @@ import type { VerificationCheck, VerificationSettings } from "../core/verificati
 
 export type { VerificationCheck, VerificationSettings };
 export type ReasoningEffort = "low" | "high" | "max";
+export type ReasoningDisplayMode = "off" | "compact" | "full";
 
 export interface ModelSettings {
   provider: "deepseek";
@@ -24,7 +25,8 @@ export interface RuntimeLimits {
 export interface AppSettings {
   model: ModelSettings;
   ui: {
-    showReasoning: boolean;
+    reasoningMode: ReasoningDisplayMode;
+    reasoningMaxLines: number;
     showChanges: boolean;
     color: boolean;
   };
@@ -41,7 +43,7 @@ export interface AppSettings {
 export interface ProjectSettingsOverrides {
   modelId: boolean;
   modelThinking: boolean;
-  showReasoning: boolean;
+  reasoningMode: boolean;
   showChanges: boolean;
 }
 
@@ -58,5 +60,5 @@ export interface SettingsModule {
   resolveVision(id: string, configured?: boolean): boolean;
   saveModelId(id: string): Promise<void>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
-  saveShowReasoning(enabled: boolean): Promise<void>;
+  saveReasoningMode(mode: ReasoningDisplayMode): Promise<void>;
 }

@@ -35,7 +35,8 @@ export class TerminalFrontend implements AntFrontend {
     const { state, session } = prepared;
 
     const renderer = new ConsoleRenderer({
-      showReasoning: this.#options.showReasoning ?? false,
+      reasoningMode: this.#options.reasoningMode,
+      reasoningMaxLines: this.#options.reasoningMaxLines,
     });
     console.log(`Сессия: ${session.id}`);
 

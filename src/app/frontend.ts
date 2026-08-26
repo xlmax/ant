@@ -1,6 +1,7 @@
 import type {
   ModelSettings,
   ProjectSettingsOverrides,
+  ReasoningDisplayMode,
   RuntimeLimits,
   VerificationSettings,
 } from "./configuration.js";
@@ -9,7 +10,7 @@ import type { AntHostContext } from "./host-context.js";
 export interface FrontendSettingsCommands {
   saveModelId(id: string): Promise<boolean>;
   saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
-  saveShowReasoning(enabled: boolean): Promise<void>;
+  saveReasoningMode(mode: ReasoningDisplayMode): Promise<void>;
 }
 
 /** Application-owned port implemented by a presentation adapter. */
@@ -24,7 +25,8 @@ export interface FrontendOptions {
   modelSettings: ModelSettings;
   settings: FrontendSettingsCommands;
   projectOverrides: ProjectSettingsOverrides;
-  showReasoning: boolean;
+  reasoningMode: ReasoningDisplayMode;
+  reasoningMaxLines: number;
   showChanges: boolean;
   limits: RuntimeLimits;
   verification: VerificationSettings;

@@ -7,6 +7,7 @@ import type {
   LoadedSettings,
   ModelSettings,
   ProjectSettingsOverrides,
+  ReasoningDisplayMode,
   ReasoningEffort,
   RuntimeLimits,
   VerificationCheck,
@@ -36,7 +37,8 @@ type PartialSettings = {
     };
   };
   ui?: {
-    showReasoning?: boolean;
+    reasoningMode?: ReasoningDisplayMode;
+    reasoningMaxLines?: number;
     showChanges?: boolean;
     color?: boolean;
   };
@@ -67,7 +69,8 @@ const defaults: AppSettings = {
     },
   },
   ui: {
-    showReasoning: false,
+    reasoningMode: "off",
+    reasoningMaxLines: 6,
     showChanges: false,
     color: true,
   },
@@ -170,6 +173,14 @@ function optionalPositiveInteger(value: unknown, path: string): number | undefin
   return value;
 }
 
+function optionalReasoningMode(value: unknown): ReasoningDisplayMode | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "off" && value !== "compact" && value !== "full") {
+    throw new Error("Настройка ui.reasoningMode должна быть off, compact или full");
+  }
+  return value;
+}
+
 function optionalEffort(value: unknown): ReasoningEffort | undefined {
   if (value === undefined) {
     return undefined;
@@ -262,11 +273,23 @@ function parseSettings(value: unknown, source: string): PartialSettings {
       throw new Error("Настройка ui должна быть объектом");
     }
 
-    const showReasoning = optionalBoolean(value.ui.showReasoning, "ui.showReasoning");
+    const configuredMode = optionalReasoningMode(value.ui.reasoningMode);
+    const legacyShowReasoning = optionalBoolean(value.ui.showReasoning, "ui.showReasoning");
+    const reasoningMode =
+      configuredMode ??
+      (legacyShowReasoning === undefined ? undefined : legacyShowReasoning ? "compact" : "off");
+    const reasoningMaxLines = optionalPositiveInteger(
+      value.ui.reasoningMaxLines,
+      "ui.reasoningMaxLines",
+    );
+    if (reasoningMaxLines !== undefined && reasoningMaxLines > 20) {
+      throw new Error("Настройка ui.reasoningMaxLines должна быть от 1 до 20");
+    }
     const showChanges = optionalBoolean(value.ui.showChanges, "ui.showChanges");
     const color = optionalBoolean(value.ui.color, "ui.color");
     result.ui = {
-      ...(showReasoning === undefined ? {} : { showReasoning }),
+      ...(reasoningMode === undefined ? {} : { reasoningMode }),
+      ...(reasoningMaxLines === undefined ? {} : { reasoningMaxLines }),
       ...(showChanges === undefined ? {} : { showChanges }),
       ...(color === undefined ? {} : { color }),
     };
@@ -362,7 +385,8 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
       },
     },
     ui: {
-      showReasoning: partial.ui?.showReasoning ?? base.ui.showReasoning,
+      reasoningMode: partial.ui?.reasoningMode ?? base.ui.reasoningMode,
+      reasoningMaxLines: partial.ui?.reasoningMaxLines ?? base.ui.reasoningMaxLines,
       showChanges: partial.ui?.showChanges ?? base.ui.showChanges,
       color: partial.ui?.color ?? base.ui.color,
     },
@@ -429,7 +453,7 @@ export async function loadSettings(
   const projectOverrides: ProjectSettingsOverrides = {
     modelId: false,
     modelThinking: false,
-    showReasoning: false,
+    reasoningMode: false,
     showChanges: false,
   };
 
@@ -467,7 +491,7 @@ export async function loadSettings(
         projectOverrides.modelThinking =
           partial.model?.thinking?.enabled !== undefined ||
           partial.model?.thinking?.effort !== undefined;
-        projectOverrides.showReasoning = partial.ui?.showReasoning !== undefined;
+        projectOverrides.reasoningMode = partial.ui?.reasoningMode !== undefined;
         projectOverrides.showChanges = partial.ui?.showChanges !== undefined;
       }
     }
@@ -517,7 +541,8 @@ export interface UserSettingsUpdate {
     };
   };
   ui?: {
-    showReasoning?: boolean;
+    reasoningMode?: ReasoningDisplayMode;
+    reasoningMaxLines?: number;
     showChanges?: boolean;
   };
 }
@@ -601,11 +626,11 @@ export async function saveUserModelId(
   await saveUserSettings({ model: modelUpdate } as UserSettingsUpdate, homeDirectory);
 }
 
-export async function saveUserShowReasoning(
-  showReasoning: boolean,
+export async function saveUserReasoningMode(
+  reasoningMode: ReasoningDisplayMode,
   homeDirectory: string = homedir(),
 ): Promise<void> {
-  await saveUserSettings({ ui: { showReasoning } }, homeDirectory);
+  await saveUserSettings({ ui: { reasoningMode } }, homeDirectory);
 }
 
 export async function saveUserModelThinking(

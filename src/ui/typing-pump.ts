@@ -1,3 +1,10 @@
+import { displayWidth } from "./display-width.js";
+import {
+  ReasoningViewport,
+  type ReasoningViewportOptions,
+  type ViewportUnit,
+} from "./reasoning-viewport.js";
+
 const TICK_MS = 20;
 const MIN_RATE = 300;
 const MAX_RATE = 12_000;
@@ -7,13 +14,22 @@ const RATE_WINDOW_MS = 1_000;
 const ANSI_SEQUENCE = new RegExp(`^${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "u");
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-interface TypedUnit {
-  text: string;
+interface TypedUnit extends ViewportUnit {
   visible: boolean;
 }
 
+interface ViewportItem {
+  type: "viewport";
+  units: TypedUnit[];
+  offset: number;
+  open: boolean;
+  viewport: ReasoningViewport;
+}
+
 type OutputItem =
-  { type: "typed"; units: TypedUnit[]; offset: number } | { type: "instant"; text: string };
+  | { type: "typed"; units: TypedUnit[]; offset: number }
+  | { type: "instant"; text: string }
+  | ViewportItem;
 
 export interface TypingPumpOptions {
   write: (text: string) => void;
@@ -58,17 +74,24 @@ function typedUnits(text: string): TypedUnit[] {
   while (rest !== "") {
     const ansi = rest.match(ANSI_SEQUENCE)?.[0];
     if (ansi !== undefined) {
-      units.push({ text: ansi, visible: false });
+      units.push({ text: ansi, visible: false, width: 0, lineBreak: false });
       rest = rest.slice(ansi.length);
       continue;
     }
 
     const escape = rest.indexOf("\x1b");
     const plain = escape === -1 ? rest : rest.slice(0, escape);
-    units.push(...graphemes(plain).map((unit) => ({ text: unit, visible: true })));
+    units.push(
+      ...graphemes(plain).map((unit) => ({
+        text: unit,
+        visible: true,
+        width: unit === "\n" ? 0 : displayWidth(unit),
+        lineBreak: unit === "\n",
+      })),
+    );
     rest = escape === -1 ? "" : rest.slice(escape);
     if (plain === "" && rest.startsWith("\x1b")) {
-      units.push({ text: "\x1b", visible: true });
+      units.push({ text: "\x1b", visible: true, width: 0, lineBreak: false });
       rest = rest.slice(1);
     }
   }
@@ -85,6 +108,7 @@ export class TypingPump {
   readonly #interactive: () => boolean;
   readonly #now: () => number;
   #queue: OutputItem[] = [];
+  #openViewport: ViewportItem | undefined;
   #timer: ReturnType<typeof setInterval> | undefined;
   #rate = DEFAULT_RATE;
   #windowChars = 0;
@@ -177,6 +201,37 @@ export class TypingPump {
     if (!this.#liveMode && !this.#liveModePending) this.#ensureTimer();
   }
 
+  beginViewport(options: ReasoningViewportOptions): void {
+    if (this.#openViewport) throw new Error("Reasoning viewport is already open");
+    const item: ViewportItem = {
+      type: "viewport",
+      units: [],
+      offset: 0,
+      open: true,
+      viewport: new ReasoningViewport(options),
+    };
+    this.#openViewport = item;
+    this.#queue.push(item);
+    this.#hideCursor();
+    if (!this.#liveMode && !this.#liveModePending) this.#ensureTimer();
+  }
+
+  pushViewport(text: string): void {
+    if (text === "") return;
+    const viewport = this.#openViewport;
+    if (!viewport) throw new Error("Reasoning viewport is not open");
+    viewport.units.push(...typedUnits(text));
+    if (!this.#liveMode && !this.#liveModePending) this.#ensureTimer();
+  }
+
+  closeViewport(): void {
+    const viewport = this.#openViewport;
+    if (!viewport) return;
+    viewport.open = false;
+    this.#openViewport = undefined;
+    if (!this.#liveMode && !this.#liveModePending) this.#ensureTimer();
+  }
+
   whenIdle(): Promise<void> {
     if (this.#queue.length === 0 && this.#timer === undefined) return Promise.resolve();
     return new Promise((resolve) => this.#idleWaiters.push(resolve));
@@ -225,14 +280,19 @@ export class TypingPump {
   /** Discards pending output and restores a stable terminal state. */
   cancel(): void {
     const resetStyles = this.#cursorHidden;
+    const viewportEnding = this.#queue
+      .find((item): item is ViewportItem => item.type === "viewport")
+      ?.viewport.cancel();
     this.#generation += 1;
     this.#queue = [];
+    this.#openViewport = undefined;
     this.#stopTimer();
     this.clearLiveLine();
     this.#liveMode = false;
     this.#liveModePending = false;
     this.#cursorHolds = 0;
     this.#resolveIdle();
+    if (viewportEnding) this.#write(viewportEnding);
     if (resetStyles) this.#write("\x1b[0m");
     this.#showCursor();
   }
@@ -245,6 +305,7 @@ export class TypingPump {
   #tick(): void {
     let remaining = Math.max(1, Math.round((this.#rate * TICK_MS) / 1_000));
     let output = "";
+    let waitingForViewportInput = false;
 
     while (this.#queue.length > 0) {
       const item = this.#queue[0];
@@ -253,6 +314,32 @@ export class TypingPump {
         output += item.text;
         this.#queue.shift();
         continue;
+      }
+
+      if (item.type === "viewport") {
+        while (item.offset < item.units.length) {
+          const unit = item.units[item.offset];
+          if (!unit) break;
+          if (unit.visible && remaining <= 0) break;
+          item.offset += 1;
+          // Compact rows are intentionally style-independent: generated SGR
+          // tokens are dropped, then the viewport reapplies one muted style to
+          // every complete row so redraws cannot inherit a stale ANSI state.
+          if (!unit.visible) continue;
+          item.viewport.append(unit);
+          remaining -= 1;
+        }
+        output += item.viewport.redraw();
+
+        if (item.offset >= item.units.length && !item.open) {
+          output += item.viewport.finish();
+          this.#queue.shift();
+          continue;
+        }
+        if (item.offset >= item.units.length && item.open) {
+          waitingForViewportInput = true;
+        }
+        break;
       }
 
       while (item.offset < item.units.length) {
@@ -272,6 +359,10 @@ export class TypingPump {
     }
 
     if (output !== "") this.#write(output);
+    if (waitingForViewportInput) {
+      this.#stopTimer();
+      return;
+    }
     if (this.#queue.length === 0) {
       this.#stopTimer();
       this.#resolveIdle();

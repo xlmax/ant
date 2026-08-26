@@ -98,10 +98,11 @@ export class AntApplication {
       settings: {
         saveModelId,
         saveThinking: (thinking) => this.#modules.settings.saveThinking(thinking),
-        saveShowReasoning: (enabled) => this.#modules.settings.saveShowReasoning(enabled),
+        saveReasoningMode: (mode) => this.#modules.settings.saveReasoningMode(mode),
       },
       projectOverrides: loadedSettings.projectOverrides,
-      showReasoning: loadedSettings.settings.ui.showReasoning,
+      reasoningMode: loadedSettings.settings.ui.reasoningMode,
+      reasoningMaxLines: loadedSettings.settings.ui.reasoningMaxLines,
       showChanges: loadedSettings.settings.ui.showChanges,
       limits: loadedSettings.settings.limits,
       verification: loadedSettings.settings.verification,

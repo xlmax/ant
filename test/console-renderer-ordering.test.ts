@@ -37,6 +37,66 @@ test("reasoning and answer headers hide the cursor before buffered text arrives"
   }
 });
 
+test("compact reasoning uses a scrolling viewport before the next stream block", async () => {
+  const writes: string[] = [];
+  const renderer = new ConsoleRenderer({
+    reasoningMode: "compact",
+    reasoningMaxLines: 2,
+    write: (text) => writes.push(text),
+    interactive: () => true,
+  });
+  try {
+    renderer.beginTurn();
+    renderer.onReasoningDelta("первая строка\nвторая строка\nтретья строка\n");
+    await renderer.onEvent({
+      type: "decision",
+      decision: {
+        type: "tools",
+        calls: [{ id: "read-1", name: "read", input: { path: "README.md" } }],
+      },
+    });
+    const call = { id: "read-1", name: "read", input: { path: "README.md" } };
+    await renderer.onEvent({ type: "tool.started", call });
+    await renderer.onEvent({
+      type: "tool.finished",
+      call,
+      observation: { ok: true, value: "README" },
+      durationMs: 100,
+    });
+
+    const rendered = writes.join("");
+    assert.ok(rendered.includes(`${String.fromCharCode(27)}[2A`));
+    assert.ok(rendered.lastIndexOf("третья строка") < rendered.lastIndexOf("→ read README.md"));
+    assert.doesNotMatch(stripAnsi(rendered), /`|\*\*/u);
+  } finally {
+    renderer.dispose();
+  }
+});
+
+test("compact mode falls back to full untruncated reasoning outside a TTY", async () => {
+  const writes: string[] = [];
+  const renderer = new ConsoleRenderer({
+    reasoningMode: "compact",
+    reasoningMaxLines: 2,
+    write: (text) => writes.push(text),
+    interactive: () => false,
+  });
+  try {
+    renderer.beginTurn();
+    renderer.onReasoningDelta(
+      "| key | value |\n| --- | --- |\n| command | a very long value that must remain complete in redirected output |\n",
+    );
+    await renderer.onEvent({ type: "decision", decision: { type: "finish", answer: "ok" } });
+    await renderer.printResult({ status: "completed", answer: "ok", state: { events: [] } });
+
+    const rendered = stripAnsi(writes.join(""));
+    assert.match(rendered, /a very long value that must remain complete in redirected output/u);
+    assert.ok(!writes.join("").includes(`${String.fromCharCode(27)}[`));
+  } finally {
+    renderer.dispose();
+  }
+});
+
 test("tool rendering waits for reasoning without flushing its typing queue", async () => {
   const writes: string[] = [];
   const renderer = createRenderer(writes, true);

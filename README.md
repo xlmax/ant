@@ -121,7 +121,12 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
     "vision": false,
     "thinking": { "enabled": true, "effort": "high" }
   },
-  "ui": { "showReasoning": false, "showChanges": false, "color": true },
+  "ui": {
+    "reasoningMode": "off",
+    "reasoningMaxLines": 6,
+    "showChanges": false,
+    "color": true
+  },
   "prompts": { "additionalPaths": ["prompts/local.md"] },
   "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" },
   "limits": {
@@ -173,10 +178,18 @@ There are commands inside — `/help` shows the full list. Key ones: `/new`, `/s
 /model deepseek-v4-pro     # switch the model
 /think                     # show the reasoning mode
 /think low|high|max|off    # set depth or disable thinking
-/reasoning on|off          # show or hide reasoning in the UI
+/reasoning off|compact|full # choose reasoning display mode
 ```
 
 `/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it.
+
+Reasoning display modes:
+
+- `off` — hide model reasoning;
+- `compact` — show a live scrolling viewport limited by `ui.reasoningMaxLines` (6 by default, 1–20);
+- `full` — keep the complete reasoning stream in the terminal transcript.
+
+The compact viewport grows gradually to its limit and then scrolls upward. Completed tables are aligned before display; tables wider than the terminal are shortened with ellipses so each record stays on one terminal row. Legacy `ui.showReasoning: true` is read as `compact`.
 
 After each turn, Ant can print a short summary: which commands ran and which files changed (based on Git snapshots). It's off by default; enable it with `ui.showChanges: true` in settings. It's for visibility and doesn't block anything. Colored output can be disabled with `ui.color: false`.
 

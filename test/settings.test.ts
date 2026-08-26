@@ -9,7 +9,7 @@ import {
   readExplicitVision,
   saveUserModelId,
   saveUserModelThinking,
-  saveUserShowReasoning,
+  saveUserReasoningMode,
 } from "../src/config/settings.js";
 
 async function temporaryDirectories(): Promise<{ workspace: string; home: string }> {
@@ -239,7 +239,12 @@ test("settings merge global and project layers without environment overrides", a
         vision: false,
         thinking: { enabled: false, effort: "max" },
       },
-      ui: { showReasoning: true, showChanges: false, color: false },
+      ui: {
+        reasoningMode: "compact",
+        reasoningMaxLines: 6,
+        showChanges: false,
+        color: false,
+      },
       prompts: { additionalPaths: ["prompts/extra.md"] },
       tools: { bashPath: "/custom/bash" },
       limits: {
@@ -257,7 +262,7 @@ test("settings merge global and project layers without environment overrides", a
     assert.deepEqual(loaded.projectOverrides, {
       modelId: false,
       modelThinking: true,
-      showReasoning: true,
+      reasoningMode: true,
       showChanges: false,
     });
   } finally {
@@ -406,16 +411,35 @@ test("saving thinking settings uses the global layer", async () => {
   }
 });
 
-test("saving reasoning visibility uses the global layer", async () => {
+test("reasoning display settings load compact mode and viewport height", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
-    await saveUserShowReasoning(true, home);
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ ui: { reasoningMode: "compact", reasoningMaxLines: 8 } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.ui.reasoningMode, "compact");
+    assert.equal(loaded.settings.ui.reasoningMaxLines, 8);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("saving reasoning mode uses the global layer and legacy visibility still loads", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await saveUserReasoningMode("full", home);
 
     assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
-      ui: { showReasoning: true },
+      ui: { reasoningMode: "full" },
     });
-    assert.equal((await loadSettings(workspace, home)).settings.ui.showReasoning, true);
+    assert.equal((await loadSettings(workspace, home)).settings.ui.reasoningMode, "full");
 
     await mkdir(join(workspace, ".ant"), { recursive: true });
     await writeFile(
@@ -424,20 +448,39 @@ test("saving reasoning visibility uses the global layer", async () => {
       "utf8",
     );
 
-    assert.equal((await loadSettings(workspace, home)).settings.ui.showReasoning, false);
+    assert.equal((await loadSettings(workspace, home)).settings.ui.reasoningMode, "off");
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
 });
 
-test("saving reasoning visibility reports malformed global settings", async () => {
+test("saving reasoning mode reports malformed global settings", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
     await mkdir(join(home, ".ant"), { recursive: true });
     await writeFile(join(home, ".ant", "settings.json"), "{", "utf8");
 
-    await assert.rejects(saveUserShowReasoning(true, home), /некорректный JSON/u);
+    await assert.rejects(saveUserReasoningMode("compact", home), /некорректный JSON/u);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("settings reject invalid reasoning display settings", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    const path = join(workspace, ".ant", "settings.json");
+    await writeFile(path, JSON.stringify({ ui: { reasoningMode: "window" } }), "utf8");
+    await assert.rejects(loadSettings(workspace, home), /reasoningMode.*off, compact или full/u);
+
+    await writeFile(path, JSON.stringify({ ui: { reasoningMaxLines: 0 } }), "utf8");
+    await assert.rejects(loadSettings(workspace, home), /reasoningMaxLines.*положительным/u);
+
+    await writeFile(path, JSON.stringify({ ui: { reasoningMaxLines: 21 } }), "utf8");
+    await assert.rejects(loadSettings(workspace, home), /reasoningMaxLines.*от 1 до 20/u);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

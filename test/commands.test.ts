@@ -19,11 +19,19 @@ test("reasoning command supports querying and changing its setting", () => {
   assert.deepEqual(parseReplCommand("/reasoning"), { type: "reasoning" });
   assert.deepEqual(parseReplCommand("/reasoning on"), {
     type: "reasoning",
-    enabled: true,
+    mode: "compact",
+  });
+  assert.deepEqual(parseReplCommand("/reasoning compact"), {
+    type: "reasoning",
+    mode: "compact",
+  });
+  assert.deepEqual(parseReplCommand("/reasoning full"), {
+    type: "reasoning",
+    mode: "full",
   });
   assert.deepEqual(parseReplCommand("/reasoning off"), {
     type: "reasoning",
-    enabled: false,
+    mode: "off",
   });
 });
 

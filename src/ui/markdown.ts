@@ -6,6 +6,10 @@ import { highlightCode } from "./syntax-highlight.js";
 
 type TableAlignment = "left" | "center" | "right";
 
+export interface StreamingMarkdownRendererOptions {
+  maxTableWidth?: () => number;
+}
+
 interface MarkdownTable {
   header: string[];
   alignments: TableAlignment[];
@@ -85,8 +89,8 @@ function visibleWidth(text: string): number {
   return displayWidth(text.replaceAll("`", "").replaceAll("**", "").replaceAll("*", ""));
 }
 
-function padCell(cell: string, width: number, alignment: TableAlignment): string {
-  const padding = Math.max(0, width - visibleWidth(cell));
+function padRenderedCell(cell: string, width: number, alignment: TableAlignment): string {
+  const padding = Math.max(0, width - displayWidth(cell));
 
   if (alignment === "right") {
     return `${" ".repeat(padding)}${cell}`;
@@ -100,12 +104,103 @@ function padCell(cell: string, width: number, alignment: TableAlignment): string
   return `${cell}${" ".repeat(padding)}`;
 }
 
+const ANSI_TOKEN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "yu");
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function truncateRendered(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text;
+  const target = Math.max(0, width - 1);
+  let output = "";
+  let used = 0;
+  let offset = 0;
+  let sawAnsi = false;
+
+  while (offset < text.length) {
+    ANSI_TOKEN.lastIndex = offset;
+    const ansiToken = ANSI_TOKEN.exec(text)?.[0];
+    if (ansiToken !== undefined) {
+      output += ansiToken;
+      sawAnsi = true;
+      offset += ansiToken.length;
+      continue;
+    }
+
+    const nextEscape = text.indexOf("\x1b", offset);
+    const plainEnd = nextEscape === -1 ? text.length : nextEscape;
+    const plain = text.slice(offset, plainEnd);
+    for (const segment of graphemeSegmenter.segment(plain)) {
+      const segmentWidth = displayWidth(segment.segment);
+      if (used + segmentWidth > target) return `${output}…${sawAnsi ? "\x1b[0m" : ""}`;
+      output += segment.segment;
+      used += segmentWidth;
+    }
+    offset = plainEnd;
+    if (nextEscape === offset && offset < text.length) {
+      output += text[offset];
+      offset += 1;
+    }
+  }
+
+  return `${output}…${sawAnsi ? "\x1b[0m" : ""}`;
+}
+
+function fitColumnWidths(
+  widths: readonly number[],
+  maxTableWidth: number,
+  indentWidth: number,
+): number[] {
+  const gaps = Math.max(0, widths.length - 1) * 2;
+  const available = Math.max(widths.length, maxTableWidth - indentWidth - gaps);
+  const fitted = widths.map((width) => Math.max(1, width));
+
+  while (fitted.reduce((sum, width) => sum + width, 0) > available) {
+    let widestIndex = -1;
+    for (const [index, width] of fitted.entries()) {
+      if (width > 1 && (widestIndex === -1 || width > (fitted[widestIndex] ?? 0))) {
+        widestIndex = index;
+      }
+    }
+    if (widestIndex === -1) break;
+    fitted[widestIndex] = (fitted[widestIndex] ?? 1) - 1;
+  }
+
+  return fitted;
+}
+
+function limitTableColumns(
+  table: MarkdownTable,
+  maxTableWidth: number,
+  indentWidth: number,
+): MarkdownTable {
+  const maxColumns = Math.max(1, Math.floor((maxTableWidth - indentWidth + 2) / 3));
+  if (table.header.length <= maxColumns) return table;
+  if (maxColumns === 1) {
+    return {
+      header: ["…"],
+      alignments: ["left"],
+      rows: table.rows.map(() => ["…"]),
+    };
+  }
+
+  const retained = maxColumns - 1;
+  return {
+    header: [...table.header.slice(0, retained), "…"],
+    alignments: [...table.alignments.slice(0, retained), "left"],
+    rows: table.rows.map((row) => [...row.slice(0, retained), "…"]),
+  };
+}
+
 export class StreamingMarkdownRenderer {
+  readonly #options: StreamingMarkdownRendererOptions;
   #buffer = "";
   #inCodeBlock = false;
   #codeLanguage: string | undefined;
   #pendingTableHeader: string | undefined;
   #table: MarkdownTable | undefined;
+
+  constructor(options: StreamingMarkdownRendererOptions = {}) {
+    this.#options = options;
+  }
 
   push(text: string): string {
     this.#buffer += text;
@@ -199,28 +294,38 @@ export class StreamingMarkdownRenderer {
   }
 
   private renderTable(table: MarkdownTable): string {
-    const widths = table.header.map((header, index) =>
-      Math.max(visibleWidth(header), ...table.rows.map((row) => visibleWidth(row[index] ?? ""))),
+    const configuredWidth = this.#options.maxTableWidth?.();
+    const maxTableWidth = configuredWidth === undefined ? undefined : Math.max(1, configuredWidth);
+    const indentWidth = maxTableWidth === undefined ? 2 : Math.min(2, maxTableWidth - 1);
+    const displayedTable =
+      maxTableWidth === undefined ? table : limitTableColumns(table, maxTableWidth, indentWidth);
+    const naturalWidths = displayedTable.header.map((header, index) =>
+      Math.max(
+        visibleWidth(header),
+        ...displayedTable.rows.map((row) => visibleWidth(row[index] ?? "")),
+      ),
     );
+    const widths =
+      maxTableWidth === undefined
+        ? naturalWidths
+        : fitColumnWidths(naturalWidths, maxTableWidth, indentWidth);
+    const prefix = " ".repeat(indentWidth);
     const renderRow = (row: readonly string[], header = false): string => {
       const cells = row.map((cell, index) => {
-        const padded = padCell(
-          cell,
-          widths[index] ?? visibleWidth(cell),
-          table.alignments[index] ?? "left",
-        );
-        const rendered = renderInline(padded);
-        return header ? ansi.bold(rendered) : rendered;
+        const width = widths[index] ?? visibleWidth(cell);
+        const rendered = truncateRendered(renderInline(cell), width);
+        const padded = padRenderedCell(rendered, width, displayedTable.alignments[index] ?? "left");
+        return header ? ansi.bold(padded) : padded;
       });
 
-      return `  ${cells.join("  ")}`;
+      return `${prefix}${cells.join("  ")}`;
     };
-    const separator = `  ${widths.map((width) => "─".repeat(width)).join("  ")}`;
+    const separator = `${prefix}${widths.map((width) => "─".repeat(width)).join("  ")}`;
 
     return [
-      renderRow(table.header, true),
+      renderRow(displayedTable.header, true),
       ansi.dim(separator),
-      ...table.rows.map((row) => renderRow(row)),
+      ...displayedTable.rows.map((row) => renderRow(row)),
     ].join("\n");
   }
 

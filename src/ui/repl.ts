@@ -4,6 +4,7 @@ import { stdin, stdout } from "node:process";
 import type {
   ModelSettings,
   ProjectSettingsOverrides,
+  ReasoningDisplayMode,
   RuntimeLimits,
   VerificationSettings,
 } from "../app/configuration.js";
@@ -33,7 +34,8 @@ export interface ReplOptions {
   modelSettings: ModelSettings;
   settings: FrontendSettingsCommands;
   projectOverrides: ProjectSettingsOverrides;
-  showReasoning?: boolean;
+  reasoningMode: ReasoningDisplayMode;
+  reasoningMaxLines: number;
   showChanges?: boolean;
   limits: RuntimeLimits;
   verification?: VerificationSettings;
@@ -46,9 +48,10 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     process.platform === "win32" && stdin.isTTY
       ? undefined
       : createInterface({ input: stdin, output: stdout });
-  const renderer = new ConsoleRenderer(
-    options.showReasoning === undefined ? {} : { showReasoning: options.showReasoning },
-  );
+  const renderer = new ConsoleRenderer({
+    reasoningMode: options.reasoningMode,
+    reasoningMaxLines: options.reasoningMaxLines,
+  });
   const inputHistory = new InputHistory();
   const state = {
     model: options.model,

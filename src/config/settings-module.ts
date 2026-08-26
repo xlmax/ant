@@ -5,7 +5,7 @@ import {
   resolveVision,
   saveUserModelId,
   saveUserModelThinking,
-  saveUserShowReasoning,
+  saveUserReasoningMode,
 } from "./settings.js";
 
 /** Filesystem-backed adapter for the application configuration port. */
@@ -15,5 +15,5 @@ export const fileSettingsModule: SettingsModule = {
   resolveVision,
   saveModelId: saveUserModelId,
   saveThinking: saveUserModelThinking,
-  saveShowReasoning: saveUserShowReasoning,
+  saveReasoningMode: saveUserReasoningMode,
 };

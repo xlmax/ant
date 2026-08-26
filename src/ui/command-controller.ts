@@ -148,19 +148,21 @@ export async function handleReplCommand(
     }
 
     case "reasoning":
-      if (command.enabled === undefined) {
-        console.log(ansi.dim(`Рассуждения: ${renderer.showReasoning ? "включены" : "выключены"}.`));
+      if (command.mode === undefined) {
+        console.log(
+          ansi.dim(
+            `Рассуждения: ${renderer.reasoningMode}${renderer.reasoningMode === "compact" ? `, ${renderer.reasoningMaxLines} строк` : ""}.`,
+          ),
+        );
       } else {
-        renderer.setShowReasoning(command.enabled);
+        renderer.setReasoningMode(command.mode);
         try {
-          await options.settings.saveShowReasoning(command.enabled);
-          console.log(
-            ansi.dim(`Рассуждения ${command.enabled ? "включены" : "выключены"} и сохранены.`),
-          );
-          if (options.projectOverrides.showReasoning) {
+          await options.settings.saveReasoningMode(command.mode);
+          console.log(ansi.dim(`Режим рассуждений ${command.mode} сохранён.`));
+          if (options.projectOverrides.reasoningMode) {
             console.warn(
               ansi.yellow(
-                "⚠ Проектная настройка ui.showReasoning перекроет это значение после перезапуска.",
+                "⚠ Проектная настройка ui.reasoningMode перекроет это значение после перезапуска.",
               ),
             );
           }

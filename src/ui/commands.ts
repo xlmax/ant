@@ -1,3 +1,4 @@
+import type { ReasoningDisplayMode } from "../app/configuration.js";
 import type { EffortSelection } from "./runtime-model.js";
 
 export interface ReplCommand {
@@ -13,7 +14,7 @@ export type CommandAction =
   | { type: "clear" }
   | { type: "context" }
   | { type: "compact" }
-  | { type: "reasoning"; enabled?: boolean }
+  | { type: "reasoning"; mode?: ReasoningDisplayMode }
   | { type: "model"; id?: string; list?: true }
   | { type: "think"; selection?: EffortSelection }
   | { type: "update" }
@@ -53,8 +54,8 @@ const commands: readonly ReplCommand[] = [
   },
   {
     name: "reasoning",
-    usage: "/reasoning [on|off]",
-    description: "Показать или скрыть блок рассуждений модели.",
+    usage: "/reasoning [off|compact|full]",
+    description: "Скрыть, компактно показать или полностью вывести рассуждения модели.",
   },
   {
     name: "model",
@@ -164,10 +165,16 @@ export function parseReplCommand(input: string): CommandAction | undefined {
       if (args.length === 0) {
         return { type: "reasoning" };
       }
-      if (args.length === 1 && (args[0] === "on" || args[0] === "off")) {
-        return { type: "reasoning", enabled: args[0] === "on" };
+      if (
+        args.length === 1 &&
+        (args[0] === "on" || args[0] === "off" || args[0] === "compact" || args[0] === "full")
+      ) {
+        return {
+          type: "reasoning",
+          mode: args[0] === "on" ? "compact" : args[0],
+        };
       }
-      return { type: "error", message: "Использование: /reasoning [on|off]" };
+      return { type: "error", message: "Использование: /reasoning [off|compact|full]" };
 
     case "model":
       if (args.length === 0) {
