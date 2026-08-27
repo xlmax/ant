@@ -35,7 +35,7 @@ const layerRules: Readonly<Record<string, LayerRule>> = {
     allowedLayers: new Set(["sessions", "app", "core", "fs"]),
     allowExternal: true,
   },
-  tools: { allowedLayers: new Set(["tools", "core", "fs"]), allowExternal: true },
+  tools: { allowedLayers: new Set(["tools", "app", "core", "fs"]), allowExternal: true },
   ui: {
     allowedLayers: new Set(["ui", "app", "core", "updates"]),
     allowedRootModules: new Set(["version.ts"]),

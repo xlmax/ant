@@ -2,6 +2,7 @@
 import { join } from "node:path";
 
 import { AntApplication } from "./app/application.js";
+import { ToolRegistry } from "./app/tool-registry.js";
 import { runCli } from "./cli/cli-adapter.js";
 import { applyLocalEnvironment } from "./config/local-environment.js";
 import { fileSettingsModule } from "./config/settings-module.js";
@@ -9,7 +10,7 @@ import { loadSystemPrompt } from "./config/system-prompt.js";
 import { defaultAgentRuntime } from "./core/default-runtime.js";
 import { createDeepSeekProviderFromEnvironment } from "./models/deepseek-provider.js";
 import { JsonlSessionStore } from "./sessions/jsonl-session-store.js";
-import { createCodingTools } from "./tools/coding-tools.js";
+import { codingToolPack } from "./tools/coding-tool-pack.js";
 import { ToolEnvironment } from "./tools/tool-environment.js";
 import { TerminalFrontend } from "./ui/terminal-frontend.js";
 import { VERSION } from "./version.js";
@@ -20,13 +21,18 @@ const application = new AntApplication({
   loadSystemPrompt,
   createProvider: createDeepSeekProviderFromEnvironment,
   createSessionStore: (workspace) => new JsonlSessionStore(join(workspace, ".ant", "sessions")),
-  createEnvironment: (workspace, options) =>
-    new ToolEnvironment(
-      createCodingTools(
+  createEnvironment: (workspace, options) => {
+    const registry = new ToolRegistry();
+    registry.register(codingToolPack);
+    return new ToolEnvironment(
+      registry.createTools({
         workspace,
-        options.bashPath === undefined ? {} : { bashPath: options.bashPath },
-      ),
-    ),
+        capabilities: new Set(["filesystem.read", "filesystem.write", "process.spawn"]),
+        process: options.bashPath === undefined ? {} : { bashPath: options.bashPath },
+        logger: { debug() {} },
+      }),
+    );
+  },
   createFrontend: (options) => new TerminalFrontend(options),
 });
 

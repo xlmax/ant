@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { minimatch } from "minimatch";
 
-import type { Tool } from "./tool-environment.js";
+import type { Tool } from "../app/tools.js";
 import { walkFiles } from "./file-search.js";
 import { resolveToolPath } from "./path-utils.js";
 import { RegexMatcher } from "./regex-matcher.js";
@@ -89,7 +89,12 @@ function truncateLine(text: string): string {
 
 export function createGrepTool(workspaceDirectory: string): Tool {
   return {
-    parallelSafe: true,
+    metadata: {
+      ownerId: "ant.coding-tools",
+      sideEffects: "none",
+      parallelSafe: true,
+      requiredCapabilities: ["filesystem.read"],
+    },
     spec: {
       name: "grep",
       description:

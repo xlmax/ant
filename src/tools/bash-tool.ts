@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
+import type { Tool } from "../app/tools.js";
 import type { SingleToolOutputHandler } from "../core/agent.js";
-import type { Tool } from "./tool-environment.js";
 
 const MAX_BYTES = 50 * 1024;
 const MAX_LINES = 2_000;
@@ -178,6 +178,12 @@ function terminateProcessTree(pid: number): void {
 
 export function createBashTool(workspaceDirectory: string, bashPath?: string): Tool {
   return {
+    metadata: {
+      ownerId: "ant.coding-tools",
+      sideEffects: "process",
+      parallelSafe: false,
+      requiredCapabilities: ["process.spawn"],
+    },
     spec: {
       name: "bash",
       description:

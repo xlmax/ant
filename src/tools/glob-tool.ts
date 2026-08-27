@@ -1,6 +1,6 @@
 import { minimatch } from "minimatch";
 
-import type { Tool } from "./tool-environment.js";
+import type { Tool } from "../app/tools.js";
 import { walkFiles } from "./file-search.js";
 import { resolveToolPath } from "./path-utils.js";
 
@@ -34,7 +34,12 @@ function parseInput(input: unknown): GlobInput {
 
 export function createGlobTool(workspaceDirectory: string): Tool {
   return {
-    parallelSafe: true,
+    metadata: {
+      ownerId: "ant.coding-tools",
+      sideEffects: "none",
+      parallelSafe: true,
+      requiredCapabilities: ["filesystem.read"],
+    },
     spec: {
       name: "glob",
       description:

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { Tool } from "./tool-environment.js";
+import type { Tool } from "../app/tools.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
@@ -119,6 +119,12 @@ function applyEdits(content: string, edits: readonly Edit[]): string {
 
 export function createEditTool(workspaceDirectory: string): Tool {
   return {
+    metadata: {
+      ownerId: "ant.coding-tools",
+      sideEffects: "workspace",
+      parallelSafe: false,
+      requiredCapabilities: ["filesystem.read", "filesystem.write"],
+    },
     spec: {
       name: "edit",
       description:
