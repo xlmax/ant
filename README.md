@@ -59,7 +59,7 @@ Ant is assembled by `AntApplication` from replaceable modules with stable TypeSc
 - `ModelProvider` — provider-owned model discovery, selection, capabilities, and
   model/summarizer construction (DeepSeek is built in);
 - `SessionStore` — durable history (JSONL is built in);
-- `Environment` — the available tools.
+- `Environment` — execution of tools assembled by `ToolRegistry`.
 
 For each invocation, the application creates an `AntApplicationClient`. It owns the active session, configured model and summarizer, and exposes application use cases such as submitting a turn, compacting context, and selecting a model. Frontends depend on this API instead of composing the runtime, provider, session store, and environment themselves. Agent policy remains in the runtime.
 
@@ -69,6 +69,13 @@ reasoning capabilities. Provider-specific settings are opaque to the
 application and presentation layers: the provider validates them and owns the
 rules for model and reasoning selection. The existing flat DeepSeek settings
 remain supported as a compatibility format.
+
+Tools implement application-owned `Tool` and `ToolPack` contracts. Each tool
+declares its owner, side effects, parallel-safety, and required platform
+capabilities. The composition root registers the built-in coding pack and the
+registry validates ownership, capabilities, and name conflicts before creating
+the environment. Additional statically linked packs require one registration;
+dynamic third-party loading is intentionally not supported yet.
 
 Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
 

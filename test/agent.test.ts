@@ -315,7 +315,12 @@ test("the environment executes parallel-safe tool calls concurrently", async () 
   let active = 0;
   let maximumActive = 0;
   const tool = {
-    parallelSafe: true,
+    metadata: {
+      ownerId: "test.timing",
+      sideEffects: "none" as const,
+      parallelSafe: true,
+      requiredCapabilities: [],
+    },
     spec: { name: "delayed", description: "waits", inputSchema: { type: "object" } },
     async execute() {
       active += 1;
@@ -339,6 +344,12 @@ test("the environment keeps unsafe tool calls sequential", async () => {
   let active = 0;
   let maximumActive = 0;
   const tool = {
+    metadata: {
+      ownerId: "test.timing",
+      sideEffects: "workspace" as const,
+      parallelSafe: false,
+      requiredCapabilities: [],
+    },
     spec: { name: "mutating", description: "waits", inputSchema: { type: "object" } },
     async execute() {
       active += 1;
@@ -359,6 +370,12 @@ test("the environment keeps unsafe tool calls sequential", async () => {
 test("tool lifecycle and output events are observed but not added to model state", async () => {
   const lifecycleEvents: AgentEvent[] = [];
   const streamingTool = {
+    metadata: {
+      ownerId: "test.streaming",
+      sideEffects: "process" as const,
+      parallelSafe: false,
+      requiredCapabilities: [],
+    },
     spec: { name: "stream", description: "streams", inputSchema: { type: "object" } },
     async execute(_input: unknown, _signal?: AbortSignal, onOutput?: (output: never) => void) {
       onOutput?.({ stream: "stdout", content: "working\n" } as never);

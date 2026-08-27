@@ -1,6 +1,5 @@
 import type {
   Environment,
-  ImageAttachment,
   Observation,
   SingleToolOutputHandler,
   ToolCall,
@@ -8,22 +7,7 @@ import type {
   ToolStartedHandler,
   ToolSpec,
 } from "../core/agent.js";
-
-export interface ToolExecutionResult {
-  kind: "tool-result";
-  value: unknown;
-  attachments: readonly ImageAttachment[];
-}
-
-export interface Tool {
-  spec: ToolSpec;
-  parallelSafe?: boolean;
-  execute(
-    input: unknown,
-    signal?: AbortSignal,
-    onOutput?: SingleToolOutputHandler,
-  ): Promise<unknown | ToolExecutionResult>;
-}
+import type { Tool, ToolExecutionResult } from "../app/tools.js";
 
 function isToolExecutionResult(value: unknown): value is ToolExecutionResult {
   return (
@@ -98,9 +82,10 @@ export class ToolEnvironment implements Environment {
     onOutput?: ToolOutputHandler,
     onStarted?: ToolStartedHandler,
   ): Promise<readonly Observation[]> {
-    const canRunInParallel = calls.every(
-      (call) => this.#tools.get(call.name)?.parallelSafe === true,
-    );
+    const canRunInParallel = calls.every((call) => {
+      const metadata = this.#tools.get(call.name)?.metadata;
+      return metadata?.parallelSafe === true && metadata.sideEffects === "none";
+    });
     if (canRunInParallel) {
       return Promise.all(
         calls.map((call) => {

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import type { ImageAttachment } from "../core/agent.js";
+import type { Tool, ToolExecutionResult } from "../app/tools.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
-import type { Tool, ToolExecutionResult } from "./tool-environment.js";
 import { parsePathInput, resolveToolPath } from "./path-utils.js";
 
 const MAX_BYTES = 50 * 1024;
@@ -261,7 +261,13 @@ async function readTextFile(
 
 export function createReadTool(workspaceDirectory: string): Tool {
   return {
-    parallelSafe: true,
+    metadata: {
+      ownerId: "ant.coding-tools",
+      sideEffects: "none",
+      parallelSafe: true,
+      // Image reads persist a content-addressed attachment under .ant.
+      requiredCapabilities: ["filesystem.read", "filesystem.write"],
+    },
     spec: {
       name: "read",
       description:

@@ -1,7 +1,12 @@
-import type { Tool } from "../../src/tools/tool-environment.js";
+import type { Tool } from "../../src/app/tools.js";
 
 export const echoTool: Tool = {
-  parallelSafe: true,
+  metadata: {
+    ownerId: "test.echo",
+    sideEffects: "none",
+    parallelSafe: true,
+    requiredCapabilities: [],
+  },
   spec: {
     name: "echo",
     description: "Returns the provided text without changing it.",

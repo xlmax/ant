@@ -12,10 +12,11 @@ import {
   type AgentState,
   type ModelInput,
 } from "../../src/core/agent.js";
-import { createCodingTools } from "../../src/tools/coding-tools.js";
+import { ToolRegistry } from "../../src/app/tool-registry.js";
 import { loadSettings } from "../../src/config/settings.js";
 import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/tools/tool-environment.js";
+import { codingToolPack } from "../../src/tools/coding-tool-pack.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
 import { DeepSeekProvider } from "../../src/models/deepseek-provider.js";
 import { JsonlSessionStore } from "../../src/sessions/jsonl-session-store.js";
@@ -523,7 +524,16 @@ async function runTask(task: EvalTask): Promise<EvalTaskReport> {
 
   try {
     await task.setup(workspace);
-    const environment = new ToolEnvironment(createCodingTools(workspace));
+    const registry = new ToolRegistry();
+    registry.register(codingToolPack);
+    const environment = new ToolEnvironment(
+      registry.createTools({
+        workspace,
+        capabilities: new Set(["filesystem.read", "filesystem.write", "process.spawn"]),
+        process: {},
+        logger: { debug() {} },
+      }),
+    );
 
     if (task.run) {
       result = await task.run({ workspace, model, environment });
