@@ -83,6 +83,8 @@ Layer ownership is explicit: `core/` contains the infrastructure-independent age
 
 The terminal frontend is composed from presentation ports for terminal I/O, process signals/timeouts, update operations, and Git status. REPL commands are registered as independent modules with their own descriptor, parser, and handler; adding a command does not require editing a central parser or dispatch switch. The default Node.js terminal, updater, and Git implementations are wired only in the composition root and can be replaced in tests or by another frontend assembly.
 
+Statically composed modules have a common application-owned descriptor (`id`, `kind`, API version, provided and required capabilities). The module registry validates the complete composition before startup, exposes health diagnostics, and guarantees reverse-order cleanup after successful runs, startup failures, and frontend errors.
+
 > [!WARNING]
 > Ant has no built-in guardrails: it runs commands and edits files with the same permissions as the user who launched it, and it is not confined to the working directory. Any consequences are your responsibility. Don't run it in directories with sensitive data or use keys with a valuable balance.
 

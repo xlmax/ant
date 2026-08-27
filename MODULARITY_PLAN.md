@@ -644,6 +644,21 @@ REPL-команды должны регистрироваться handlers, а �
 - semver ranges шире текущей major API version;
 - live start/stop или hot reload модулей во время сессии.
 
+Результат этапа 7:
+
+- добавлены application-owned `ModuleDescriptor`, `AntModule` и
+  `ModuleRegistry` с API version, kinds и capability requirements;
+- вся композиция валидируется до startup; несовместимые версии, неизвестные
+  kinds, конфликты id и отсутствующие capabilities имеют явную диагностику;
+- lifecycle запускается в порядке регистрации и освобождается в обратном,
+  включая rollback частичного startup и агрегацию ошибок cleanup;
+- health diagnostics отражают descriptor, lifecycle state и состояние здоровья;
+- composition root регистрирует descriptors runtime, configuration, DeepSeek
+  provider, JSONL store, coding tools и terminal frontend;
+- application оборачивает полный frontend run в lifecycle host;
+- reusable suites provider/session/tool/configuration дополнены frontend и
+  lifecycle contract tests; production и альтернативные fixtures проходят их.
+
 ## Этап 8. Физическое разделение на packages
 
 После стабилизации контрактов перейти на npm workspaces. Возможная структура:
@@ -716,6 +731,6 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 4. Модульная конфигурация
 - [x] Этап 5. Версионированный session contract
 - [x] Этап 6. Декомпозиция terminal frontend
-- [ ] Этап 7. Lifecycle и contract tests
+- [x] Этап 7. Lifecycle и contract tests
 - [ ] Этап 8. npm workspaces
 - [ ] Этап 9. Динамические внешние плагины
