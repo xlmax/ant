@@ -1,18 +1,90 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import {
-  loadSettings,
-  readExplicitVision,
-  saveUserModelId,
-  saveUserModelProviderOptions,
-  saveUserReasoningMode,
-} from "../src/config/settings.js";
-import type { LoadedSettings } from "../src/app/configuration.js";
+  LIMIT_CONFIGURATION,
+  MODEL_CONFIGURATION,
+  PROMPT_CONFIGURATION,
+  TOOL_CONFIGURATION,
+  UI_CONFIGURATION,
+  VERIFICATION_CONFIGURATION,
+  type ProjectSettingsOverrides,
+  type RuntimeLimits,
+  type UiSettings,
+  type PromptSettings,
+  type ToolSettings,
+  type VerificationSettings,
+} from "../src/app/configuration.js";
+import { ConfigurationRegistry } from "../src/app/configuration-registry.js";
+import { registerBuiltinConfigurationSections } from "../src/config/builtin-configuration-sections.js";
+import { FileConfigurationService } from "../src/config/configuration-service.js";
+import { deepSeekConfigurationSection } from "../src/models/deepseek-configuration-section.js";
 import { DeepSeekProvider } from "../src/models/deepseek-provider.js";
+import type { ModelConfiguration } from "../src/app/model.js";
+
+interface LoadedSettings {
+  settings: {
+    model: ModelConfiguration;
+    ui: UiSettings;
+    prompts: PromptSettings;
+    tools: ToolSettings;
+    limits: RuntimeLimits;
+    verification: VerificationSettings;
+  };
+  sources: string[];
+  projectOverrides: ProjectSettingsOverrides;
+}
+
+function service(home: string): FileConfigurationService {
+  const registry = new ConfigurationRegistry();
+  registry.register(deepSeekConfigurationSection);
+  registerBuiltinConfigurationSections(registry);
+  return new FileConfigurationService(registry, resolve(home, ".ant", "settings.json"));
+}
+
+async function loadSettings(workspace: string, home: string): Promise<LoadedSettings> {
+  const configuration = await service(home).load(resolve(workspace, ".ant", "settings.json"));
+  return {
+    settings: {
+      model: configuration.get(MODEL_CONFIGURATION),
+      ui: configuration.get(UI_CONFIGURATION),
+      prompts: configuration.get(PROMPT_CONFIGURATION),
+      tools: configuration.get(TOOL_CONFIGURATION),
+      limits: configuration.get(LIMIT_CONFIGURATION),
+      verification: configuration.get(VERIFICATION_CONFIGURATION),
+    },
+    sources: [...configuration.sources],
+    projectOverrides: {
+      modelId: configuration.isProjectOverride(MODEL_CONFIGURATION, "modelId"),
+      modelThinking: configuration.isProjectOverride(MODEL_CONFIGURATION, "providerOptions"),
+      reasoningMode: configuration.isProjectOverride(UI_CONFIGURATION, "reasoningMode"),
+      showChanges: configuration.isProjectOverride(UI_CONFIGURATION, "showChanges"),
+    },
+  };
+}
+
+async function readExplicitVision(workspace: string, home: string): Promise<boolean | undefined> {
+  return modelOptions(await loadSettings(workspace, home)).vision as boolean | undefined;
+}
+
+async function saveUserModelId(modelId: string, home: string): Promise<void> {
+  await service(home).updateUser(MODEL_CONFIGURATION, { modelId });
+}
+
+async function saveUserModelProviderOptions(
+  _providerId: string,
+  providerOptions: unknown,
+  home: string,
+): Promise<void> {
+  await service(home).updateUser(MODEL_CONFIGURATION, { providerOptions });
+}
+
+async function saveUserReasoningMode(reasoningMode: string, home: string): Promise<void> {
+  await service(home).updateUser(UI_CONFIGURATION, { reasoningMode });
+}
 
 function modelOptions(loaded: LoadedSettings): Record<string, unknown> {
   return loaded.settings.model.providerOptions as Record<string, unknown>;
@@ -34,6 +106,15 @@ async function temporaryDirectories(): Promise<{ workspace: string; home: string
     workspace: join(root, "workspace"),
     home: join(root, "home"),
   };
+}
+
+async function savedSection(home: string, namespace: string): Promise<Record<string, unknown>> {
+  const saved = JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")) as {
+    schemaVersion: number;
+    sections: Record<string, { value: Record<string, unknown> }>;
+  };
+  assert.equal(saved.schemaVersion, 1);
+  return saved.sections[namespace]?.value ?? {};
 }
 
 test("stale user-layer vision is ignored before the first /model", async () => {
@@ -136,9 +217,9 @@ test("saveUserModelId drops a stale auto-written vision so the heuristic re-appl
 
     await saveUserModelId("custom-vision-exp", home);
 
-    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
-      model: { id: "custom-vision-exp" },
-    });
+    const saved = await savedSection(home, "model");
+    assert.equal(saved.modelId, "custom-vision-exp");
+    assert.equal((saved.providerOptions as Record<string, unknown>).vision, undefined);
     assert.equal(await readExplicitVision(workspace, home), undefined);
     assert.equal(modelVision(await loadSettings(workspace, home)), true);
   } finally {
@@ -159,9 +240,9 @@ test("saveUserModelId preserves a genuinely explicit vision", async () => {
 
     await saveUserModelId("another-id", home);
 
-    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
-      model: { id: "another-id", vision: true },
-    });
+    const saved = await savedSection(home, "model");
+    assert.equal(saved.modelId, "another-id");
+    assert.equal((saved.providerOptions as Record<string, unknown>).vision, true);
     assert.equal(await readExplicitVision(workspace, home), true);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
@@ -396,21 +477,18 @@ test("saving a selected model updates the global user settings only", async () =
       JSON.stringify({
         model: { baseUrl: "https://proxy.example" },
         ui: { showReasoning: true },
-        future: { setting: true },
       }),
       "utf8",
     );
 
     await saveUserModelId("deepseek-v4-pro", home);
 
-    assert.deepEqual(JSON.parse(await readFile(join(settingsDirectory, "settings.json"), "utf8")), {
-      model: {
-        baseUrl: "https://proxy.example",
-        id: "deepseek-v4-pro",
-      },
-      ui: { showReasoning: true },
-      future: { setting: true },
-    });
+    const saved = await savedSection(home, "model");
+    assert.equal(saved.modelId, "deepseek-v4-pro");
+    assert.equal(
+      (saved.providerOptions as Record<string, unknown>).baseUrl,
+      "https://proxy.example",
+    );
     const loaded = await loadSettings(workspace, home);
     assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
     // vision is not persisted explicitly: it is resolved by heuristic on load.
@@ -427,7 +505,7 @@ test("saving thinking settings uses the global layer", async () => {
     await mkdir(join(home, ".ant"), { recursive: true });
     await writeFile(
       join(home, ".ant", "settings.json"),
-      JSON.stringify({ model: { id: "deepseek-v4-pro" }, future: { setting: true } }),
+      JSON.stringify({ model: { id: "deepseek-v4-pro" } }),
       "utf8",
     );
 
@@ -437,12 +515,11 @@ test("saving thinking settings uses the global layer", async () => {
       home,
     );
 
-    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
-      model: {
-        id: "deepseek-v4-pro",
-        options: { thinking: { enabled: true, effort: "max" } },
-      },
-      future: { setting: true },
+    const saved = await savedSection(home, "model");
+    assert.equal(saved.modelId, "deepseek-v4-pro");
+    assert.deepEqual((saved.providerOptions as Record<string, unknown>).thinking, {
+      enabled: true,
+      effort: "max",
     });
     assert.deepEqual(modelThinking(await loadSettings(workspace, home)), {
       enabled: true,
@@ -490,9 +567,7 @@ test("saving reasoning mode uses the global layer and legacy visibility still lo
   try {
     await saveUserReasoningMode("full", home);
 
-    assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
-      ui: { reasoningMode: "full" },
-    });
+    assert.equal((await savedSection(home, "ui")).reasoningMode, "full");
     assert.equal((await loadSettings(workspace, home)).settings.ui.reasoningMode, "full");
 
     await mkdir(join(workspace, ".ant"), { recursive: true });

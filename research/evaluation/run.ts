@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 import {
@@ -13,12 +13,16 @@ import {
   type ModelInput,
 } from "../../src/core/agent.js";
 import { ToolRegistry } from "../../src/app/tool-registry.js";
-import { loadSettings } from "../../src/config/settings.js";
+import { ConfigurationRegistry } from "../../src/app/configuration-registry.js";
+import { MODEL_CONFIGURATION } from "../../src/app/configuration.js";
+import { registerBuiltinConfigurationSections } from "../../src/config/builtin-configuration-sections.js";
+import { FileConfigurationService } from "../../src/config/configuration-service.js";
 import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/tools/tool-environment.js";
 import { codingToolPack } from "../../src/tools/coding-tool-pack.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
 import { DeepSeekProvider } from "../../src/models/deepseek-provider.js";
+import { deepSeekConfigurationSection } from "../../src/models/deepseek-configuration-section.js";
 import { JsonlSessionStore } from "../../src/sessions/jsonl-session-store.js";
 import { SessionController } from "../../src/app/session-controller.js";
 
@@ -94,13 +98,20 @@ async function createModel(): Promise<DeepSeekModel> {
     throw new Error("Для запуска eval необходима переменная DEEPSEEK_API_KEY");
   }
 
-  const [systemPrompt, loadedSettings] = await Promise.all([
+  const registry = new ConfigurationRegistry();
+  registry.register(deepSeekConfigurationSection);
+  registerBuiltinConfigurationSections(registry);
+  const configurationService = new FileConfigurationService(
+    registry,
+    resolve(homedir(), ".ant", "settings.json"),
+  );
+  const [systemPrompt, configuration] = await Promise.all([
     loadSystemPrompt(process.cwd()),
-    loadSettings(process.cwd()),
+    configurationService.load(resolve(process.cwd(), ".ant", "settings.json")),
   ]);
 
   return new DeepSeekProvider({ apiKey, systemPrompt: systemPrompt.content }).createAgentModel(
-    loadedSettings.settings.model,
+    configuration.get(MODEL_CONFIGURATION),
   );
 }
 

@@ -1,7 +1,15 @@
 import type { Environment } from "../core/agent.js";
 import type { AgentRuntime } from "../core/runtime.js";
 import { AntApplicationClient } from "./application-client.js";
-import type { SettingsModule } from "./configuration.js";
+import {
+  LIMIT_CONFIGURATION,
+  MODEL_CONFIGURATION,
+  PROMPT_CONFIGURATION,
+  TOOL_CONFIGURATION,
+  UI_CONFIGURATION,
+  VERIFICATION_CONFIGURATION,
+  type SettingsModule,
+} from "./configuration.js";
 import type { AntFrontend, FrontendOptions } from "./frontend.js";
 import type { ModelProvider } from "./model-provider.js";
 import type { SessionList, SessionStore } from "./session.js";
@@ -59,20 +67,21 @@ export class AntApplication {
     const store = this.#modules.createSessionStore(workspace);
     const resume = await resolveResumeId(runOptions, store);
     const loadedSettings = await this.#modules.settings.load(workspace);
-    const systemPrompt = await this.#modules.loadSystemPrompt(
-      workspace,
-      loadedSettings.settings.prompts.additionalPaths,
-    );
-    const modelConfiguration = loadedSettings.settings.model;
+    const configuration = loadedSettings.configuration;
+    const prompts = configuration.get(PROMPT_CONFIGURATION);
+    const modelConfiguration = configuration.get(MODEL_CONFIGURATION);
+    const tools = configuration.get(TOOL_CONFIGURATION);
+    const limits = configuration.get(LIMIT_CONFIGURATION);
+    const verification = configuration.get(VERIFICATION_CONFIGURATION);
+    const ui = configuration.get(UI_CONFIGURATION);
+    const systemPrompt = await this.#modules.loadSystemPrompt(workspace, prompts.additionalPaths);
     const provider = this.#modules.createProvider({
       systemPrompt: systemPrompt.content,
     });
 
     const environment = this.#modules.createEnvironment(
       workspace,
-      loadedSettings.settings.tools.bashPath === undefined
-        ? {}
-        : { bashPath: loadedSettings.settings.tools.bashPath },
+      tools.bashPath === undefined ? {} : { bashPath: tools.bashPath },
     );
     const client = new AntApplicationClient({
       runtime: this.#modules.runtime,
@@ -86,20 +95,25 @@ export class AntApplication {
         saveModelProviderOptions: (providerId, update) =>
           this.#modules.settings.saveModelProviderOptions(providerId, update),
       },
-      limits: loadedSettings.settings.limits,
-      verification: loadedSettings.settings.verification,
+      limits,
+      verification,
     });
     const frontend = this.#modules.createFrontend({
       task: runOptions.task,
       workspace,
-      color: loadedSettings.settings.ui.color,
+      color: ui.color,
       settings: {
         saveReasoningMode: (mode) => this.#modules.settings.saveReasoningMode(mode),
       },
-      projectOverrides: loadedSettings.projectOverrides,
-      reasoningMode: loadedSettings.settings.ui.reasoningMode,
-      reasoningMaxLines: loadedSettings.settings.ui.reasoningMaxLines,
-      showChanges: loadedSettings.settings.ui.showChanges,
+      projectOverrides: {
+        modelId: configuration.isProjectOverride(MODEL_CONFIGURATION, "modelId"),
+        modelThinking: configuration.isProjectOverride(MODEL_CONFIGURATION, "providerOptions"),
+        reasoningMode: configuration.isProjectOverride(UI_CONFIGURATION, "reasoningMode"),
+        showChanges: configuration.isProjectOverride(UI_CONFIGURATION, "showChanges"),
+      },
+      reasoningMode: ui.reasoningMode,
+      reasoningMaxLines: ui.reasoningMaxLines,
+      showChanges: ui.showChanges,
       ...(resume === undefined ? {} : { resume }),
     });
     await frontend.run(client);
