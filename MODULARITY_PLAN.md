@@ -117,8 +117,8 @@ composition root или plugin manifest — без изменения `core`, `a
 
 - `ModelSettings` и конфигурация приложения знают о DeepSeek;
 - terminal frontend владеет значительной частью прикладной оркестрации;
-- `AntHostContext` отдаёт frontend низкоуровневые сервисы вместо прикладных
-  сценариев;
+- до этапа 1 frontend получал низкоуровневые runtime, provider, environment и
+  session store вместо прикладных сценариев;
 - набор инструментов статически задан в `createCodingTools`;
 - настройки всех компонентов собраны в одном центральном типе и parser;
 - session storage связан с внутренними `AgentState` и `AgentObserver`;
@@ -214,6 +214,22 @@ Frontend должен вызывать эти операции и отображ
 - tool registry (этап 3);
 - изменение формата JSONL-сессий (этап 5);
 - registry REPL-команд и полная декомпозиция terminal UI (этап 6).
+
+Результат этапа 1:
+
+- добавлен стабильный presentation-контракт `AntApplicationApi` и его реализация
+  `AntApplicationClient`;
+- application client владеет активной сессией, model/summarizer, выполнением
+  ходов, таймаутами, compaction и переключением model/thinking;
+- one-shot и REPL выполняют ход через единый `submitTurn`;
+- terminal frontend больше не получает runtime, provider, environment и session
+  store и не создаёт их зависимые объекты;
+- удалён низкоуровневый `AntHostContext`, ранее передававший инфраструктуру во
+  frontend;
+- архитектурный тест запрещает UI прямые зависимости от model provider, session
+  controller и runtime;
+- сценарии application client покрыты unit-тестами, полный CLI-цикл подтверждён
+  integration-тестом.
 
 ## Этап 2. Provider-neutral модельный контракт
 
@@ -428,7 +444,7 @@ REPL-команды должны регистрироваться handlers, а �
 
 ## Статус
 
-- [ ] Этап 1. Прикладные сценарии
+- [x] Этап 1. Прикладные сценарии
 - [ ] Этап 2. Provider-neutral модельный контракт
 - [ ] Этап 3. Tool registry и tool packs
 - [ ] Этап 4. Модульная конфигурация
