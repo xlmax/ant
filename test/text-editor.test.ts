@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TextEditor } from "../src/ui/text-editor.js";
+import { TextEditor } from "../packages/frontend-terminal/src/text-editor.js";
 
 test("backspace joins lines and keeps the cursor at the previous line end", () => {
   const editor = new TextEditor();

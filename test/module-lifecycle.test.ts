@@ -6,7 +6,7 @@ import {
   ModuleRegistry,
   moduleDescriptor,
   type AntModule,
-} from "../src/app/module-lifecycle.js";
+} from "../packages/app/src/module-lifecycle.js";
 
 test("module registry validates descriptors and capabilities before startup", async () => {
   const registry = new ModuleRegistry();

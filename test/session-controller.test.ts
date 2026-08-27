@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { SessionController } from "../src/app/session-controller.js";
-import type { SessionStore } from "../src/app/session.js";
-import { JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
-import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
+import { SessionController } from "../packages/app/src/session-controller.js";
+import type { SessionStore } from "../packages/app/src/session.js";
+import { JsonlSessionStore } from "../packages/session-jsonl/src/jsonl-session-store.js";
+import { MemorySessionStore } from "../packages/session-jsonl/src/memory-session-store.js";
 
 test("session controller creates and appends user messages", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-controller-"));

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelDescriptor } from "../src/app/model-provider.js";
-import { formatModelStatus } from "../src/ui/runtime-model.js";
+import type { ModelDescriptor } from "../packages/app/src/model-provider.js";
+import { formatModelStatus } from "../packages/frontend-terminal/src/runtime-model.js";
 
 const current: ModelDescriptor = {
   providerId: "deepseek",

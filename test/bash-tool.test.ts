@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
-import { createBashTool } from "../src/tools/bash-tool.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
+import { createBashTool } from "../packages/tools-coding/src/bash-tool.js";
 
 function temporaryPidFileName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`;

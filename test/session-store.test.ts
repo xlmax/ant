@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { decodeHistoryEvent, encodeHistoryEvent } from "../src/app/session-codec.js";
-import type { SessionStore } from "../src/app/session.js";
-import { JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
-import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
+import { decodeHistoryEvent, encodeHistoryEvent } from "../packages/app/src/session-codec.js";
+import type { SessionStore } from "../packages/app/src/session.js";
+import { JsonlSessionStore } from "../packages/session-jsonl/src/jsonl-session-store.js";
+import { MemorySessionStore } from "../packages/session-jsonl/src/memory-session-store.js";
 
 interface StoreFixture {
   store: SessionStore;

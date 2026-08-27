@@ -11,20 +11,20 @@ import {
   type AgentResult,
   type AgentState,
   type ModelInput,
-} from "../../src/core/agent.js";
-import { ToolRegistry } from "../../src/app/tool-registry.js";
-import { ConfigurationRegistry } from "../../src/app/configuration-registry.js";
-import { MODEL_CONFIGURATION } from "../../src/app/configuration.js";
-import { registerBuiltinConfigurationSections } from "../../src/config/builtin-configuration-sections.js";
-import { FileConfigurationService } from "../../src/config/configuration-service.js";
-import { loadSystemPrompt } from "../../src/config/system-prompt.js";
-import { ToolEnvironment } from "../../src/tools/tool-environment.js";
-import { codingToolPack } from "../../src/tools/coding-tool-pack.js";
-import { DeepSeekModel } from "../../src/models/deepseek-model.js";
-import { DeepSeekProvider } from "../../src/models/deepseek-provider.js";
-import { deepSeekConfigurationSection } from "../../src/models/deepseek-configuration-section.js";
-import { JsonlSessionStore } from "../../src/sessions/jsonl-session-store.js";
-import { SessionController } from "../../src/app/session-controller.js";
+} from "../../packages/core/src/agent.js";
+import { ToolRegistry } from "../../packages/app/src/tool-registry.js";
+import { ConfigurationRegistry } from "../../packages/app/src/configuration-registry.js";
+import { MODEL_CONFIGURATION } from "../../packages/app/src/configuration.js";
+import { registerBuiltinConfigurationSections } from "../../packages/cli/src/config/builtin-configuration-sections.js";
+import { FileConfigurationService } from "../../packages/cli/src/config/configuration-service.js";
+import { loadSystemPrompt } from "../../packages/cli/src/config/system-prompt.js";
+import { ToolEnvironment } from "../../packages/tools-coding/src/tool-environment.js";
+import { codingToolPack } from "../../packages/tools-coding/src/coding-tool-pack.js";
+import { DeepSeekModel } from "../../packages/provider-deepseek/src/deepseek-model.js";
+import { DeepSeekProvider } from "../../packages/provider-deepseek/src/deepseek-provider.js";
+import { deepSeekConfigurationSection } from "../../packages/provider-deepseek/src/deepseek-configuration-section.js";
+import { JsonlSessionStore } from "../../packages/session-jsonl/src/jsonl-session-store.js";
+import { SessionController } from "../../packages/app/src/session-controller.js";
 
 const MAX_MODEL_CALLS = 6;
 const TASK_TIMEOUT_MS = 60_000;

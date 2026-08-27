@@ -1,0 +1,30 @@
+{
+  "name": "ant",
+  "version": "0.5.15",
+  "description": "ANT — Agentic Native Tool",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ant": "dist/main.js"
+  },
+  "scripts": {
+    "prepack": "npm run build --prefix ../.."
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "prompts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "win32-api": "26.1.2"
+  }
+}

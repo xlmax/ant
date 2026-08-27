@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**",
+      "packages/*/dist/**",
       "node_modules/**",
       ".ant/**",
       ".agent/**",

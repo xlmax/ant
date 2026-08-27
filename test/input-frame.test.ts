@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { configureAnsi } from "../src/ui/ansi.js";
-import { closeUserInputFrame, openUserInputFrame, userInputPrompt } from "../src/ui/input-frame.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import {
+  closeUserInputFrame,
+  openUserInputFrame,
+  userInputPrompt,
+} from "../packages/frontend-terminal/src/input-frame.js";
 
 const VIOLET = `${String.fromCharCode(27)}[38;2;155;138;251m`;
 

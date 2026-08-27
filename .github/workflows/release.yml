@@ -21,8 +21,8 @@ jobs:
 
       - run: npm ci
       - run: npm run check
-      - run: npm test
-      - run: npm pack
+      - run: npm run test:all
+      - run: npm pack --workspace ant
 
       - uses: softprops/action-gh-release@v2
         with:

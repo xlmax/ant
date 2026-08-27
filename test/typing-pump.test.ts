@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TypingPump } from "../src/ui/typing-pump.js";
+import { TypingPump } from "../packages/frontend-terminal/src/typing-pump.js";
 
 const CURSOR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[\\?25[hl]`, "gu");
 

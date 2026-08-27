@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { configureAnsi } from "../src/ui/ansi.js";
-import { userInputPrompt } from "../src/ui/input-frame.js";
-import { InputHistory } from "../src/ui/input-history.js";
-import { canEraseInline, readTerminalInput } from "../src/ui/terminal-input.js";
-import { TextEditor } from "../src/ui/text-editor.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { userInputPrompt } from "../packages/frontend-terminal/src/input-frame.js";
+import { InputHistory } from "../packages/frontend-terminal/src/input-history.js";
+import {
+  canEraseInline,
+  readTerminalInput,
+} from "../packages/frontend-terminal/src/terminal-input.js";
+import { TextEditor } from "../packages/frontend-terminal/src/text-editor.js";
 
 test("terminal input redraws when backspace crosses an automatic wrap", () => {
   const editor = new TextEditor();

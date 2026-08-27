@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelDescriptor } from "../src/app/model-provider.js";
-import { configureAnsi } from "../src/ui/ansi.js";
-import { formatStartScreen } from "../src/ui/start-screen.js";
-import { VERSION } from "../src/version.js";
+import type { ModelDescriptor } from "../packages/app/src/model-provider.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { formatStartScreen } from "../packages/frontend-terminal/src/start-screen.js";
+import { VERSION } from "../packages/contracts/src/version.js";
 
 const descriptor: ModelDescriptor = {
   providerId: "deepseek",

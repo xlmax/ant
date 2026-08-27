@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { HistoryEvent } from "../src/core/agent.js";
-import { activeContextEvents, createCompactionPlan } from "../src/core/context-events.js";
+import type { HistoryEvent } from "../packages/core/src/agent.js";
+import { activeContextEvents, createCompactionPlan } from "../packages/core/src/context-events.js";
 
 function finish(answer: string): HistoryEvent {
   return { type: "decision", decision: { type: "finish", answer } };

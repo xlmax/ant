@@ -17,13 +17,13 @@ import {
   type PromptSettings,
   type ToolSettings,
   type VerificationSettings,
-} from "../src/app/configuration.js";
-import { ConfigurationRegistry } from "../src/app/configuration-registry.js";
-import { registerBuiltinConfigurationSections } from "../src/config/builtin-configuration-sections.js";
-import { FileConfigurationService } from "../src/config/configuration-service.js";
-import { deepSeekConfigurationSection } from "../src/models/deepseek-configuration-section.js";
-import { DeepSeekProvider } from "../src/models/deepseek-provider.js";
-import type { ModelConfiguration } from "../src/app/model.js";
+} from "../packages/app/src/configuration.js";
+import { ConfigurationRegistry } from "../packages/app/src/configuration-registry.js";
+import { registerBuiltinConfigurationSections } from "../packages/cli/src/config/builtin-configuration-sections.js";
+import { FileConfigurationService } from "../packages/cli/src/config/configuration-service.js";
+import { deepSeekConfigurationSection } from "../packages/provider-deepseek/src/deepseek-configuration-section.js";
+import { DeepSeekProvider } from "../packages/provider-deepseek/src/deepseek-provider.js";
+import type { ModelConfiguration } from "../packages/app/src/model.js";
 
 interface LoadedSettings {
   settings: {

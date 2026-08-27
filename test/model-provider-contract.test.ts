@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentModel } from "../src/core/agent.js";
-import type { ContextSummarizer } from "../src/core/context-events.js";
+import type { AgentModel } from "../packages/core/src/agent.js";
+import type { ContextSummarizer } from "../packages/core/src/context-events.js";
 import type {
   ModelConfiguration,
   ModelDescriptor,
   ModelProvider,
-} from "../src/app/model-provider.js";
-import { DeepSeekProvider } from "../src/models/deepseek-provider.js";
+} from "../packages/app/src/model-provider.js";
+import { DeepSeekProvider } from "../packages/provider-deepseek/src/deepseek-provider.js";
 
 interface ProviderContractFixture {
   provider: ModelProvider;

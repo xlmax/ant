@@ -5,8 +5,8 @@ import {
   CommandRegistry,
   CommandUsageError,
   type CommandContext,
-} from "../src/ui/command-registry.js";
-import { createBuiltinCommandRegistry } from "../src/ui/command-modules.js";
+} from "../packages/frontend-terminal/src/command-registry.js";
+import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
 
 function invocation(registry: CommandRegistry, input: string): { name: string; input: unknown } {
   const parsed = registry.parse(input);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { InputHistory } from "../src/ui/input-history.js";
+import { InputHistory } from "../packages/frontend-terminal/src/input-history.js";
 
 test("input history navigates backward and restores the current draft", () => {
   const history = new InputHistory();

@@ -674,11 +674,46 @@ REPL-команды должны регистрироваться handlers, а �
 
 Критерии готовности:
 
-- package exports отражают только публичные контракты;
-- adapters зависят от contracts/app, но не друг от друга;
-- архитектурные проверки работают между workspace packages;
-- сборка и публикация CLI остаются единым пользовательским артефактом;
-- внутренние импорты между пакетами запрещены.
+- корневой проект использует npm workspaces, а исходный код физически разделён
+  минимум на `contracts`, `core`, `app`, production adapters и `cli`;
+- каждый workspace имеет собственный manifest, TypeScript build boundary и
+  явные зависимости; полный build выполняется из корня в корректном порядке;
+- package exports отражают только публичные контракты, а импорт чужого `src`,
+  неэкспортированного subpath или артефакта `dist` запрещён тестом;
+- `core` зависит только от `contracts`, `app` — только от `contracts` и `core`,
+  adapters — от разрешённых contracts/app packages, но не друг от друга;
+- архитектурные проверки анализируют workspace manifests, exports и импорты и
+  обнаруживают нарушение границ на независимой fixture;
+- unit-, contract-, architecture- и integration-тесты запускаются из корня без
+  обращения к прежнему монолитному `src` layout;
+- `npm pack` CLI workspace создаёт один устанавливаемый пользовательский
+  артефакт с executable `ant`, runtime dependencies и необходимыми prompts;
+- запуск упакованного CLI в чистом временном проекте проходит smoke/integration
+  сценарий, включая загрузку production composition;
+- публичное CLI-поведение, настройки и формат существующих сессий сохраняют
+  обратную совместимость; старые пользовательские данные покрыты regression
+  tests;
+- старый корневой `src` удалён после переноса, документация описывает новую
+  структуру, а `check`, `lint`, format check, полный test suite, build и pack
+  verification проходят из чистого checkout.
+
+Результат этапа 8:
+
+- исходный код физически разделён на восемь npm workspace packages с отдельными
+  manifests, public root exports и TypeScript project references;
+- межпакетные импорты используют только package names; архитектурный analyzer
+  проверяет manifests, допустимый dependency graph и запрет обхода exports и
+  подтверждён независимой нарушающей fixture;
+- прежний корневой `src` удалён, а unit-, research- и integration-код переведён
+  на workspace layout;
+- корневые `check`, `test`, `build` и остальные команды оркестрируют весь
+  workspace без ручного выбора пакетов;
+- production composition собирается в единый executable bundle; команда
+  `npm pack --workspace ant` создаёт самодостаточный пользовательский tarball с
+  prompt и необходимой Windows runtime dependency;
+- integration test устанавливает tarball в чистый временный проект, читает
+  legacy settings, выполняет модельный ход через production composition и
+  проверяет создание versioned JSONL-сессии.
 
 ## Этап 9. Динамические внешние плагины
 
@@ -732,5 +767,5 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 5. Версионированный session contract
 - [x] Этап 6. Декомпозиция terminal frontend
 - [x] Этап 7. Lifecycle и contract tests
-- [ ] Этап 8. npm workspaces
+- [x] Этап 8. npm workspaces
 - [ ] Этап 9. Динамические внешние плагины

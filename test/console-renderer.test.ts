@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { configureAnsi } from "../src/ui/ansi.js";
-import { ConsoleRenderer } from "../src/ui/console-renderer.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
 
 test("reasoning output uses muted markdown formatting", async () => {
   const originalWrite = process.stdout.write;

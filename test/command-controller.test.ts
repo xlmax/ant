@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SessionController } from "../src/app/session-controller.js";
-import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
-import type { CommandContext } from "../src/ui/command-registry.js";
-import { createBuiltinCommandRegistry } from "../src/ui/command-modules.js";
+import { SessionController } from "../packages/app/src/session-controller.js";
+import { MemorySessionStore } from "../packages/session-jsonl/src/memory-session-store.js";
+import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
+import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
 
 test("/exit prints a resume command only for an active session", async () => {
   const registry = createBuiltinCommandRegistry();

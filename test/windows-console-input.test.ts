@@ -8,7 +8,7 @@ import {
   hasPendingKeyDown,
   hasPendingKeyDownInBuffer,
   mapWindowsKeyEvent,
-} from "../src/ui/windows-console-input.js";
+} from "../packages/frontend-terminal/src/windows-console-input.js";
 
 test("Windows console input maps Shift+Enter to a newline", () => {
   assert.deepEqual(

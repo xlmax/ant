@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { displayWidth } from "../src/ui/display-width.js";
-import { sectionFooter, sectionHeader } from "../src/ui/section.js";
+import { displayWidth } from "../packages/frontend-terminal/src/display-width.js";
+import { sectionFooter, sectionHeader } from "../packages/frontend-terminal/src/section.js";
 
 test("section headers use horizontal separators", () => {
   const header = sectionHeader("Вы", (text) => text);

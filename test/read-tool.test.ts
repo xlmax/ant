@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
-import { createReadTool } from "../src/tools/read-tool.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
+import { createReadTool } from "../packages/tools-coding/src/read-tool.js";
 
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ant-"));

@@ -8,8 +8,8 @@ import {
   type AgentModel,
   type HistoryEvent,
   type VerificationSettings,
-} from "../src/core/agent.js";
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
+} from "../packages/core/src/agent.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
 
 const allChecks: VerificationSettings = {
   enabled: true,

@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
-import { createEditTool } from "../src/tools/edit-tool.js";
-import { createWriteTool } from "../src/tools/write-tool.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
+import { createEditTool } from "../packages/tools-coding/src/edit-tool.js";
+import { createWriteTool } from "../packages/tools-coding/src/write-tool.js";
 
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ant-"));

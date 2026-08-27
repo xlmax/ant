@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateContextBudget, estimateTokens } from "../src/core/context-budget.js";
-import { configureAnsi } from "../src/ui/ansi.js";
-import { formatContextStatus } from "../src/ui/context-status.js";
+import { estimateContextBudget, estimateTokens } from "../packages/core/src/context-budget.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { formatContextStatus } from "../packages/frontend-terminal/src/context-status.js";
 
 test("context budget separates messages, tool results, schemas, and images", () => {
   const call = { id: "read-1", name: "read", input: { path: "large.txt" } };

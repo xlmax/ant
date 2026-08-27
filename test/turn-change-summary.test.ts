@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { formatTurnChangeSummary, TurnChangeTracker } from "../src/ui/turn-change-summary.js";
+import {
+  formatTurnChangeSummary,
+  TurnChangeTracker,
+} from "../packages/frontend-terminal/src/turn-change-summary.js";
 
 const execFileAsync = promisify(execFile);
 

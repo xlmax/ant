@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import type { AntApplicationApi } from "../src/app/application-client.js";
-import type { CommandContext } from "../src/ui/command-registry.js";
-import { createBuiltinCommandRegistry } from "../src/ui/command-modules.js";
-import type { ConsoleRenderer } from "../src/ui/console-renderer.js";
+import type { AntApplicationApi } from "../packages/app/src/application-client.js";
+import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
+import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
+import type { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
 import type {
   ChangeTracker,
   GitPresentationService,
   ProcessControl,
   TerminalPort,
-} from "../src/ui/presentation-ports.js";
-import { TurnRunner } from "../src/ui/turn-runner.js";
-import { runRepl } from "../src/ui/repl.js";
+} from "../packages/frontend-terminal/src/presentation-ports.js";
+import { TurnRunner } from "../packages/frontend-terminal/src/turn-runner.js";
+import { runRepl } from "../packages/frontend-terminal/src/repl.js";
 
 function terminal(output: string[]): TerminalPort {
   return {
@@ -237,7 +237,10 @@ test("presentation orchestration depends on ports, not concrete process, updater
       "turn-runner.ts",
     ].map(async (name) => ({
       name,
-      content: await readFile(new URL(`../src/ui/${name}`, import.meta.url), "utf8"),
+      content: await readFile(
+        new URL(`../packages/frontend-terminal/src/${name}`, import.meta.url),
+        "utf8",
+      ),
     })),
   );
   for (const file of files) {
@@ -248,7 +251,7 @@ test("presentation orchestration depends on ports, not concrete process, updater
     );
   }
   const renderer = await readFile(
-    new URL("../src/ui/console-renderer.ts", import.meta.url),
+    new URL("../packages/frontend-terminal/src/console-renderer.ts", import.meta.url),
     "utf8",
   );
   assert.doesNotMatch(

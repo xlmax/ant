@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ConsoleRenderer } from "../src/ui/console-renderer.js";
+import { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
 
 function createRenderer(writes: string[], showReasoning = false): ConsoleRenderer {
   return new ConsoleRenderer({
