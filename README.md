@@ -86,7 +86,7 @@ Layer ownership is explicit: `core/` contains the infrastructure-independent age
 
 ## Sessions
 
-Every run writes a JSONL journal to `.ant/sessions/<session-id>.jsonl`: tasks, model decisions, and final tool results. Transient events are not written there, and the directory is ignored by Git.
+Every run writes a JSONL journal to `.ant/sessions/<session-id>.jsonl`: tasks, model decisions, and final tool results. Each durable record has a versioned envelope and an opaque, independently versioned history payload; transient lifecycle events are not written. The application owns the history codec, while storage adapters only handle serializable records. Existing version 1 journals remain readable and are continued with current records. A torn final JSON line is repaired when the session is resumed. The directory is ignored by Git.
 
 Launch flags:
 

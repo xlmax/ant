@@ -11,6 +11,7 @@ import type {
   ModelProvider,
 } from "../src/app/model-provider.js";
 import type { AgentSession, SessionStore } from "../src/app/session.js";
+import { decodeHistoryEvent, encodeHistoryEvent } from "../src/app/session-codec.js";
 import type {
   AgentDependencies,
   AgentEvent,
@@ -62,34 +63,33 @@ function createHarness(): Harness {
   let summaryText = "summary";
   let nextSession = 1;
 
-  const observer: AgentObserver = {
-    onEvent(event) {
-      if (
-        event.type === "task" ||
-        event.type === "user" ||
-        event.type === "decision" ||
-        event.type === "observation" ||
-        event.type === "compaction" ||
-        event.type === "verification"
-      ) {
-        records.push(event);
-      }
-    },
-  };
-  const session = (id: string): AgentSession => ({ id, observer, location: `/sessions/${id}` });
+  const session = (id: string): AgentSession => ({ id, location: `/sessions/${id}` });
   const resumedState: AgentState = { events: [{ type: "task", content: "resumed" }] };
   const store: SessionStore = {
-    async create(state) {
-      calls.push(`session.create:${state.events[0]?.type}`);
-      await observer.onEvent(state.events[0] as HistoryEvent);
+    async create(input) {
+      calls.push("session.create:task");
+      records.push(...input.payloads.map(decodeHistoryEvent));
       return session(`session-${nextSession++}`);
+    },
+    async append(id, payload) {
+      const event = decodeHistoryEvent(payload);
+      records.push(event);
+      return { schemaVersion: 2, sessionId: id, timestamp: new Date().toISOString(), payload };
+    },
+    async read(id) {
+      calls.push(`session.resume:${id}`);
+      return {
+        session: session(id),
+        records: resumedState.events.map((event) => ({
+          schemaVersion: 2 as const,
+          sessionId: id,
+          timestamp: new Date().toISOString(),
+          payload: encodeHistoryEvent(event),
+        })),
+      };
     },
     async list() {
       return { sessions: [], warnings: [] };
-    },
-    async resume(id) {
-      calls.push(`session.resume:${id}`);
-      return { state: resumedState, session: session(id) };
     },
   };
 

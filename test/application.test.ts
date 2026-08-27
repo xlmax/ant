@@ -79,8 +79,11 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
       calls.push("sessions.list");
       return sessionList;
     },
-    async resume() {
-      throw new Error("resume is owned by the frontend and not used in this test");
+    async append() {
+      throw new Error("append is not used in this test");
+    },
+    async read() {
+      throw new Error("read is not used in this test");
     },
   };
   const model: AgentModel = {

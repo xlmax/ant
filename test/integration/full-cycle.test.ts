@@ -32,11 +32,11 @@ async function runCli(
   projectRoot: string,
   workspace: string,
   home: string,
-  task: string,
+  args: readonly string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(
     process.execPath,
-    ["--import", import.meta.resolve("tsx"), join(projectRoot, "src", "main.ts"), task],
+    ["--import", import.meta.resolve("tsx"), join(projectRoot, "src", "main.ts"), ...args],
     {
       cwd: workspace,
       env: {
@@ -117,7 +117,17 @@ test("CLI completes a sandboxed task through DeepSeek, tools, and the session jo
         return;
       }
 
-      sendEventStream(response, [{ choices: [{ delta: { content: "Файл создан." } }] }]);
+      sendEventStream(response, [
+        {
+          choices: [
+            {
+              delta: {
+                content: requests.length === 2 ? "Файл создан." : `Продолжение ${requests.length}.`,
+              },
+            },
+          ],
+        },
+      ]);
     } catch (error) {
       response.writeHead(500).end(error instanceof Error ? error.message : String(error));
     }
@@ -145,12 +155,9 @@ test("CLI completes a sandboxed task through DeepSeek, tools, and the session jo
       "utf8",
     );
 
-    const result = await runCli(
-      projectRoot,
-      workspace,
-      home,
+    const result = await runCli(projectRoot, workspace, home, [
       "Создай hello.txt с текстом Hello from Ant",
-    );
+    ]);
 
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stderr, "");
@@ -177,13 +184,48 @@ test("CLI completes a sandboxed task through DeepSeek, tools, and the session jo
     const sessionDirectory = join(workspace, ".ant", "sessions");
     const sessionFile = (await readdir(sessionDirectory)).find((name) => name.endsWith(".jsonl"));
     assert.ok(sessionFile);
+    const sessionId = sessionFile.replace(/\.jsonl$/u, "");
+    const resumed = await runCli(projectRoot, workspace, home, [
+      "-s",
+      sessionId,
+      "Проверь результат",
+    ]);
+    assert.equal(resumed.code, 0, resumed.stderr);
+    assert.match(resumed.stdout, /Продолжение 3\./u);
+
+    const reopened = await runCli(projectRoot, workspace, home, ["-s", sessionId, "Подведи итог"]);
+    assert.equal(reopened.code, 0, reopened.stderr);
+    assert.match(reopened.stdout, /Продолжение 4\./u);
+
+    assert.equal(requests.length, 4);
+    const resumedMessages = requests[3]?.body.messages;
+    assert.ok(Array.isArray(resumedMessages));
+    assert.ok(
+      resumedMessages.some(
+        (message) =>
+          typeof message === "object" &&
+          message !== null &&
+          "content" in message &&
+          message.content === "Проверь результат",
+      ),
+    );
+
     const records = (await readFile(join(sessionDirectory, sessionFile), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { event: { type: string } });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            schemaVersion: number;
+            payload: { schemaVersion: number; kind: string; event: { type: string } };
+          },
+      );
+    assert.ok(records.every((record) => record.schemaVersion === 2));
+    assert.ok(records.every((record) => record.payload.schemaVersion === 1));
+    assert.ok(records.every((record) => record.payload.kind === "history-event"));
     assert.deepEqual(
-      records.map((record) => record.event.type),
-      ["task", "decision", "observation", "decision"],
+      records.map((record) => record.payload.event.type),
+      ["task", "decision", "observation", "decision", "user", "decision", "user", "decision"],
     );
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

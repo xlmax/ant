@@ -2,18 +2,25 @@ import { appendFile, mkdir, readdir, readFile, stat, truncate } from "node:fs/pr
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { AgentEvent, AgentObserver, AgentState, HistoryEvent } from "../core/agent.js";
-import type { AgentSession, SessionList, SessionStore, SessionSummary } from "../app/session.js";
+import type {
+  AgentSession,
+  CreateSessionInput,
+  ReadSession,
+  SessionList,
+  SessionRecord,
+  SessionStore,
+  SessionSummary,
+} from "../app/session.js";
 import { writeFileAtomically } from "../fs/atomic-write.js";
 
-const SESSION_VERSION = 1;
+const SESSION_VERSION = 2;
 const SESSION_METADATA_VERSION = 2;
 
-interface SessionRecord {
-  version: typeof SESSION_VERSION;
+interface StoredSessionRecord extends SessionRecord {
   sessionId: string;
   timestamp: string;
-  event: AgentEvent;
+  payload: unknown;
+  task?: string;
 }
 
 export interface JsonlAgentSession extends AgentSession {
@@ -24,6 +31,8 @@ export interface JsonlAgentSession extends AgentSession {
 interface JsonlSessionSummary extends SessionSummary {
   filePath: string;
 }
+
+class InvalidRecordJsonError extends Error {}
 
 function assertSessionId(sessionId: string): void {
   if (!/^[a-f0-9-]+$/iu.test(sessionId)) {
@@ -41,63 +50,90 @@ function sessionMetadataPath(sessionDirectory: string, sessionId: string): strin
   return join(sessionDirectory, `${sessionId}.meta.json`);
 }
 
-function parseRecord(line: string, lineNumber: number): SessionRecord {
+function parseRecord(line: string, lineNumber: number): StoredSessionRecord {
   let value: unknown;
 
   try {
     value = JSON.parse(line);
   } catch {
-    throw new Error(`Сессия содержит некорректный JSON в строке ${lineNumber}`);
+    throw new InvalidRecordJsonError(`Сессия содержит некорректный JSON в строке ${lineNumber}`);
   }
 
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`Сессия содержит некорректную запись в строке ${lineNumber}`);
+  }
   if (
-    typeof value !== "object" ||
-    value === null ||
-    !("version" in value) ||
+    "version" in value &&
+    value.version === 1 &&
+    "sessionId" in value &&
+    "timestamp" in value &&
+    "event" in value &&
+    typeof value.sessionId === "string" &&
+    typeof value.timestamp === "string"
+  ) {
+    const event = value.event;
+    const task =
+      typeof event === "object" &&
+      event !== null &&
+      "type" in event &&
+      event.type === "task" &&
+      "content" in event &&
+      typeof event.content === "string"
+        ? event.content
+        : undefined;
+    return {
+      schemaVersion: SESSION_VERSION,
+      sessionId: value.sessionId,
+      timestamp: value.timestamp,
+      payload: { schemaVersion: 1, kind: "history-event", event },
+      ...(task === undefined ? {} : { task }),
+    };
+  }
+  if (
+    "schemaVersion" in value &&
+    typeof value.schemaVersion === "number" &&
+    value.schemaVersion !== SESSION_VERSION
+  ) {
+    throw new Error(
+      `Неподдерживаемая версия session envelope ${value.schemaVersion} в строке ${lineNumber}`,
+    );
+  }
+  if (
+    !("schemaVersion" in value) ||
     !("sessionId" in value) ||
     !("timestamp" in value) ||
-    !("event" in value) ||
-    value.version !== SESSION_VERSION ||
+    !("payload" in value) ||
+    value.schemaVersion !== SESSION_VERSION ||
     typeof value.sessionId !== "string" ||
-    typeof value.timestamp !== "string"
+    typeof value.timestamp !== "string" ||
+    ("task" in value && typeof value.task !== "string")
   ) {
     throw new Error(`Сессия содержит некорректную запись в строке ${lineNumber}`);
   }
-
-  return value as SessionRecord;
+  return value as StoredSessionRecord;
 }
 
-function serializeRecord(sessionId: string, event: AgentEvent, timestamp: string): string {
-  const record: SessionRecord = {
-    version: SESSION_VERSION,
+function serializeRecord(
+  sessionId: string,
+  payload: unknown,
+  timestamp: string,
+  task?: string,
+): string {
+  const record: StoredSessionRecord = {
+    schemaVersion: SESSION_VERSION,
     sessionId,
     timestamp,
-    event,
+    payload: structuredClone(payload),
+    ...(task === undefined ? {} : { task }),
   };
 
   return `${JSON.stringify(record)}\n`;
 }
 
-/**
- * Only history events are written to the journal. The allow-list makes a
- * future lifecycle event fail safe: a type not listed here is simply not
- * persisted, instead of silently leaking into the session file.
- */
-export function isPersistedEvent(event: AgentEvent): event is HistoryEvent {
-  return (
-    event.type === "task" ||
-    event.type === "user" ||
-    event.type === "decision" ||
-    event.type === "compaction" ||
-    event.type === "observation" ||
-    event.type === "verification"
-  );
-}
-
 function summaryFromRecords(
   id: string,
   filePath: string,
-  records: readonly SessionRecord[],
+  records: readonly StoredSessionRecord[],
 ): JsonlSessionSummary {
   if (records.some((record) => record.sessionId !== id)) {
     throw new Error("Идентификатор сессии не совпадает с содержимым файла");
@@ -105,13 +141,13 @@ function summaryFromRecords(
 
   const first = records[0]!;
   const last = records.at(-1)!;
-  const task = records.find((record) => record.event.type === "task")?.event;
+  const task = records.find((record) => record.task !== undefined)?.task;
   return {
     id,
     filePath,
     createdAt: first.timestamp,
     updatedAt: last.timestamp,
-    task: task?.type === "task" ? task.content : "Без исходной задачи",
+    task: task ?? "Без исходной задачи",
   };
 }
 
@@ -204,7 +240,7 @@ async function readSessionMetadata(
 }
 
 interface ReadSessionRecordsResult {
-  records: SessionRecord[];
+  records: StoredSessionRecord[];
   /** Byte length of the clean journal boundary (excludes a torn tail). */
   validBytes: number;
   /** True when the final record is valid but the file lacks a trailing newline. */
@@ -213,7 +249,7 @@ interface ReadSessionRecordsResult {
 
 async function readSessionRecords(filePath: string): Promise<ReadSessionRecordsResult> {
   const content = await readFile(filePath, "utf8");
-  const records: SessionRecord[] = [];
+  const records: StoredSessionRecord[] = [];
   const lines = content.split(/\r?\n/u);
   const hasIncompleteTail = content !== "" && !content.endsWith("\n");
   let tornTail = false;
@@ -222,7 +258,12 @@ async function readSessionRecords(filePath: string): Promise<ReadSessionRecordsR
       try {
         records.push(parseRecord(line, index + 1));
       } catch (error) {
-        if (hasIncompleteTail && index === lines.length - 1 && records.length > 0) {
+        if (
+          error instanceof InvalidRecordJsonError &&
+          hasIncompleteTail &&
+          index === lines.length - 1 &&
+          records.length > 0
+        ) {
           tornTail = true;
           break;
         }
@@ -262,35 +303,6 @@ async function readSessionRecords(filePath: string): Promise<ReadSessionRecordsR
   };
 }
 
-class JsonlSessionObserver implements AgentObserver {
-  readonly #sessionDirectory: string;
-  readonly #sessionId: string;
-  readonly #filePath: string;
-  #summary: JsonlSessionSummary;
-
-  constructor(sessionDirectory: string, summary: JsonlSessionSummary) {
-    this.#sessionDirectory = sessionDirectory;
-    this.#sessionId = summary.id;
-    this.#filePath = summary.filePath;
-    this.#summary = summary;
-  }
-
-  async onEvent(event: AgentEvent): Promise<void> {
-    if (!isPersistedEvent(event)) {
-      return;
-    }
-
-    const timestamp = new Date().toISOString();
-    await appendFile(this.#filePath, serializeRecord(this.#sessionId, event, timestamp), "utf8");
-    this.#summary = {
-      ...this.#summary,
-      updatedAt: timestamp,
-      ...(event.type === "task" ? { task: event.content } : {}),
-    };
-    await writeSessionMetadata(this.#sessionDirectory, this.#summary);
-  }
-}
-
 export class JsonlSessionStore implements SessionStore {
   readonly #sessionDirectory: string;
 
@@ -298,25 +310,25 @@ export class JsonlSessionStore implements SessionStore {
     this.#sessionDirectory = sessionDirectory;
   }
 
-  async create(state: AgentState): Promise<JsonlAgentSession> {
+  async create(input: CreateSessionInput): Promise<JsonlAgentSession> {
     const id = randomUUID();
     const filePath = sessionFilePath(this.#sessionDirectory, id);
     const createdAt = new Date().toISOString();
-    const task = state.events.find((event) => event.type === "task");
     const summary: JsonlSessionSummary = {
       id,
       filePath,
       createdAt,
       updatedAt: createdAt,
-      task: task?.type === "task" ? task.content : "Без исходной задачи",
+      task: input.task,
     };
 
     await mkdir(this.#sessionDirectory, { recursive: true });
     await writeFileAtomically(
       filePath,
-      state.events
-        .filter((event) => isPersistedEvent(event))
-        .map((event) => serializeRecord(id, event, createdAt))
+      input.payloads
+        .map((payload, index) =>
+          serializeRecord(id, payload, createdAt, index === 0 ? input.task : undefined),
+        )
         .join(""),
     );
     await writeSessionMetadata(this.#sessionDirectory, summary);
@@ -325,7 +337,24 @@ export class JsonlSessionStore implements SessionStore {
       id,
       filePath,
       location: filePath,
-      observer: new JsonlSessionObserver(this.#sessionDirectory, summary),
+    };
+  }
+
+  async append(sessionId: string, payload: unknown): Promise<SessionRecord> {
+    const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
+    await stat(filePath);
+    const timestamp = new Date().toISOString();
+    await appendFile(filePath, serializeRecord(sessionId, payload, timestamp), "utf8");
+    const records = (await readSessionRecords(filePath)).records;
+    await writeSessionMetadata(
+      this.#sessionDirectory,
+      summaryFromRecords(sessionId, filePath, records),
+    );
+    return {
+      schemaVersion: SESSION_VERSION,
+      sessionId,
+      timestamp,
+      payload: structuredClone(payload),
     };
   }
 
@@ -387,10 +416,7 @@ export class JsonlSessionStore implements SessionStore {
     };
   }
 
-  async resume(sessionId: string): Promise<{
-    state: AgentState;
-    session: JsonlAgentSession;
-  }> {
+  async read(sessionId: string): Promise<ReadSession> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
     const { records, validBytes, needsNewlineSeparator } = await readSessionRecords(filePath);
 
@@ -407,15 +433,16 @@ export class JsonlSessionStore implements SessionStore {
 
     const summary = summaryFromRecords(sessionId, filePath, records);
     await writeSessionMetadata(this.#sessionDirectory, summary);
+    const session: JsonlAgentSession = { id: sessionId, filePath, location: filePath };
 
     return {
-      state: { events: records.map((record) => record.event).filter(isPersistedEvent) },
-      session: {
-        id: sessionId,
-        filePath,
-        location: filePath,
-        observer: new JsonlSessionObserver(this.#sessionDirectory, summary),
-      },
+      records: records.map(({ schemaVersion, sessionId: id, timestamp, payload }) => ({
+        schemaVersion,
+        sessionId: id,
+        timestamp,
+        payload: structuredClone(payload),
+      })),
+      session,
     };
   }
 }

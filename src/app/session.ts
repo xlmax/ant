@@ -1,10 +1,7 @@
-import type { AgentObserver, AgentState } from "../core/agent.js";
-
 export interface AgentSession {
-  id: string;
-  observer: AgentObserver;
+  readonly id: string;
   /** Optional human-readable storage location for diagnostics and UI. */
-  location?: string;
+  readonly location?: string;
 }
 
 export interface SessionSummary {
@@ -19,14 +16,27 @@ export interface SessionList {
   warnings: string[];
 }
 
-export interface ResumedSession {
-  state: AgentState;
-  session: AgentSession;
+export interface SessionRecord {
+  readonly schemaVersion: 2;
+  readonly sessionId: string;
+  readonly timestamp: string;
+  readonly payload: unknown;
 }
 
-/** Durable history contract independent of a concrete storage backend. */
+export interface CreateSessionInput {
+  readonly task: string;
+  readonly payloads: readonly unknown[];
+}
+
+export interface ReadSession {
+  readonly session: AgentSession;
+  readonly records: readonly SessionRecord[];
+}
+
+/** Durable record store. Payload interpretation belongs to an application codec. */
 export interface SessionStore {
-  create(state: AgentState): Promise<AgentSession>;
+  create(input: CreateSessionInput): Promise<AgentSession>;
+  append(sessionId: string, payload: unknown): Promise<SessionRecord>;
+  read(sessionId: string): Promise<ReadSession>;
   list(): Promise<SessionList>;
-  resume(sessionId: string): Promise<ResumedSession>;
 }

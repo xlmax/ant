@@ -4,323 +4,205 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAgentState, runAgent, type AgentModel } from "../src/core/agent.js";
-import { isPersistedEvent, JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
-import { echoTool } from "./support/echo-tool.js";
-import { StubModel } from "./support/stub-model.js";
+import { decodeHistoryEvent, encodeHistoryEvent } from "../src/app/session-codec.js";
+import type { SessionStore } from "../src/app/session.js";
+import { JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
+import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
 
-test("JSONL session store persists and resumes agent events", async () => {
+interface StoreFixture {
+  store: SessionStore;
+  cleanup(): Promise<void>;
+}
+
+type StoreFactory = () => Promise<StoreFixture>;
+
+const memoryFactory: StoreFactory = async () => ({
+  store: new MemorySessionStore(),
+  async cleanup() {},
+});
+
+const jsonlFactory: StoreFactory = async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-contract-"));
+  return {
+    store: new JsonlSessionStore(directory),
+    cleanup: () => rm(directory, { recursive: true, force: true }),
+  };
+};
+
+function sessionStoreContract(name: string, factory: StoreFactory): void {
+  test(`${name}: create, append, read and list preserve opaque records`, async () => {
+    const item = await factory();
+    try {
+      const initial = { kind: "example", nested: { value: 1 } };
+      const session = await item.store.create({ task: "Contract task", payloads: [initial] });
+      initial.nested.value = 99;
+      const appended = { kind: "second", values: [1, 2] };
+      const record = await item.store.append(session.id, appended);
+      appended.values.push(3);
+
+      const read = await item.store.read(session.id);
+      assert.equal(read.session.id, session.id);
+      assert.deepEqual(
+        read.records.map((entry) => entry.payload),
+        [
+          { kind: "example", nested: { value: 1 } },
+          { kind: "second", values: [1, 2] },
+        ],
+      );
+      assert.ok(read.records.every((entry) => entry.schemaVersion === 2));
+      assert.ok(read.records.every((entry) => entry.sessionId === session.id));
+      assert.ok(read.records.every((entry) => !Number.isNaN(Date.parse(entry.timestamp))));
+      assert.equal(record.sessionId, session.id);
+
+      const listed = await item.store.list();
+      assert.equal(listed.sessions.length, 1);
+      assert.equal(listed.sessions[0]?.task, "Contract task");
+      assert.deepEqual(listed.warnings, []);
+    } finally {
+      await item.cleanup();
+    }
+  });
+
+  test(`${name}: sessions are isolated and unknown ids fail`, async () => {
+    const item = await factory();
+    try {
+      const first = await item.store.create({ task: "First", payloads: [{ value: 1 }] });
+      const second = await item.store.create({ task: "Second", payloads: [{ value: 2 }] });
+      await item.store.append(first.id, { value: 3 });
+      assert.equal((await item.store.read(first.id)).records.length, 2);
+      assert.equal((await item.store.read(second.id)).records.length, 1);
+      await assert.rejects(() => item.store.read("00000000-0000-0000-0000-000000000000"));
+      await assert.rejects(() => item.store.append("00000000-0000-0000-0000-000000000000", {}));
+    } finally {
+      await item.cleanup();
+    }
+  });
+}
+
+sessionStoreContract("MemorySessionStore", memoryFactory);
+sessionStoreContract("JsonlSessionStore", jsonlFactory);
+
+test("JSONL writes version 2 envelopes and reads legacy version 1 journals", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
   try {
     const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Исходная задача"));
-    assert.equal(session.location, session.filePath);
-
-    await session.observer.onEvent({
-      type: "model.requested",
-      attempt: 1,
-      maxAttempts: 1,
+    const current = await store.create({
+      task: "Current",
+      payloads: [encodeHistoryEvent({ type: "task", content: "Current" })!],
     });
-    await session.observer.onEvent({
-      type: "model.usage",
-      usage: {
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
-        reasoning: "off",
-        inputTokens: 10,
-        outputTokens: 20,
-        totalTokens: 30,
-        contextWindow: 1_000_000,
-        source: "provider",
-      },
-    });
-    await session.observer.onEvent({
-      type: "decision",
-      decision: {
-        type: "finish",
-        answer: "Первый ответ",
-        reasoning: "Внутреннее рассуждение",
-      },
-    });
+    assert.match(await readFile(current.location!, "utf8"), /"schemaVersion":2/u);
 
-    const resumed = await store.resume(session.id);
-    const content = await readFile(session.filePath, "utf8");
-
-    assert.deepEqual(
-      resumed.state.events.map((event) => event.type),
-      ["task", "decision"],
+    const legacyId = "00000000-0000-0000-0000-000000000001";
+    const legacyPath = join(directory, `${legacyId}.jsonl`);
+    await writeFile(
+      legacyPath,
+      `${JSON.stringify({
+        version: 1,
+        sessionId: legacyId,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        event: { type: "task", content: "Legacy" },
+      })}\n`,
+      "utf8",
     );
-    assert.equal(content.trim().split("\n").length, 2);
-    assert.match(content, /Внутреннее рассуждение/u);
-    assert.match(content, /"version":1/u);
-    assert.match(content, new RegExp(session.id, "u"));
+    const legacy = await store.read(legacyId);
+    assert.deepEqual(decodeHistoryEvent(legacy.records[0]?.payload), {
+      type: "task",
+      content: "Legacy",
+    });
+    await store.append(
+      legacyId,
+      encodeHistoryEvent({ type: "decision", decision: { type: "finish", answer: "ok" } })!,
+    );
+    const content = await readFile(legacyPath, "utf8");
+    assert.match(content.split("\n")[0] ?? "", /"version":1/u);
+    assert.match(content.split("\n")[1] ?? "", /"schemaVersion":2/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("JSONL session store lists saved sessions and their tasks", async () => {
+test("JSONL repairs only a torn final JSON record", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
   try {
     const store = new JsonlSessionStore(directory);
-    assert.deepEqual(await store.list(), { sessions: [], warnings: [] });
+    const session = await store.create({ task: "Task", payloads: [{ value: 1 }] });
+    const path = session.location!;
+    const valid = await readFile(path, "utf8");
+    await writeFile(path, `${valid}{"schemaVersion":2`, "utf8");
+    assert.equal((await store.read(session.id)).records.length, 1);
+    assert.equal(await readFile(path, "utf8"), valid);
 
-    const first = await store.create(createAgentState("Первая задача"));
-    const second = await store.create(createAgentState("Вторая задача"));
-    const brokenId = "00000000-0000-0000-0000-000000000000";
+    const withoutNewline = valid.replace(/\n$/u, "");
+    await writeFile(path, withoutNewline, "utf8");
+    assert.equal((await store.read(session.id)).records.length, 1);
+    assert.equal(await readFile(path, "utf8"), `${withoutNewline}\n`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL rejects future envelope and payload versions without truncating", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Task", payloads: [{ value: 1 }] });
+    const path = session.location!;
+    const valid = await readFile(path, "utf8");
+    const future = `${valid}${JSON.stringify({
+      schemaVersion: 3,
+      sessionId: session.id,
+      timestamp: new Date().toISOString(),
+      payload: {},
+    })}`;
+    await writeFile(path, future, "utf8");
+    await assert.rejects(() => store.read(session.id), /строке 2/u);
+    assert.equal(await readFile(path, "utf8"), future);
+
+    const payload = encodeHistoryEvent({ type: "task", content: "Task" })!;
+    (payload as { schemaVersion: number }).schemaVersion = 2;
+    const other = await store.create({ task: "Payload", payloads: [payload] });
+    const read = await store.read(other.id);
+    assert.throws(() => decodeHistoryEvent(read.records[0]?.payload), /payload version.*2/iu);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("session codec excludes lifecycle events and preserves rich history payloads", () => {
+  assert.equal(
+    encodeHistoryEvent({ type: "model.requested", attempt: 1, maxAttempts: 1 }),
+    undefined,
+  );
+  const event = {
+    type: "observation" as const,
+    call: { id: "image", name: "read", input: { path: "screen.png" } },
+    observation: {
+      ok: true as const,
+      value: { kind: "image" },
+      attachments: [
+        {
+          type: "image" as const,
+          path: "attachment.png",
+          mediaType: "image/png" as const,
+          bytes: 12,
+        },
+      ],
+    },
+  };
+  assert.deepEqual(decodeHistoryEvent(encodeHistoryEvent(event)), event);
+});
+
+test("JSONL list isolates a damaged session and rebuilds metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Healthy", payloads: [{ value: 1 }] });
+    const brokenId = "00000000-0000-0000-0000-000000000002";
     await writeFile(join(directory, `${brokenId}.jsonl`), "\n{\n", "utf8");
-    const { sessions, warnings } = await store.list();
-    const tasks = new Map(sessions.map((session) => [session.id, session.task]));
-
-    assert.equal(sessions.length, 2);
-    assert.equal(tasks.get(first.id), "Первая задача");
-    assert.equal(tasks.get(second.id), "Вторая задача");
-    assert.ok(sessions.every((session) => session.updatedAt.endsWith("Z")));
-    assert.ok(sessions.every((session) => !("filePath" in session)));
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0] ?? "", new RegExp(brokenId, "u"));
-    assert.match(warnings[0] ?? "", /строке 2/u);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("JSONL session store refreshes stale sidecar metadata from JSONL", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Задача из метаданных"));
-    assert.equal((await store.list()).sessions[0]?.task, "Задача из метаданных");
-
-    await writeFile(session.filePath, "{", "utf8");
     const listed = await store.list();
-
-    assert.equal(listed.sessions.length, 0);
-    assert.match(listed.warnings[0] ?? "", /некорректный JSON/u);
-    await assert.rejects(store.resume(session.id), /некорректный JSON/u);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("JSONL session store ignores only an incomplete final record", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Уцелевшая задача"));
-    const validContent = await readFile(session.filePath, "utf8");
-    await writeFile(session.filePath, `${validContent}{"version":1`, "utf8");
-
-    const resumed = await store.resume(session.id);
-    assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
-
-    // Resume must trim the partial tail so a later append keeps the journal
-    // well-formed instead of concatenating JSON onto the damaged line.
-    assert.equal(await readFile(session.filePath, "utf8"), validContent);
-
-    await resumed.session.observer.onEvent({
-      type: "decision",
-      decision: { type: "finish", answer: "Дописанный ответ", reasoning: "" },
-    });
-    const afterAppend = await store.resume(session.id);
-    assert.deepEqual(
-      afterAppend.state.events.map((event) => event.type),
-      ["task", "decision"],
-    );
-    assert.equal((await readFile(session.filePath, "utf8")).trim().split("\n").length, 2);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("JSONL session store keeps a valid final record without a trailing newline", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Уцелевшая задача"));
-    const validContent = (await readFile(session.filePath, "utf8")).replace(/\n$/u, "");
-    await writeFile(session.filePath, validContent, "utf8");
-
-    // The single record is valid but lacks a trailing newline. Resume must not
-    // treat it as a torn tail and truncate the file to zero.
-    const resumed = await store.resume(session.id);
-    assert.deepEqual(resumed.state.events, [{ type: "task", content: "Уцелевшая задача" }]);
-    assert.equal(await readFile(session.filePath, "utf8"), `${validContent}\n`);
-
-    await resumed.session.observer.onEvent({
-      type: "decision",
-      decision: { type: "finish", answer: "Дописанный ответ", reasoning: "" },
-    });
-    const afterAppend = await store.resume(session.id);
-    assert.deepEqual(
-      afterAppend.state.events.map((event) => event.type),
-      ["task", "decision"],
-    );
-    assert.equal((await readFile(session.filePath, "utf8")).trim().split("\n").length, 2);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("JSONL session store preserves image attachments", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Опиши изображение"));
-    await session.observer.onEvent({
-      type: "observation",
-      call: { id: "read-image", name: "read", input: { path: "screen.png" } },
-      observation: {
-        ok: true,
-        value: { kind: "image" },
-        attachments: [
-          {
-            type: "image",
-            path: "C:\\workspace\\.ant\\attachments\\hash.png",
-            mediaType: "image/png",
-            bytes: 12,
-          },
-        ],
-      },
-    });
-
-    const resumed = await store.resume(session.id);
-    assert.deepEqual(resumed.state.events.at(-1), {
-      type: "observation",
-      call: { id: "read-image", name: "read", input: { path: "screen.png" } },
-      observation: {
-        ok: true,
-        value: { kind: "image" },
-        attachments: [
-          {
-            type: "image",
-            path: "C:\\workspace\\.ant\\attachments\\hash.png",
-            mediaType: "image/png",
-            bytes: 12,
-          },
-        ],
-      },
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("session observer records the complete agent loop", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
-  try {
-    const store = new JsonlSessionStore(directory);
-    const state = createAgentState("Поздоровайся");
-    const session = await store.create(state);
-    const result = await runAgent(state, {
-      model: new StubModel(),
-      environment: new ToolEnvironment([echoTool]),
-      historyObserver: session.observer,
-    });
-    const resumed = await store.resume(session.id);
-
-    assert.equal(result.status, "completed");
-    const persistedEvents = result.state.events.filter((event) => isPersistedEvent(event));
-    assert.deepEqual(resumed.state.events, persistedEvents);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("JSONL session store persists verification events across resume", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-
-  try {
-    const store = new JsonlSessionStore(directory);
-    const state = createAgentState("Расскажи про README");
-    const session = await store.create(state);
-
-    const model: AgentModel = {
-      async decide({ events }) {
-        const verified = events.some((event) => event.type === "verification");
-        return verified
-          ? { type: "finish", answer: "Итог: README — это руководство по Ant." }
-          : { type: "finish", answer: "   " };
-      },
-    };
-
-    const result = await runAgent(state, {
-      model,
-      environment: new ToolEnvironment([]),
-      historyObserver: session.observer,
-      verification: {
-        enabled: true,
-        maxRounds: 2,
-        checks: ["empty-answer", "echo-task", "failed-tools"],
-      },
-    });
-
-    assert.equal(result.status, "completed");
-    if (result.status !== "completed") return;
-    assert.equal(result.state.events.filter((event) => event.type === "verification").length, 1);
-
-    const resumed = await store.resume(session.id);
-    assert.deepEqual(
-      resumed.state.events.map((event) => event.type),
-      ["task", "decision", "verification", "decision"],
-    );
-    const verification = resumed.state.events.find((event) => event.type === "verification");
-    assert.ok(verification?.type === "verification");
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("session journals do not persist transient tool lifecycle events", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Поток"));
-    const call = { id: "bash-1", name: "bash", input: { command: "work" } };
-    await session.observer.onEvent({ type: "tool.started", call });
-    await session.observer.onEvent({
-      type: "tool.output",
-      call,
-      output: { stream: "stdout", content: "secret transient output" },
-    });
-    await session.observer.onEvent({
-      type: "tool.finished",
-      call,
-      observation: { ok: true, value: { exitCode: 0 } },
-      durationMs: 10,
-    });
-
-    const content = await readFile(session.filePath, "utf8");
-    assert.doesNotMatch(content, /tool\.(started|output|finished)|secret transient output/u);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("session journals persist compaction summaries and retained events", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
-  try {
-    const store = new JsonlSessionStore(directory);
-    const session = await store.create(createAgentState("Старая задача"));
-    const retainedEvents = [{ type: "user" as const, content: "Новая задача" }];
-    await session.observer.onEvent({
-      type: "compaction",
-      summary: "Старая задача завершена.",
-      retainedEvents,
-    });
-
-    const resumed = await store.resume(session.id);
-    assert.deepEqual(resumed.state.events.at(-1), {
-      type: "compaction",
-      summary: "Старая задача завершена.",
-      retainedEvents,
-    });
+    assert.equal(listed.sessions[0]?.id, session.id);
+    assert.equal(listed.warnings.length, 1);
+    assert.match(listed.warnings[0] ?? "", new RegExp(brokenId, "u"));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
