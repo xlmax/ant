@@ -390,11 +390,43 @@ Factory инструмента должен получать ограничен�
 
 Критерии готовности:
 
-- новый модуль не требует правки центрального parser для собственных настроек;
-- неизвестные namespace и несовместимые версии дают понятную диагностику;
-- `model.baseUrl` и секреты сохраняют текущую защиту от проектной подмены;
-- старые `settings.json` поддерживаются или мигрируются атомарно;
-- правила приоритета user/project покрыты тестами.
+- application получает `ConfigurationSnapshot` и извлекает типизированные
+  секции по стабильным keys; центральный aggregate `AppSettings` удалён;
+- публичный `ConfigurationSection` объявляет namespace, текущую schema version,
+  defaults, validator/parser, migrations, merge policy, project override policy
+  и secret/sensitive paths;
+- `ConfigurationRegistry` принимает секции без изменения центрального parser;
+  повторный namespace отклоняется при регистрации;
+- filesystem service только читает user/project layers, распознаёт legacy или
+  versioned envelope, маршрутизирует raw sections владельцам и выполняет
+  validate/migrate/merge; он не знает полей model, UI, tools и других модулей;
+- новый канонический формат имеет root schema version и version каждой секции;
+  неизвестный namespace, будущая root/section version и отсутствующая migration
+  дают понятную ошибку с source и namespace;
+- существующие model, UI, prompts, tools, limits и verification оформлены
+  отдельными зарегистрированными section modules;
+- DeepSeek adapter владеет model-section parser/migrations/defaults и получает
+  `DEEPSEEK_API_KEY` только из environment; секрет нельзя загрузить из user или
+  project settings;
+- project layer не может менять provider, endpoint/`baseUrl` и иные объявленные
+  sensitive paths, но сохраняет разрешённые model/UI overrides;
+- старый плоский `settings.json` полностью поддерживается при чтении; первая
+  операция сохранения атомарно переводит user-файл в канонический формат без
+  потери неизвестных безопасных данных зарегистрированных секций;
+- generic save API обновляет только указанную секцию, валидирует результат и не
+  пишет частичный/некорректный файл;
+- contract tests со второй искусственной секцией доказывают регистрацию без
+  правки service, defaults, обе layers, migration, version diagnostics,
+  sensitive/secret policy и атомарное сохранение;
+- прежние настройки и CLI-поведение проходят compatibility и полный integration
+  tests.
+
+Вне объёма этапа:
+
+- динамическое обнаружение section modules и plugin lifecycle;
+- шифрование secret storage или vault integration;
+- изменение JSONL session format;
+- удалённая конфигурация и live reload.
 
 ## Этап 5. Версионированный session contract
 
