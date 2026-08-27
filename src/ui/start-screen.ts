@@ -1,10 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import type { ModelDescriptor } from "../app/model.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
-const execFileAsync = promisify(execFile);
 
 const LOGO = [
   " █████╗ ███╗   ██╗████████╗",
@@ -19,19 +15,6 @@ const TOP_COMMANDS = ["/model", "/think", "/context", "/compact", "/new", "/exit
 
 function normalizePath(workspace: string): string {
   return workspace.replaceAll("\\", "/");
-}
-
-export async function resolveGitBranch(workspace: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("git", ["branch", "--show-current"], {
-      cwd: workspace,
-      encoding: "utf8",
-    });
-    const branch = stdout.trim();
-    return branch === "" ? undefined : branch;
-  } catch {
-    return undefined;
-  }
 }
 
 export function formatStartScreen(options: {

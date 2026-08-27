@@ -530,11 +530,64 @@ REPL-команды должны регистрироваться handlers, а �
 
 Критерии готовности:
 
-- `/update`, `/model`, `/compact` представлены отдельными handlers;
-- updater и Git detector подменяются в тестах через порты;
-- command registry допускает добавление команды без изменения controller;
-- renderer не выполняет прикладные операции;
-- terminal frontend зависит только от API приложения и presentation-портов.
+- parser и dispatcher не содержат union/switch со списком встроенных команд:
+  `CommandRegistry` регистрирует descriptor, parser и handler каждого модуля и
+  до запуска отклоняет повторные имена;
+- `/update`, `/model` и `/compact` представлены отдельными handlers; независимая
+  тестовая команда подключается одной регистрацией без изменения registry,
+  parser, dispatcher или REPL loop;
+- `/help`, подсказка опечатки, строгая проверка аргументов и порядок отображения
+  команд формируются registry и сохраняют текущее пользовательское поведение;
+- terminal input/output описан портом, который владеет readline, user frame,
+  stdout/stderr и очисткой экрана; REPL loop не обращается к console/stdin/stdout
+  напрямую и гарантированно закрывает input;
+- process signals и timeout clock доступны через presentation-порты;
+  `TurnRunner` и compact handler не используют global process и
+  `AbortSignal.timeout` напрямую и снимают listener при успехе и ошибке;
+- update check/install описаны `UpdateService`; startup notice и `/update`
+  подменяются в тестах без сети или запуска npm;
+- Git branch detection и turn change tracking создаются через порты/factories;
+  REPL и `TurnRunner` не создают concrete Git adapters самостоятельно;
+- renderer ограничен форматированием и выводом lifecycle/result: он не вызывает
+  application API, settings, updater, Git или process operations;
+- `TerminalFrontend` только собирает terminal presentation session из
+  `AntApplicationApi` и внедрённых presentation dependencies; one-shot и REPL
+  используют одну фабрику turn runner;
+- contract/unit tests проверяют custom command, конфликт имён, cleanup terminal
+  и signal listener, подмену updater/Git adapters и независимость renderer;
+- architecture tests запрещают REPL/command infrastructure прямые импорты
+  `node:process`, `node:readline`, concrete updater и Git process adapter;
+- существующие CLI/REPL команды, тексты, one-shot режим, Windows input и полный
+  CLI integration test работают без намеренных регрессий.
+
+Вне объёма этапа:
+
+- динамическая загрузка внешних команд и plugin lifecycle (этапы 7 и 9);
+- физическое вынесение terminal frontend в npm package (этап 8);
+- смена application API или формата настроек/сессий;
+- новый GUI/web frontend;
+- permission prompts и sandbox process abstraction.
+
+Результат этапа 6:
+
+- удалены центральные command union, parser и dispatch `switch`; новый
+  `CommandRegistry` регистрирует descriptor/parser/handler и диагностирует
+  конфликты имён;
+- встроенные команды оформлены command modules, включая отдельные handlers для
+  `/compact`, `/model` и `/update`; custom command contract test подтверждает
+  расширение одной регистрацией;
+- terminal input/output, process signals/timeouts, updater и Git presentation
+  вынесены в порты с Node.js adapters, подключаемыми в composition root;
+- REPL не обращается к global console/stdin/stdout/process, использует injected
+  branch/update services и всегда закрывает terminal input;
+- `TurnRunner` получает signal и change-tracker factories, снимает interrupt
+  listener и освобождает renderer при любом исходе;
+- concrete Git branch detector и `TurnChangeTracker` создаются только adapter
+  layer, updater не импортируется command/repl infrastructure;
+- architecture и unit tests фиксируют границы, cleanup ресурсов и подмену
+  updater/Git/process/terminal без сети и внешних процессов;
+- one-shot и REPL сохраняют единый turn path, пользовательские команды и
+  существующее CLI-поведение.
 
 ## Этап 7. Lifecycle, capabilities и contract tests
 
@@ -633,7 +686,7 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 3. Tool registry и tool packs
 - [x] Этап 4. Модульная конфигурация
 - [x] Этап 5. Версионированный session contract
-- [ ] Этап 6. Декомпозиция terminal frontend
+- [x] Этап 6. Декомпозиция terminal frontend
 - [ ] Этап 7. Lifecycle и contract tests
 - [ ] Этап 8. npm workspaces
 - [ ] Этап 9. Динамические внешние плагины
