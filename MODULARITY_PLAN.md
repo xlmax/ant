@@ -428,6 +428,24 @@ Factory инструмента должен получать ограничен�
 - изменение JSONL session format;
 - удалённая конфигурация и live reload.
 
+Результат этапа 4:
+
+- центральный `AppSettings` и монолитный parser удалены; application читает
+  типизированные секции из `ConfigurationSnapshot`;
+- добавлены `ConfigurationSection`, `ConfigurationRegistry` и section-agnostic
+  `FileConfigurationService` с versioned envelope, migrations и атомарным save;
+- model-конфигурация, defaults, legacy migration и secret/sensitive policy
+  принадлежат DeepSeek-модулю; UI, prompts, tools, limits и verification
+  зарегистрированы отдельными встроенными секциями;
+- user/project layers валидируются и объединяются владельцами секций; project не
+  может подменить provider, endpoint или сохранить секрет;
+- старый плоский формат полностью поддерживается при чтении и переводится в
+  канонический формат при первой операции сохранения;
+- независимая тестовая секция подтверждает подключение без изменения service,
+  миграции, версии, trust policy и отказоустойчивое сохранение;
+- architecture tests фиксируют отсутствие знаний о конкретных полях в
+  filesystem service и явную регистрацию секций в composition root.
+
 ## Этап 5. Версионированный session contract
 
 Отвязать хранилище сессий от внутреннего представления `AgentState` и механизма
@@ -567,7 +585,7 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 1. Прикладные сценарии
 - [x] Этап 2. Provider-neutral модельный контракт
 - [x] Этап 3. Tool registry и tool packs
-- [ ] Этап 4. Модульная конфигурация
+- [x] Этап 4. Модульная конфигурация
 - [ ] Этап 5. Версионированный session contract
 - [ ] Этап 6. Декомпозиция terminal frontend
 - [ ] Этап 7. Lifecycle и contract tests

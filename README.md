@@ -126,40 +126,40 @@ Later files extend earlier ones. The prompt applies to every model call in the c
 
 ### Settings
 
-Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.json` in the working directory. The project file overrides the global one except for `model.baseUrl`: because it controls where the API key is sent, it is accepted only from the user-level file.
+Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.json` in the working directory. Settings are owned by versioned modules and routed through a configuration registry. The project file overrides the global one except for provider selection and `model.providerOptions.baseUrl`: because the endpoint controls where the API key is sent, it is accepted only from the user-level file. Secrets such as `DEEPSEEK_API_KEY` are never accepted from settings files.
 
 ```json
 {
-  "model": {
-    "provider": "deepseek",
-    "id": "deepseek-v4-flash",
-    "baseUrl": "https://api.deepseek.com",
-    "contextWindow": 1000000,
-    "vision": false,
-    "thinking": { "enabled": true, "effort": "high" }
-  },
-  "ui": {
-    "reasoningMode": "off",
-    "reasoningMaxLines": 6,
-    "showChanges": false,
-    "color": true
-  },
-  "prompts": { "additionalPaths": ["prompts/local.md"] },
-  "tools": { "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe" },
-  "limits": {
-    "turnTimeoutSeconds": 900,
-    "modelRequestTimeoutSeconds": 90,
-    "modelMaxAttempts": 3
-  },
-  "verification": {
-    "enabled": true,
-    "maxRounds": 2,
-    "checks": ["empty-answer", "echo-task", "failed-tools"]
+  "schemaVersion": 1,
+  "sections": {
+    "model": {
+      "version": 1,
+      "value": {
+        "providerId": "deepseek",
+        "modelId": "deepseek-v4-flash",
+        "providerOptions": {
+          "baseUrl": "https://api.deepseek.com",
+          "contextWindow": 1000000,
+          "vision": false,
+          "thinking": { "enabled": true, "effort": "high" }
+        }
+      }
+    },
+    "ui": {
+      "version": 1,
+      "value": { "reasoningMode": "off", "reasoningMaxLines": 6 }
+    },
+    "prompts": {
+      "version": 1,
+      "value": { "additionalPaths": ["prompts/local.md"] }
+    }
   }
 }
 ```
 
-Only `deepseek` is supported. For a custom vision model, set `model.vision: true`. To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. `model.baseUrl` can only be set in the user-level `~/.ant/settings.json` — a project file cannot override it. All app settings live in JSON; keep only `DEEPSEEK_API_KEY` in `.env.local`.
+The previous flat format remains supported and is migrated atomically when a command first saves user settings. Unknown sections and unsupported root or section versions are rejected instead of being silently ignored.
+
+Only `deepseek` is supported. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Keep `DEEPSEEK_API_KEY` in `.env.local`.
 
 `contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 
