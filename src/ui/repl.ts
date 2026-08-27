@@ -1,18 +1,9 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-import type {
-  ModelSettings,
-  ProjectSettingsOverrides,
-  ReasoningDisplayMode,
-  RuntimeLimits,
-  VerificationSettings,
-} from "../app/configuration.js";
+import type { ProjectSettingsOverrides, ReasoningDisplayMode } from "../app/configuration.js";
 import type { FrontendSettingsCommands } from "../app/frontend.js";
-import type { AntHostContext } from "../app/host-context.js";
-import type { AgentModel } from "../core/agent.js";
-import type { ContextSummarizer } from "../core/context-events.js";
-import { SessionController } from "../app/session-controller.js";
+import type { AntApplicationApi } from "../app/application-client.js";
 import { checkForUpdates, isRunningUnderNpm } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
@@ -28,18 +19,12 @@ import { TurnRunner } from "./turn-runner.js";
 
 export interface ReplOptions {
   workspace: string;
-  host: AntHostContext;
-  model: AgentModel;
-  summarizer: ContextSummarizer;
-  modelSettings: ModelSettings;
+  client: AntApplicationApi;
   settings: FrontendSettingsCommands;
   projectOverrides: ProjectSettingsOverrides;
   reasoningMode: ReasoningDisplayMode;
   reasoningMaxLines: number;
   showChanges?: boolean;
-  limits: RuntimeLimits;
-  verification?: VerificationSettings;
-  systemPrompt: string;
   resume?: string;
 }
 
@@ -53,24 +38,17 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     reasoningMaxLines: options.reasoningMaxLines,
   });
   const inputHistory = new InputHistory();
-  const state = {
-    model: options.model,
-    modelSettings: options.modelSettings,
-    summarizer: options.summarizer,
-  };
-  const sessions = new SessionController(options.host.sessions);
-
   const branch = await resolveGitBranch(options.workspace);
   console.log(
     formatStartScreen({
       workspace: options.workspace,
       branch,
-      modelSettings: state.modelSettings,
+      modelSettings: options.client.modelSettings,
     }),
   );
 
   if (options.resume) {
-    const resumed = await sessions.resume(options.resume);
+    const resumed = await options.client.resumeSession(options.resume);
     console.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
   }
 
@@ -89,28 +67,21 @@ export async function runRepl(options: ReplOptions): Promise<void> {
 
       const command = parseReplCommand(input.trim());
       if (command) {
-        const result = await handleReplCommand(command, { options, renderer, sessions, state });
+        const result = await handleReplCommand(command, { options, renderer });
         if (result === "exit") return;
         continue;
       }
 
       inputHistory.add(input);
-      const prepared = await sessions.prepareUserMessage(input);
-      const { state: sessionState, session } = prepared;
-      if (prepared.created) console.log(ansi.dim(`Сессия: ${session.id}`));
-
       try {
         await new TurnRunner({
           workspace: options.workspace,
-          runtime: options.host.runtime,
-          model: state.model,
-          environment: options.host.environment,
+          client: options.client,
           renderer,
-          session,
-          limits: options.limits,
-          ...(options.verification === undefined ? {} : { verification: options.verification }),
           showChanges: options.showChanges ?? false,
-        }).run(sessionState);
+        }).run(input, (session, created) => {
+          if (created) console.log(ansi.dim(`Сессия: ${session.id}`));
+        });
       } catch (error) {
         console.error(
           ansi.red(

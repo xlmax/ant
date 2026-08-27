@@ -20,6 +20,7 @@ const knownRootModules = new Set(["main.ts", "version.ts"]);
 interface LayerRule {
   allowedLayers: ReadonlySet<string>;
   allowedRootModules?: ReadonlySet<string>;
+  forbiddenModules?: ReadonlySet<string>;
   allowExternal: boolean;
 }
 
@@ -38,6 +39,11 @@ const layerRules: Readonly<Record<string, LayerRule>> = {
   ui: {
     allowedLayers: new Set(["ui", "app", "core", "updates"]),
     allowedRootModules: new Set(["version.ts"]),
+    forbiddenModules: new Set([
+      "app/model-provider.ts",
+      "app/session-controller.ts",
+      "core/runtime.ts",
+    ]),
     allowExternal: true,
   },
   updates: { allowedLayers: new Set(["updates"]), allowExternal: true },
@@ -191,8 +197,9 @@ export async function analyzeLayerBoundaries(sourceRoot: string): Promise<Archit
 
       const [targetLayer] = target.split("/");
       const allowed =
-        (targetLayer !== undefined && rule.allowedLayers.has(targetLayer)) ||
-        rule.allowedRootModules?.has(target) === true;
+        rule.forbiddenModules?.has(target) !== true &&
+        ((targetLayer !== undefined && rule.allowedLayers.has(targetLayer)) ||
+          rule.allowedRootModules?.has(target) === true);
       if (!allowed) {
         violations.push({
           kind: "dependency",

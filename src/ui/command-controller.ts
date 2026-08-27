@@ -1,27 +1,15 @@
-import type { AgentModel } from "../core/agent.js";
-import { estimateContextBudget } from "../core/context-budget.js";
-import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
-import { SessionController } from "../app/session-controller.js";
 import { checkForUpdates, runGlobalUpdate } from "../updates/updates.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
 import { getReplCommands, type CommandAction } from "./commands.js";
 import { ConsoleRenderer } from "./console-renderer.js";
 import { formatContextStatus } from "./context-status.js";
-import { formatModelStatus, selectEffort } from "./runtime-model.js";
+import { formatModelStatus } from "./runtime-model.js";
 import type { ReplOptions } from "./repl.js";
-
-export interface ReplCommandState {
-  model: AgentModel;
-  modelSettings: ReplOptions["modelSettings"];
-  summarizer: ContextSummarizer;
-}
 
 export interface ReplCommandContext {
   options: ReplOptions;
   renderer: ConsoleRenderer;
-  sessions: SessionController;
-  state: ReplCommandState;
 }
 
 export type CommandResult = "continue" | "exit";
@@ -30,27 +18,28 @@ export async function handleReplCommand(
   command: CommandAction,
   context: ReplCommandContext,
 ): Promise<CommandResult> {
-  const { options, renderer, sessions, state } = context;
+  const { options, renderer } = context;
+  const { client } = options;
 
   switch (command.type) {
     case "exit":
-      if (sessions.active) {
-        console.log(ansi.dim(`Для продолжения сессии: ant -s ${sessions.active.session.id}`));
+      if (client.activeSession) {
+        console.log(ansi.dim(`Для продолжения сессии: ant -s ${client.activeSession.session.id}`));
       }
       return "exit";
 
     case "new":
-      sessions.reset();
+      client.resetSession();
       console.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
       return "continue";
 
     case "session":
       console.log(
-        sessions.active
+        client.activeSession
           ? ansi.dim(
-              `Сессия: ${sessions.active.session.id}${
-                sessions.active.session.location
-                  ? `\nХранилище: ${sessions.active.session.location}`
+              `Сессия: ${client.activeSession.session.id}${
+                client.activeSession.session.location
+                  ? `\nХранилище: ${client.activeSession.session.location}`
                   : ""
               }`,
             )
@@ -63,77 +52,40 @@ export async function handleReplCommand(
       return "continue";
 
     case "context":
-      console.log(
-        formatContextStatus(
-          estimateContextBudget({
-            systemPrompt: options.systemPrompt,
-            events: sessions.active?.state.events ?? [],
-            tools: options.host.environment.tools(),
-            contextWindow: state.modelSettings.contextWindow,
-            includeImages: state.modelSettings.vision,
-            includeReasoning: state.modelSettings.thinking.enabled,
-          }),
-        ),
-      );
+      console.log(formatContextStatus(client.getContextStatus()));
       return "continue";
 
     case "compact": {
-      if (!sessions.active) {
-        console.log(ansi.dim("Сессия ещё не создана."));
-        return "continue";
-      }
-      const plan = createCompactionPlan(sessions.active.state.events);
-      if (!plan) {
-        console.log(
-          ansi.dim("Для сжатия нужно больше двух пользовательских ходов в активном контексте."),
-        );
-        return "continue";
-      }
-
-      const before = estimateContextBudget({
-        systemPrompt: options.systemPrompt,
-        events: sessions.active.state.events,
-        tools: options.host.environment.tools(),
-        contextWindow: state.modelSettings.contextWindow,
-        includeImages: state.modelSettings.vision,
-        includeReasoning: state.modelSettings.thinking.enabled,
-      });
-      console.log(ansi.dim("Сжимаю старую часть контекста…"));
       const cancelCompaction = new AbortController();
       const onCompactionSigint = (): void => cancelCompaction.abort();
       process.on("SIGINT", onCompactionSigint);
 
       try {
-        const signal = AbortSignal.any([
-          cancelCompaction.signal,
-          AbortSignal.timeout(options.limits.turnTimeoutSeconds * 1_000),
-        ]);
-        const summary = await state.summarizer.summarize(plan.eventsToSummarize, signal);
-        const event = {
-          type: "compaction" as const,
-          summary,
-          retainedEvents: plan.retainedEvents,
-        };
-        const after = estimateContextBudget({
-          systemPrompt: options.systemPrompt,
-          events: [...sessions.active.state.events, event],
-          tools: options.host.environment.tools(),
-          contextWindow: state.modelSettings.contextWindow,
-          includeImages: state.modelSettings.vision,
-          includeReasoning: state.modelSettings.thinking.enabled,
+        const result = await client.compactContext({
+          signal: cancelCompaction.signal,
+          onStarted: () => console.log(ansi.dim("Сжимаю старую часть контекста…")),
         });
-        if (after.estimatedTokens >= before.estimatedTokens) {
+        if (result.status === "no-session") {
+          console.log(ansi.dim("Сессия ещё не создана."));
+          return "continue";
+        }
+        if (result.status === "not-enough-history") {
+          console.log(
+            ansi.dim("Для сжатия нужно больше двух пользовательских ходов в активном контексте."),
+          );
+          return "continue";
+        }
+        if (result.status === "not-smaller") {
           console.warn(
             ansi.yellow(
-              `Резюме не уменьшило контекст (~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов), поэтому сессия не изменена.`,
+              `Резюме не уменьшило контекст (~${result.before.estimatedTokens.toLocaleString("ru-RU")} → ~${result.after.estimatedTokens.toLocaleString("ru-RU")} токенов), поэтому сессия не изменена.`,
             ),
           );
           return "continue";
         }
-        await sessions.appendPersistentEvent(event);
         console.log(
           ansi.green(
-            `Контекст сжат: ~${before.estimatedTokens.toLocaleString("ru-RU")} → ~${after.estimatedTokens.toLocaleString("ru-RU")} токенов. Последние ${plan.retainedUserTurns} хода сохранены дословно.`,
+            `Контекст сжат: ~${result.before.estimatedTokens.toLocaleString("ru-RU")} → ~${result.after.estimatedTokens.toLocaleString("ru-RU")} токенов. Последние ${result.retainedUserTurns} хода сохранены дословно.`,
           ),
         );
       } catch (error) {
@@ -182,11 +134,13 @@ export async function handleReplCommand(
     case "model":
       if (command.list) {
         try {
-          const models = await options.host.provider.listModels(state.modelSettings);
+          const models = await client.listModels();
           console.log(ansi.bold("Доступные модели DeepSeek:"));
           if (models.length === 0) console.log(ansi.dim("Provider не вернул доступные модели."));
           for (const id of models)
-            console.log(`${id === state.modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`);
+            console.log(
+              `${id === client.modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`,
+            );
         } catch (error) {
           console.error(
             ansi.red(
@@ -195,19 +149,18 @@ export async function handleReplCommand(
           );
         }
       } else if (command.id === undefined) {
-        console.log(ansi.dim(`Модель: ${formatModelStatus(state.modelSettings)}`));
-      } else if (command.id === state.modelSettings.id) {
-        console.log(ansi.dim(`Модель уже активна: ${formatModelStatus(state.modelSettings)}`));
+        console.log(ansi.dim(`Модель: ${formatModelStatus(client.modelSettings)}`));
       } else {
         try {
-          const vision = await options.settings.saveModelId(command.id);
-          state.modelSettings = { ...state.modelSettings, id: command.id, vision };
-          state.model = options.host.provider.createAgentModel(state.modelSettings);
-          state.summarizer = options.host.provider.createContextSummarizer(state.modelSettings);
+          const selection = await client.selectModel(command.id);
           console.log(
-            ansi.dim(`Модель переключена и сохранена: ${formatModelStatus(state.modelSettings)}`),
+            ansi.dim(
+              selection.changed
+                ? `Модель переключена и сохранена: ${formatModelStatus(selection.settings)}`
+                : `Модель уже активна: ${formatModelStatus(selection.settings)}`,
+            ),
           );
-          if (options.projectOverrides.modelId)
+          if (selection.changed && options.projectOverrides.modelId)
             console.warn(
               ansi.yellow(
                 "⚠ Проектная настройка model.id перекроет это значение после перезапуска.",
@@ -225,24 +178,15 @@ export async function handleReplCommand(
 
     case "think":
       if (command.selection === undefined) {
-        console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(state.modelSettings)}`));
+        console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(client.modelSettings)}`));
       } else {
-        const nextSettings = selectEffort(state.modelSettings, command.selection);
-        const changed =
-          nextSettings.thinking.enabled !== state.modelSettings.thinking.enabled ||
-          nextSettings.thinking.effort !== state.modelSettings.thinking.effort;
-        if (changed) {
-          state.modelSettings = nextSettings;
-          state.model = options.host.provider.createAgentModel(state.modelSettings);
-          state.summarizer = options.host.provider.createContextSummarizer(state.modelSettings);
-        }
         try {
-          await options.settings.saveThinking(nextSettings.thinking);
+          const selection = await client.selectThinking(command.selection);
           console.log(
             ansi.dim(
-              changed
-                ? `Рассуждения модели переключены и сохранены: ${formatModelStatus(state.modelSettings)}`
-                : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(state.modelSettings)}`,
+              selection.changed
+                ? `Рассуждения модели переключены и сохранены: ${formatModelStatus(selection.settings)}`
+                : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(selection.settings)}`,
             ),
           );
           if (options.projectOverrides.modelThinking)

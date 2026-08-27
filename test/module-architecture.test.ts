@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AntHost } from "../src/app/ant-host.js";
+import { AntApplicationClient } from "../src/app/application-client.js";
 import type { ModelSettings } from "../src/app/configuration.js";
 import type { AntFrontend } from "../src/app/frontend.js";
 import type { ModelProvider } from "../src/app/model-provider.js";
-import {
-  createAgentState,
-  type AgentModel,
-  type AgentState,
-  type Environment,
-} from "../src/core/agent.js";
+import type { AgentModel, AgentState, Environment } from "../src/core/agent.js";
 import type { ContextSummarizer } from "../src/core/context-events.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
 import type { SessionList, SessionStore } from "../src/app/session.js";
@@ -53,7 +48,7 @@ class MemorySessionStore implements SessionStore {
   }
 }
 
-test("AntHost composes replaceable runtime, frontend, provider, and session modules", async () => {
+test("application client composes replaceable runtime, provider, session, and environment modules", async () => {
   const calls: string[] = [];
   const model: AgentModel = {
     async decide() {
@@ -99,35 +94,45 @@ test("AntHost composes replaceable runtime, frontend, provider, and session modu
       return [];
     },
   };
-  const host = new AntHost({ runtime, provider, sessions, environment });
+  const client = new AntApplicationClient({
+    runtime,
+    provider,
+    sessions,
+    environment,
+    systemPrompt: "system prompt",
+    modelSettings: settings,
+    settings: {
+      async saveModelId() {
+        return false;
+      },
+      async saveThinking() {},
+    },
+    limits: {
+      turnTimeoutSeconds: 60,
+      modelRequestTimeoutSeconds: 10,
+      modelMaxAttempts: 1,
+    },
+  });
 
   const frontend: AntFrontend = {
-    async run(context) {
+    async run(received) {
       calls.push("frontend");
-      assert.equal(context.provider, provider);
-      assert.equal(context.sessions, sessions);
-      assert.equal(context.environment, environment);
-
-      const activeModel = context.provider.createAgentModel(settings);
-      assert.equal(context.provider.createContextSummarizer(settings), summarizer);
-      assert.deepEqual(await context.provider.listModels(settings), ["test-model"]);
-      const state = createAgentState("task");
-      const session = await context.sessions.create(state);
-      const result = await context.runtime.run(state, {
-        model: activeModel,
-        environment: context.environment,
-        historyObserver: session.observer,
-      });
-      assert.equal(result.status, "completed");
-      if (result.status === "completed") assert.equal(result.answer, "alternative core");
+      assert.equal(received, client);
+      assert.equal(received.modelSettings, settings);
+      assert.deepEqual(await received.listModels(), ["test-model"]);
+      const submitted = await received.submitTurn("task");
+      assert.equal(submitted.result.status, "completed");
+      if (submitted.result.status === "completed") {
+        assert.equal(submitted.result.answer, "alternative core");
+      }
     },
   };
 
-  await host.run(frontend);
+  await frontend.run(client);
   assert.deepEqual(calls, [
-    "frontend",
     "provider.model",
     "provider.summarizer",
+    "frontend",
     "provider.list",
     "runtime",
   ]);

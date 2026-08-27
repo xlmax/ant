@@ -1,6 +1,5 @@
 import type { AntFrontend, FrontendOptions } from "../app/frontend.js";
-import type { AntHostContext } from "../app/host-context.js";
-import { SessionController } from "../app/session-controller.js";
+import type { AntApplicationApi } from "../app/application-client.js";
 import { configureAnsi } from "./ansi.js";
 import { ConsoleRenderer } from "./console-renderer.js";
 import { initConsoleSize } from "./console-size.js";
@@ -17,44 +16,29 @@ export class TerminalFrontend implements AntFrontend {
     this.#options = options;
   }
 
-  async run(host: AntHostContext): Promise<void> {
+  async run(client: AntApplicationApi): Promise<void> {
     configureAnsi(this.#options.color);
     await initConsoleSize();
 
-    const model = host.provider.createAgentModel(this.#options.modelSettings);
-    const summarizer = host.provider.createContextSummarizer(this.#options.modelSettings);
-
     if (this.#options.task === "") {
-      await runRepl({ ...this.#options, host, model, summarizer });
+      await runRepl({ ...this.#options, client });
       return;
     }
 
-    const sessions = new SessionController(host.sessions);
-    if (this.#options.resume) await sessions.resume(this.#options.resume);
-    const prepared = await sessions.prepareUserMessage(this.#options.task);
-    const { state, session } = prepared;
+    if (this.#options.resume) await client.resumeSession(this.#options.resume);
 
     const renderer = new ConsoleRenderer({
       reasoningMode: this.#options.reasoningMode,
       reasoningMaxLines: this.#options.reasoningMaxLines,
     });
-    console.log(`Сессия: ${session.id}`);
-
     const result = await new TurnRunner({
       workspace: this.#options.workspace,
-      runtime: host.runtime,
-      model,
-      environment: host.environment,
+      client,
       renderer,
-      session,
-      limits: this.#options.limits,
-      ...(this.#options.verification === undefined
-        ? {}
-        : { verification: this.#options.verification }),
       showChanges: this.#options.showChanges ?? false,
-    }).run(state);
+    }).run(this.#options.task, (session) => console.log(`Сессия: ${session.id}`));
 
-    if (result.status === "cancelled") {
+    if (result.result.status === "cancelled") {
       process.exitCode = 2;
     }
   }

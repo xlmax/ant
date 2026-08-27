@@ -1,6 +1,6 @@
 import type { Environment } from "../core/agent.js";
 import type { AgentRuntime } from "../core/runtime.js";
-import { AntHost } from "./ant-host.js";
+import { AntApplicationClient } from "./application-client.js";
 import type { SettingsModule } from "./configuration.js";
 import type { AntFrontend, FrontendOptions } from "./frontend.js";
 import type { ModelProvider } from "./model-provider.js";
@@ -84,31 +84,33 @@ export class AntApplication {
         ? {}
         : { bashPath: loadedSettings.settings.tools.bashPath },
     );
-    const host = new AntHost({
+    const client = new AntApplicationClient({
       runtime: this.#modules.runtime,
       provider,
       sessions: store,
       environment,
+      systemPrompt: systemPrompt.content,
+      modelSettings,
+      settings: {
+        saveModelId,
+        saveThinking: (thinking) => this.#modules.settings.saveThinking(thinking),
+      },
+      limits: loadedSettings.settings.limits,
+      verification: loadedSettings.settings.verification,
     });
     const frontend = this.#modules.createFrontend({
       task: runOptions.task,
       workspace,
       color: loadedSettings.settings.ui.color,
-      modelSettings,
       settings: {
-        saveModelId,
-        saveThinking: (thinking) => this.#modules.settings.saveThinking(thinking),
         saveReasoningMode: (mode) => this.#modules.settings.saveReasoningMode(mode),
       },
       projectOverrides: loadedSettings.projectOverrides,
       reasoningMode: loadedSettings.settings.ui.reasoningMode,
       reasoningMaxLines: loadedSettings.settings.ui.reasoningMaxLines,
       showChanges: loadedSettings.settings.ui.showChanges,
-      limits: loadedSettings.settings.limits,
-      verification: loadedSettings.settings.verification,
-      systemPrompt: systemPrompt.content,
       ...(resume === undefined ? {} : { resume }),
     });
-    await host.run(frontend);
+    await frontend.run(client);
   }
 }
