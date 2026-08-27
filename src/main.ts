@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { AntApplication } from "./app/application.js";
 import { ConfigurationRegistry } from "./app/configuration-registry.js";
 import { ToolRegistry } from "./app/tool-registry.js";
+import { ModuleRegistry, moduleDescriptor } from "./app/module-lifecycle.js";
 import { runCli } from "./cli/cli-adapter.js";
 import { applyLocalEnvironment } from "./config/local-environment.js";
 import { registerBuiltinConfigurationSections } from "./config/builtin-configuration-sections.js";
@@ -33,7 +34,24 @@ const configurationRegistry = new ConfigurationRegistry();
 configurationRegistry.register(deepSeekConfigurationSection);
 registerBuiltinConfigurationSections(configurationRegistry);
 
+const lifecycle = new ModuleRegistry();
+for (const descriptor of [
+  moduleDescriptor("ant.runtime.default", "runtime", ["agent.runtime"]),
+  moduleDescriptor("ant.configuration.file", "configuration", ["configuration.sections"]),
+  moduleDescriptor("ant.provider.deepseek", "model-provider", ["model.provider"]),
+  moduleDescriptor("ant.session.jsonl", "session-store", ["session.store"]),
+  moduleDescriptor("ant.tools.coding", "tool-pack", ["tools.coding"]),
+  moduleDescriptor(
+    "ant.frontend.terminal",
+    "frontend",
+    ["frontend"],
+    ["agent.runtime", "model.provider", "session.store"],
+  ),
+])
+  lifecycle.register({ descriptor });
+
 const application = new AntApplication({
+  lifecycle,
   runtime: defaultAgentRuntime,
   settings: createFileSettingsModule(configurationRegistry),
   loadSystemPrompt,

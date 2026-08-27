@@ -14,6 +14,7 @@ import type { AntFrontend, FrontendOptions } from "./frontend.js";
 import type { ModelProvider } from "./model-provider.js";
 import type { SessionList, SessionStore } from "./session.js";
 import type { SystemPrompt } from "./system-prompt.js";
+import type { ModuleRegistry } from "./module-lifecycle.js";
 
 export interface ProviderBootstrapOptions {
   systemPrompt: string;
@@ -31,6 +32,7 @@ export interface AntApplicationModules {
   createSessionStore(workspace: string): SessionStore;
   createEnvironment(workspace: string, options: EnvironmentBootstrapOptions): Environment;
   createFrontend(options: FrontendOptions): AntFrontend;
+  lifecycle?: ModuleRegistry;
 }
 
 export interface AntApplicationRunOptions {
@@ -63,6 +65,14 @@ export class AntApplication {
   }
 
   async run(runOptions: AntApplicationRunOptions): Promise<void> {
+    if (this.#modules.lifecycle) {
+      await this.#modules.lifecycle.run(() => this.#run(runOptions));
+      return;
+    }
+    await this.#run(runOptions);
+  }
+
+  async #run(runOptions: AntApplicationRunOptions): Promise<void> {
     const { workspace } = runOptions;
     const store = this.#modules.createSessionStore(workspace);
     const resume = await resolveResumeId(runOptions, store);

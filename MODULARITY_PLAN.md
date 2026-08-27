@@ -610,10 +610,54 @@ REPL-команды должны регистрироваться handlers, а �
 
 Критерии готовности:
 
-- несовместимый модуль отклоняется до начала пользовательской сессии;
-- ресурсы корректно освобождаются при штатном завершении и ошибке запуска;
-- каждая production-реализация проходит соответствующий contract suite;
-- startup diagnostics перечисляет активные модули и их версии.
+- application-owned `ModuleDescriptor` содержит стабильные `id`, `kind`,
+  `apiVersion`, provided/required capabilities; эти поля не принадлежат
+  concrete adapters;
+- `ModuleRegistry` до создания пользовательской сессии отклоняет пустой или
+  повторный id, неподдерживаемую API version, неизвестный kind и неудовлетворённую
+  capability с диагностикой модуля и требования;
+- registry запускает модули в порядке регистрации только после успешной общей
+  валидации; `dispose` вызывается один раз в обратном порядке при штатном
+  завершении, ошибке frontend и частичном сбое startup;
+- lifecycle state запрещает повторный `start`, регистрацию после запуска и
+  использование host после dispose; ошибки cleanup агрегируются без потери
+  исходной ошибки;
+- health diagnostics различают registered, started, healthy/degraded/failed и
+  содержат id, kind, API version, capabilities и сообщение без секретных config;
+- composition root явно регистрирует runtime, configuration, provider, session
+  store, tool pack и terminal frontend descriptors; startup diagnostics доступны
+  application host до первого turn;
+- reusable contract suites существуют для `ModelProvider`, `SessionStore`,
+  `ToolPack`, `ConfigurationSection` и `Frontend`; все production реализации
+  проходят соответствующие suites, минимум одна альтернативная fixture каждого
+  контракта подтверждает его независимость;
+- integration test подтверждает lifecycle вокруг полного CLI application run и
+  cleanup при ошибке frontend, не меняя обычный пользовательский вывод;
+- architecture tests запрещают concrete adapters определять собственную форму
+  module descriptor или обходить registry при composition.
+
+Вне объёма этапа:
+
+- физическое разделение npm packages (этап 8);
+- discovery и загрузка внешних manifests (этап 9);
+- sandbox/изоляция исполняемого кода;
+- semver ranges шире текущей major API version;
+- live start/stop или hot reload модулей во время сессии.
+
+Результат этапа 7:
+
+- добавлены application-owned `ModuleDescriptor`, `AntModule` и
+  `ModuleRegistry` с API version, kinds и capability requirements;
+- вся композиция валидируется до startup; несовместимые версии, неизвестные
+  kinds, конфликты id и отсутствующие capabilities имеют явную диагностику;
+- lifecycle запускается в порядке регистрации и освобождается в обратном,
+  включая rollback частичного startup и агрегацию ошибок cleanup;
+- health diagnostics отражают descriptor, lifecycle state и состояние здоровья;
+- composition root регистрирует descriptors runtime, configuration, DeepSeek
+  provider, JSONL store, coding tools и terminal frontend;
+- application оборачивает полный frontend run в lifecycle host;
+- reusable suites provider/session/tool/configuration дополнены frontend и
+  lifecycle contract tests; production и альтернативные fixtures проходят их.
 
 ## Этап 8. Физическое разделение на packages
 
@@ -687,6 +731,6 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 4. Модульная конфигурация
 - [x] Этап 5. Версионированный session contract
 - [x] Этап 6. Декомпозиция terminal frontend
-- [ ] Этап 7. Lifecycle и contract tests
+- [x] Этап 7. Lifecycle и contract tests
 - [ ] Этап 8. npm workspaces
 - [ ] Этап 9. Динамические внешние плагины
