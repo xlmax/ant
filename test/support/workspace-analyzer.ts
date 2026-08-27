@@ -33,7 +33,7 @@ const allowedDependencies: Readonly<Record<string, ReadonlySet<string>>> = {
   "@ant/session-jsonl": new Set(["@ant/contracts", "@ant/core", "@ant/app"]),
   "@ant/tools-coding": new Set(["@ant/contracts", "@ant/core", "@ant/app"]),
   "@ant/frontend-terminal": new Set(["@ant/contracts", "@ant/core", "@ant/app"]),
-  "@ant/cli": new Set([
+  ant: new Set([
     "@ant/contracts",
     "@ant/core",
     "@ant/app",
@@ -74,7 +74,7 @@ export async function analyzeWorkspaces(projectRoot: string): Promise<WorkspaceV
     const manifest = JSON.parse(
       await readFile(resolve(packageRoot, "package.json"), "utf8"),
     ) as WorkspaceManifest;
-    const expectedName = `@ant/${packageDirectory}`;
+    const expectedName = packageDirectory === "cli" ? "ant" : `@ant/${packageDirectory}`;
     if (manifest.name !== expectedName || manifest.exports === undefined) {
       violations.push({
         kind: "manifest",

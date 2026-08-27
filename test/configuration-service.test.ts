@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ConfigurationRegistry } from "../src/app/configuration-registry.js";
-import { configurationKey, type ConfigurationSection } from "../src/app/configuration-section.js";
-import { FileConfigurationService } from "../src/config/configuration-service.js";
+import { ConfigurationRegistry } from "../packages/app/src/configuration-registry.js";
+import {
+  configurationKey,
+  type ConfigurationSection,
+} from "../packages/app/src/configuration-section.js";
+import { FileConfigurationService } from "../packages/cli/src/config/configuration-service.js";
 
 interface ExampleSettings {
   label: string;

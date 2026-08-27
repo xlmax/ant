@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { displayWidth } from "../src/ui/display-width.js";
-import { StreamingMarkdownRenderer } from "../src/ui/markdown.js";
+import { displayWidth } from "../packages/frontend-terminal/src/display-width.js";
+import { StreamingMarkdownRenderer } from "../packages/frontend-terminal/src/markdown.js";
 
 test("streaming markdown renderer buffers incomplete lines", () => {
   const renderer = new StreamingMarkdownRenderer();

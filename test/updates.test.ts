@@ -6,9 +6,9 @@ import {
   isRunningUnderNpm,
   isTrustedReleaseAssetUrl,
   parseLatestRelease,
-} from "../src/updates/updates.js";
-import { configureAnsi } from "../src/ui/ansi.js";
-import { formatUpdateNotice } from "../src/ui/update-notice.js";
+} from "../packages/frontend-terminal/src/updates/updates.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { formatUpdateNotice } from "../packages/frontend-terminal/src/update-notice.js";
 
 test("isNewer compares semantic versions", () => {
   assert.equal(isNewer("0.5.0", "0.4.0"), true);

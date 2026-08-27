@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadSystemPrompt } from "../src/config/system-prompt.js";
+import { loadSystemPrompt } from "../packages/cli/src/config/system-prompt.js";
 
 test("system prompt loads the bundled default", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "ant-prompt-"));

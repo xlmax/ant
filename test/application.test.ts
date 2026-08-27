@@ -2,16 +2,19 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
 
-import { type LoadedConfiguration, type SettingsModule } from "../src/app/configuration.js";
-import { AntApplication, type AntApplicationModules } from "../src/app/application.js";
-import type { AntApplicationApi } from "../src/app/application-client.js";
-import type { AntFrontend, FrontendOptions } from "../src/app/frontend.js";
-import type { ModelProvider } from "../src/app/model-provider.js";
-import type { SessionList, SessionStore } from "../src/app/session.js";
-import type { AgentModel } from "../src/core/agent.js";
-import type { ContextSummarizer } from "../src/core/context-events.js";
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
-import type { AgentRuntime } from "../src/core/runtime.js";
+import {
+  type LoadedConfiguration,
+  type SettingsModule,
+} from "../packages/app/src/configuration.js";
+import { AntApplication, type AntApplicationModules } from "../packages/app/src/application.js";
+import type { AntApplicationApi } from "../packages/app/src/application-client.js";
+import type { AntFrontend, FrontendOptions } from "../packages/app/src/frontend.js";
+import type { ModelProvider } from "../packages/app/src/model-provider.js";
+import type { SessionList, SessionStore } from "../packages/app/src/session.js";
+import type { AgentModel } from "../packages/core/src/agent.js";
+import type { ContextSummarizer } from "../packages/core/src/context-events.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
+import type { AgentRuntime } from "../packages/core/src/runtime.js";
 
 const loadedValues: Record<string, unknown> = {
   model: {

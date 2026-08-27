@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AntApplicationRunOptions } from "../src/app/application.js";
-import type { SessionList } from "../src/app/session.js";
-import { runCli, type CliAdapterModules, type CliApplication } from "../src/cli/cli-adapter.js";
-import { VERSION } from "../src/version.js";
+import type { AntApplicationRunOptions } from "../packages/app/src/application.js";
+import type { SessionList } from "../packages/app/src/session.js";
+import {
+  runCli,
+  type CliAdapterModules,
+  type CliApplication,
+} from "../packages/cli/src/cli-adapter.js";
+import { VERSION } from "../packages/contracts/src/version.js";
 
 interface Harness {
   modules: CliAdapterModules;

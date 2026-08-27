@@ -5,9 +5,9 @@ import test from "node:test";
 test("session storage contract and adapters do not depend on runtime state", async () => {
   const files = await Promise.all(
     [
-      "../src/app/session.ts",
-      "../src/sessions/jsonl-session-store.ts",
-      "../src/sessions/memory-session-store.ts",
+      "../packages/app/src/session.ts",
+      "../packages/session-jsonl/src/jsonl-session-store.ts",
+      "../packages/session-jsonl/src/memory-session-store.ts",
     ].map(async (path) => ({
       path,
       content: await readFile(new URL(path, import.meta.url), "utf8"),

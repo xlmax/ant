@@ -1,4 +1,9 @@
-import type { AgentEvent, AgentModel, Decision, ModelInput } from "../../src/core/agent.js";
+import type {
+  AgentEvent,
+  AgentModel,
+  Decision,
+  ModelInput,
+} from "../../packages/core/src/agent.js";
 
 function findLastObservation(
   events: readonly AgentEvent[],

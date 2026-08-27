@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "tsBuildInfoFile": "dist/.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../app" },
+    { "path": "../provider-deepseek" },
+    { "path": "../session-jsonl" },
+    { "path": "../tools-coding" },
+    { "path": "../frontend-terminal" }
+  ]
+}

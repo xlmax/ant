@@ -1,4 +1,4 @@
-import type { Tool } from "../../src/app/tools.js";
+import type { Tool } from "../../packages/app/src/tools.js";
 
 export const echoTool: Tool = {
   metadata: {

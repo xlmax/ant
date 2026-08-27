@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Tool, ToolContext, ToolPack } from "../src/app/tools.js";
-import { ToolRegistry } from "../src/app/tool-registry.js";
-import { codingToolPack } from "../src/tools/coding-tool-pack.js";
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
+import type { Tool, ToolContext, ToolPack } from "../packages/app/src/tools.js";
+import { ToolRegistry } from "../packages/app/src/tool-registry.js";
+import { codingToolPack } from "../packages/tools-coding/src/coding-tool-pack.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
 
 const context: ToolContext = {
   workspace: process.cwd(),

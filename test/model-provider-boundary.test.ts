@@ -15,7 +15,7 @@ async function sourceFiles(directory: URL): Promise<Array<{ path: string; conten
 }
 
 test("application contracts contain no DeepSeek-specific model policy", async () => {
-  const files = await sourceFiles(new URL("../src/app/", import.meta.url));
+  const files = await sourceFiles(new URL("../packages/app/src/", import.meta.url));
   const leaks = files.filter((file) => /deepseek/iu.test(file.content));
 
   assert.deepEqual(
@@ -25,7 +25,7 @@ test("application contracts contain no DeepSeek-specific model policy", async ()
 });
 
 test("presentation adapters contain no provider-specific model policy", async () => {
-  const files = await sourceFiles(new URL("../src/ui/", import.meta.url));
+  const files = await sourceFiles(new URL("../packages/frontend-terminal/src/", import.meta.url));
   const leaks = files.filter((file) => /providerOptions|deepseek/iu.test(file.content));
 
   assert.deepEqual(

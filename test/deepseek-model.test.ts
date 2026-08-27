@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ModelRequestError, type HistoryEvent, type ModelInput } from "../src/core/agent.js";
-import { DeepSeekModel } from "../src/models/deepseek-model.js";
+import { ModelRequestError, type HistoryEvent, type ModelInput } from "@ant/core";
+import { DeepSeekModel } from "@ant/provider-deepseek";
 
 test("DeepSeekModel classifies fetch TypeError as retryable transport failure", async () => {
   const model = new DeepSeekModel({

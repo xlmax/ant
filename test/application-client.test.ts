@@ -4,14 +4,14 @@ import test from "node:test";
 import {
   AntApplicationClient,
   type ApplicationClientDependencies,
-} from "../src/app/application-client.js";
+} from "../packages/app/src/application-client.js";
 import type {
   ModelConfiguration,
   ModelDescriptor,
   ModelProvider,
-} from "../src/app/model-provider.js";
-import type { AgentSession, SessionStore } from "../src/app/session.js";
-import { decodeHistoryEvent, encodeHistoryEvent } from "../src/app/session-codec.js";
+} from "../packages/app/src/model-provider.js";
+import type { AgentSession, SessionStore } from "../packages/app/src/session.js";
+import { decodeHistoryEvent, encodeHistoryEvent } from "../packages/app/src/session-codec.js";
 import type {
   AgentDependencies,
   AgentEvent,
@@ -19,10 +19,10 @@ import type {
   AgentObserver,
   AgentState,
   HistoryEvent,
-} from "../src/core/agent.js";
-import type { ContextSummarizer } from "../src/core/context-events.js";
-import type { AgentRuntime } from "../src/core/runtime.js";
-import { ToolEnvironment } from "../src/tools/tool-environment.js";
+} from "../packages/core/src/agent.js";
+import type { ContextSummarizer } from "../packages/core/src/context-events.js";
+import type { AgentRuntime } from "../packages/core/src/runtime.js";
+import { ToolEnvironment } from "../packages/tools-coding/src/tool-environment.js";
 
 interface TestProviderOptions {
   contextWindow: number;

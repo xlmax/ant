@@ -1,8 +1,19 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
     "rootDir": ".",
-    "noEmit": true
+    "paths": {
+      "@ant/contracts": ["./packages/contracts/src/index.ts"],
+      "@ant/core": ["./packages/core/src/index.ts"],
+      "@ant/app": ["./packages/app/src/index.ts"],
+      "@ant/provider-deepseek": ["./packages/provider-deepseek/src/index.ts"],
+      "@ant/session-jsonl": ["./packages/session-jsonl/src/index.ts"],
+      "@ant/tools-coding": ["./packages/tools-coding/src/index.ts"],
+      "@ant/frontend-terminal": ["./packages/frontend-terminal/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "research/**/*.ts"]
+  "include": ["./packages/*/src/**/*.ts", "research/**/*.ts"]
 }

@@ -36,7 +36,12 @@ async function runCli(
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(
     process.execPath,
-    ["--import", import.meta.resolve("tsx"), join(projectRoot, "src", "main.ts"), ...args],
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      join(projectRoot, "packages", "cli", "src", "main.ts"),
+      ...args,
+    ],
     {
       cwd: workspace,
       env: {

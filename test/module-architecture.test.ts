@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AntApplicationClient } from "../src/app/application-client.js";
-import type { AntFrontend } from "../src/app/frontend.js";
-import type { ModelConfiguration, ModelProvider } from "../src/app/model-provider.js";
-import type { AgentModel, Environment } from "../src/core/agent.js";
-import type { ContextSummarizer } from "../src/core/context-events.js";
-import type { AgentRuntime } from "../src/core/runtime.js";
-import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
+import { AntApplicationClient } from "../packages/app/src/application-client.js";
+import type { AntFrontend } from "../packages/app/src/frontend.js";
+import type { ModelConfiguration, ModelProvider } from "../packages/app/src/model-provider.js";
+import type { AgentModel, Environment } from "../packages/core/src/agent.js";
+import type { ContextSummarizer } from "../packages/core/src/context-events.js";
+import type { AgentRuntime } from "../packages/core/src/runtime.js";
+import { MemorySessionStore } from "../packages/session-jsonl/src/memory-session-store.js";
 
 const configuration: ModelConfiguration = {
   providerId: "test",

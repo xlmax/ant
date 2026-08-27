@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ReasoningViewport } from "../src/ui/reasoning-viewport.js";
+import { ReasoningViewport } from "../packages/frontend-terminal/src/reasoning-viewport.js";
 
 function append(viewport: ReasoningViewport, text: string): void {
   for (const character of Array.from(text)) {
