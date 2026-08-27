@@ -461,11 +461,57 @@ Factory инструмента должен получать ограничен�
 
 Критерии готовности:
 
-- формат JSONL имеет явную schema version;
-- старые журналы открываются через миграцию/совместимый reader;
-- session store не принимает внутренний mutable `AgentState`;
-- MemorySessionStore и JsonlSessionStore проходят общий набор contract tests;
-- смена внутренней формы state не требует переписывать storage adapter.
+- application-owned `SessionStore` оперирует immutable serializable records и
+  явными `create`, `append`, `read`, `list`; он не импортирует `AgentState`,
+  `AgentEvent` или `AgentObserver`;
+- durable record envelope имеет schema version, session id, timestamp и opaque
+  payload; новая JSONL-запись использует текущую версию формата;
+- отдельный application codec переводит между runtime `HistoryEvent` и
+  versioned payload, валидирует payload и является единственной границей знания
+  о внутренней форме истории;
+- transient lifecycle events не кодируются и не попадают в durable store;
+- `SessionController`, а не storage adapter, предоставляет runtime observer и
+  соблюдает write-before-memory: ошибка append не изменяет in-memory state;
+- JSONL adapter читает прежние version 1 records с полем `event` через явную
+  envelope migration и продолжает журнал уже текущими records;
+- неизвестная будущая envelope/payload version даёт понятную ошибку с номером
+  строки, не интерпретируется как torn tail и не повреждает файл;
+- неполная последняя запись игнорируется и обрезается только при resume; валидная
+  последняя запись без newline сохраняется;
+- list использует sidecar только как cache, восстанавливает его из journal и
+  изолирует повреждённые сессии warnings;
+- reusable contract suite выполняется для `MemorySessionStore` и
+  `JsonlSessionStore` и проверяет create/append/read/list, порядок, timestamps,
+  isolation, неизвестный id и неизменяемость входных records;
+- compatibility tests подтверждают старые task/decision/observation,
+  attachments, verification и compaction records;
+- полный CLI integration test создаёт, продолжает и повторно открывает сессию в
+  новом формате без регрессии пользовательского поведения.
+
+Вне объёма этапа:
+
+- удалённое/распределённое session storage;
+- шифрование журналов;
+- compaction физического JSONL-файла;
+- lifecycle модулей и динамическая регистрация stores.
+
+Результат этапа 5:
+
+- `SessionStore` оперирует только сериализуемыми opaque records через явные
+  `create`, `append`, `read`, `list` и не зависит от состояния или observer
+  runtime;
+- application-owned codec изолирует `HistoryEvent`, версионирует payload и не
+  сохраняет transient lifecycle events;
+- `SessionController` создаёт observer и обеспечивает write-before-memory для
+  прикладных изменений истории;
+- JSONL adapter пишет envelope версии 2, читает старые records версии 1,
+  продолжает смешанный журнал текущим форматом и диагностирует будущие версии;
+- восстановление корректно различает оборванный хвост и валидную запись без
+  newline, а metadata sidecar остаётся восстанавливаемым cache;
+- добавлен независимый `MemorySessionStore`; обе реализации проходят общий
+  contract suite, compatibility и architecture tests;
+- CLI integration test создаёт сессию и дважды продолжает её из отдельных
+  процессов, подтверждая восстановление полной истории в новом формате.
 
 ## Этап 6. Декомпозиция terminal frontend
 
@@ -586,7 +632,7 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 2. Provider-neutral модельный контракт
 - [x] Этап 3. Tool registry и tool packs
 - [x] Этап 4. Модульная конфигурация
-- [ ] Этап 5. Версионированный session contract
+- [x] Этап 5. Версионированный session contract
 - [ ] Этап 6. Декомпозиция terminal frontend
 - [ ] Этап 7. Lifecycle и contract tests
 - [ ] Этап 8. npm workspaces

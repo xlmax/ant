@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { SessionController } from "../src/app/session-controller.js";
+import type { SessionStore } from "../src/app/session.js";
 import { JsonlSessionStore } from "../src/sessions/jsonl-session-store.js";
+import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
 
 test("session controller creates and appends user messages", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-controller-"));
@@ -45,4 +47,24 @@ test("session controller resumes the active session", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("session controller does not advance memory when append fails", async () => {
+  const delegate = new MemorySessionStore();
+  let rejectAppend = false;
+  const store: SessionStore = {
+    create: (input) => delegate.create(input),
+    append: async (sessionId, payload) => {
+      if (rejectAppend) throw new Error("storage unavailable");
+      return delegate.append(sessionId, payload);
+    },
+    read: (sessionId) => delegate.read(sessionId),
+    list: () => delegate.list(),
+  };
+  const controller = new SessionController(store);
+  const created = await controller.prepareUserMessage("Задача");
+  rejectAppend = true;
+
+  await assert.rejects(controller.prepareUserMessage("Не сохранится"), /storage unavailable/u);
+  assert.deepEqual(created.state.events, [{ type: "task", content: "Задача" }]);
 });

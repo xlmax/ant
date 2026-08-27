@@ -4,45 +4,16 @@ import test from "node:test";
 import { AntApplicationClient } from "../src/app/application-client.js";
 import type { AntFrontend } from "../src/app/frontend.js";
 import type { ModelConfiguration, ModelProvider } from "../src/app/model-provider.js";
-import type { AgentModel, AgentState, Environment } from "../src/core/agent.js";
+import type { AgentModel, Environment } from "../src/core/agent.js";
 import type { ContextSummarizer } from "../src/core/context-events.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
-import type { SessionList, SessionStore } from "../src/app/session.js";
+import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
 
 const configuration: ModelConfiguration = {
   providerId: "test",
   modelId: "test-model",
   providerOptions: { contextWindow: 10_000 },
 };
-
-class MemorySessionStore implements SessionStore {
-  readonly #states = new Map<string, AgentState>();
-
-  async create(state: AgentState) {
-    const id = `session-${this.#states.size + 1}`;
-    this.#states.set(id, state);
-    return {
-      id,
-      observer: { onEvent: () => {} },
-    };
-  }
-
-  async list(): Promise<SessionList> {
-    return { sessions: [], warnings: [] };
-  }
-
-  async resume(sessionId: string) {
-    const state = this.#states.get(sessionId);
-    if (!state) throw new Error(`Unknown session: ${sessionId}`);
-    return {
-      state,
-      session: {
-        id: sessionId,
-        observer: { onEvent: () => {} },
-      },
-    };
-  }
-}
 
 test("application client composes replaceable runtime, provider, session, and environment modules", async () => {
   const calls: string[] = [];

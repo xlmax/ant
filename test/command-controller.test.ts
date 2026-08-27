@@ -2,25 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { SessionController } from "../src/app/session-controller.js";
-import type { SessionStore } from "../src/app/session.js";
 import { handleReplCommand, type ReplCommandContext } from "../src/ui/command-controller.js";
+import { MemorySessionStore } from "../src/sessions/memory-session-store.js";
 
 function createSessions(): SessionController {
-  const store: SessionStore = {
-    async create() {
-      return {
-        id: "session-42",
-        observer: { onEvent: () => {} },
-      };
-    },
-    async list() {
-      return { sessions: [], warnings: [] };
-    },
-    async resume() {
-      throw new Error("resume is not used in this test");
-    },
-  };
-  return new SessionController(store);
+  return new SessionController(new MemorySessionStore());
 }
 
 test("/exit prints a resume command only for an active session", async () => {
@@ -49,7 +35,7 @@ test("/exit prints a resume command only for an active session", async () => {
       "exit",
     );
     assert.equal(output.length, 1);
-    assert.match(output[0] ?? "", /Для продолжения сессии: ant -s session-42/u);
+    assert.equal(output[0], `Для продолжения сессии: ant -s ${activeSessions.active?.session.id}`);
   } finally {
     console.log = originalLog;
   }

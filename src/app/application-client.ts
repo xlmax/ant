@@ -158,7 +158,7 @@ export class AntApplicationClient implements AntApplicationApi {
     const result = await this.#runtime.run(prepared.state, {
       model: this.#model,
       environment: this.#environment,
-      historyObserver: prepared.session.observer,
+      historyObserver: prepared.historyObserver,
       signal,
       modelRequestTimeoutMs: this.#limits.modelRequestTimeoutSeconds * 1_000,
       modelMaxAttempts: this.#limits.modelMaxAttempts,

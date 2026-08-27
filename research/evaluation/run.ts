@@ -479,12 +479,14 @@ const tasks: readonly EvalTask[] = [
     },
     async run({ workspace, model, environment }) {
       const store = new JsonlSessionStore(join(workspace, ".ant", "sessions"));
-      const initialState = createAgentState("Прочитай memory.txt и запомни контрольную фразу.");
-      const session = await store.create(initialState);
-      const firstResult = await runAgent(initialState, {
+      const controller = new SessionController(store);
+      const initial = await controller.prepareUserMessage(
+        "Прочитай memory.txt и запомни контрольную фразу.",
+      );
+      const firstResult = await runAgent(initial.state, {
         model,
         environment,
-        historyObserver: session.observer,
+        historyObserver: initial.historyObserver,
         signal: AbortSignal.timeout(TASK_TIMEOUT_MS),
       });
 
@@ -494,8 +496,7 @@ const tasks: readonly EvalTask[] = [
 
       // Reuse SessionController so the resumed user event follows the
       // persist-before-state contract (journal first, then in-memory state).
-      const controller = new SessionController(store);
-      await controller.resume(session.id);
+      await controller.resume(initial.session.id);
       const resumed = await controller.prepareUserMessage(
         "Назови контрольную фразу без повторного чтения memory.txt и без инструментов.",
       );
@@ -503,7 +504,7 @@ const tasks: readonly EvalTask[] = [
       return runAgent(resumed.state, {
         model,
         environment,
-        historyObserver: resumed.session.observer,
+        historyObserver: resumed.historyObserver,
         signal: AbortSignal.timeout(TASK_TIMEOUT_MS),
       });
     },

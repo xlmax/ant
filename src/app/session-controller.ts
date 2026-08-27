@@ -1,9 +1,16 @@
-import { createAgentState, type AgentState, type HistoryEvent } from "../core/agent.js";
+import {
+  createAgentState,
+  type AgentObserver,
+  type AgentState,
+  type HistoryEvent,
+} from "../core/agent.js";
+import { decodeHistoryEvent, encodeHistoryEvent } from "./session-codec.js";
 import type { AgentSession, SessionStore } from "./session.js";
 
 export interface ActiveSession {
   state: AgentState;
   session: AgentSession;
+  historyObserver: AgentObserver;
 }
 
 export interface PreparedUserMessage extends ActiveSession {
@@ -23,28 +30,31 @@ export class SessionController {
   }
 
   async resume(sessionId: string): Promise<ActiveSession> {
-    this.#active = await this.#store.resume(sessionId);
+    const read = await this.#store.read(sessionId);
+    const state = { events: read.records.map((record) => decodeHistoryEvent(record.payload)) };
+    this.#active = {
+      state,
+      session: read.session,
+      historyObserver: this.#observer(read.session.id),
+    };
     return this.#active;
   }
 
-  /**
-   * Appends a persistent event to the active session. The journal is written
-   * before the in-memory state is mutated so a failed write cannot leave
-   * memory ahead of the durable log.
-   */
+  /** Persists before mutating memory so failed writes cannot advance state. */
   async appendPersistentEvent(event: HistoryEvent): Promise<void> {
-    if (!this.#active) {
-      throw new Error("Нет активной сессии");
-    }
-    await this.#active.session.observer.onEvent(event);
+    if (!this.#active) throw new Error("Нет активной сессии");
+    const payload = encodeHistoryEvent(event);
+    if (payload === undefined) throw new Error("Событие не является частью истории");
+    await this.#store.append(this.#active.session.id, payload);
     this.#active.state.events.push(event);
   }
 
   async prepareUserMessage(content: string): Promise<PreparedUserMessage> {
     if (!this.#active) {
       const state = createAgentState(content);
-      const session = await this.#store.create(state);
-      this.#active = { state, session };
+      const payloads = state.events.map(encodeHistoryEvent).filter((item) => item !== undefined);
+      const session = await this.#store.create({ task: content, payloads });
+      this.#active = { state, session, historyObserver: this.#observer(session.id) };
       return { ...this.#active, created: true };
     }
 
@@ -55,5 +65,14 @@ export class SessionController {
 
   reset(): void {
     this.#active = undefined;
+  }
+
+  #observer(sessionId: string): AgentObserver {
+    return {
+      onEvent: async (event) => {
+        const payload = encodeHistoryEvent(event);
+        if (payload !== undefined) await this.#store.append(sessionId, payload);
+      },
+    };
   }
 }
