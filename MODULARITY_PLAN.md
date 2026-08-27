@@ -323,11 +323,36 @@ Factory инструмента должен получать ограничен�
 
 Критерии готовности:
 
-- новый tool pack подключается регистрацией в composition root;
-- `createCodingTools` перестаёт быть центральным списком всех инструментов;
-- конфликт имён диагностируется до запуска агента;
-- правила последовательного и параллельного выполнения покрыты contract tests;
-- текущие шесть инструментов сохраняют публичное поведение.
+- публичные `Tool`, `ToolMetadata`, `ToolContext` и `ToolPack` принадлежат
+  application contract, а не конкретному adapter-каталогу `tools`;
+- каждый tool объявляет стабильный owner/namespace, side-effect classification,
+  `parallelSafe` и требуемые platform capabilities;
+- factory пакета получает только ограниченный `ToolContext`: workspace,
+  разрешённые filesystem/process capabilities и logger, без доступа к
+  application container;
+- `ToolRegistry` принимает независимые packs и собирает инструменты в порядке
+  регистрации; новый pack подключается одной регистрацией в composition root;
+- `createCodingTools` удалён: текущие `read`, `glob`, `grep`, `bash`, `edit` и
+  `write` поставляются встроенным coding tool pack;
+- registry до создания environment отклоняет повторный id пакета, пустой pack,
+  несовпадение owner и конфликт имён с диагностикой обоих владельцев;
+- environment принимает инструменты из registry и определяет параллельность
+  только по стандартным metadata: группа выполняется параллельно, лишь когда
+  каждый вызванный tool помечен `parallelSafe` и не имеет side effects;
+- contract tests проверяют регистрацию второго независимого pack, порядок,
+  диагностику конфликтов и правила последовательного/параллельного выполнения;
+- architecture tests запрещают concrete tool adapters владеть публичным
+  контрактом и не позволяют `app` зависеть от каталога `tools`;
+- текущие шесть инструментов сохраняют имена, JSON-schema, результат, streaming,
+  abort/timeout и фактическое поведение; полный CLI integration test проходит.
+
+Вне объёма этапа:
+
+- динамическая загрузка внешних пакетов и lifecycle plugins;
+- permission prompts и sandbox enforcement;
+- namespaced tool settings (этап 4);
+- изменение модельного tool-call protocol;
+- разбиение встроенного coding pack на отдельные npm-пакеты (этап 8).
 
 ## Этап 4. Модульная конфигурация
 
