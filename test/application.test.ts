@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
 
-import { type LoadedSettings, type SettingsModule } from "../src/app/configuration.js";
+import { type LoadedConfiguration, type SettingsModule } from "../src/app/configuration.js";
 import { AntApplication, type AntApplicationModules } from "../src/app/application.js";
 import type { AntApplicationApi } from "../src/app/application-client.js";
 import type { AntFrontend, FrontendOptions } from "../src/app/frontend.js";
@@ -13,33 +13,32 @@ import type { ContextSummarizer } from "../src/core/context-events.js";
 import { ToolEnvironment } from "../src/tools/tool-environment.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
 
-const loadedSettings: LoadedSettings = {
-  settings: {
-    model: {
-      providerId: "test",
-      modelId: "test-model",
-      providerOptions: { contextWindow: 10_000, vision: false, effort: "high" },
-    },
-    ui: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: false },
-    prompts: { additionalPaths: ["extra.md"] },
-    tools: {},
-    limits: {
-      turnTimeoutSeconds: 60,
-      modelRequestTimeoutSeconds: 10,
-      modelMaxAttempts: 2,
-    },
-    verification: {
-      enabled: true,
-      maxRounds: 2,
-      checks: ["empty-answer"],
-    },
+const loadedValues: Record<string, unknown> = {
+  model: {
+    providerId: "test",
+    modelId: "test-model",
+    providerOptions: { contextWindow: 10_000, vision: false, effort: "high" },
   },
-  sources: [],
-  projectOverrides: {
-    modelId: false,
-    modelThinking: false,
-    reasoningMode: false,
-    showChanges: false,
+  ui: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: false },
+  prompts: { additionalPaths: ["extra.md"] },
+  tools: {},
+  limits: {
+    turnTimeoutSeconds: 60,
+    modelRequestTimeoutSeconds: 10,
+    modelMaxAttempts: 2,
+  },
+  verification: {
+    enabled: true,
+    maxRounds: 2,
+    checks: ["empty-answer"],
+  },
+};
+
+const loadedSettings: LoadedConfiguration = {
+  configuration: {
+    sources: [],
+    get: (key) => loadedValues[key.namespace] as never,
+    isProjectOverride: () => false,
   },
 };
 

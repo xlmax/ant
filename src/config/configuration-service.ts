@@ -47,6 +47,13 @@ function deletePath(value: unknown, path: string): void {
   if (isRecord(current)) delete current[parts.at(-1) ?? ""];
 }
 
+function leafPaths(value: unknown, prefix = ""): string[] {
+  if (!isRecord(value)) return prefix === "" ? [] : [prefix];
+  return Object.entries(value).flatMap(([key, nested]) =>
+    leafPaths(nested, prefix === "" ? key : `${prefix}.${key}`),
+  );
+}
+
 function clone(value: unknown): unknown {
   return value === undefined ? undefined : structuredClone(value);
 }
@@ -159,7 +166,9 @@ class Snapshot implements ConfigurationSnapshot {
   }
 
   isProjectOverride<T>(key: ConfigurationKey<T>, path: string): boolean {
-    return this.#projectOverrides.get(key.namespace)?.has(path) ?? false;
+    return [...(this.#projectOverrides.get(key.namespace) ?? [])].some(
+      (candidate) => candidate === path || candidate.startsWith(`${path}.`),
+    );
   }
 }
 
@@ -220,7 +229,7 @@ export class FileConfigurationService {
       for (const [namespace, raw] of layer.sections) {
         const section = this.#registry.find(namespace);
         if (section === undefined) continue;
-        let value = migrate(section, raw, layer.source);
+        const value = migrate(section, raw, layer.source);
         for (const path of section.secretPaths) {
           if (hasPath(value, path)) {
             throw new Error(
@@ -237,7 +246,7 @@ export class FileConfigurationService {
           section.merge(values.get(namespace), section.parse(value, context), context),
         );
         if (layer.layer === "project" && isRecord(value)) {
-          overrides.set(namespace, new Set(Object.keys(value)));
+          overrides.set(namespace, new Set(leafPaths(value)));
         }
       }
     }

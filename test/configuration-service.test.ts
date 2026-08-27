@@ -114,6 +114,9 @@ test("configuration service reports unknown namespaces, future versions and miss
       /unknown.*namespace.*unknown/iu,
     );
 
+    await put(item.userPath, { schemaVersion: 2, sections: {} });
+    await assert.rejects(() => item.service.load(item.projectPath), /schema version.*2/iu);
+
     await put(item.userPath, {
       schemaVersion: 1,
       sections: { example: { version: 3, value: {} } },
