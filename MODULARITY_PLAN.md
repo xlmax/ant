@@ -568,6 +568,27 @@ REPL-команды должны регистрироваться handlers, а �
 - новый GUI/web frontend;
 - permission prompts и sandbox process abstraction.
 
+Результат этапа 6:
+
+- удалены центральные command union, parser и dispatch `switch`; новый
+  `CommandRegistry` регистрирует descriptor/parser/handler и диагностирует
+  конфликты имён;
+- встроенные команды оформлены command modules, включая отдельные handlers для
+  `/compact`, `/model` и `/update`; custom command contract test подтверждает
+  расширение одной регистрацией;
+- terminal input/output, process signals/timeouts, updater и Git presentation
+  вынесены в порты с Node.js adapters, подключаемыми в composition root;
+- REPL не обращается к global console/stdin/stdout/process, использует injected
+  branch/update services и всегда закрывает terminal input;
+- `TurnRunner` получает signal и change-tracker factories, снимает interrupt
+  listener и освобождает renderer при любом исходе;
+- concrete Git branch detector и `TurnChangeTracker` создаются только adapter
+  layer, updater не импортируется command/repl infrastructure;
+- architecture и unit tests фиксируют границы, cleanup ресурсов и подмену
+  updater/Git/process/terminal без сети и внешних процессов;
+- one-shot и REPL сохраняют единый turn path, пользовательские команды и
+  существующее CLI-поведение.
+
 ## Этап 7. Lifecycle, capabilities и contract tests
 
 Ввести общий descriptor/lifecycle для подключаемых модулей:
@@ -665,7 +686,7 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 3. Tool registry и tool packs
 - [x] Этап 4. Модульная конфигурация
 - [x] Этап 5. Версионированный session contract
-- [ ] Этап 6. Декомпозиция terminal frontend
+- [x] Этап 6. Декомпозиция terminal frontend
 - [ ] Этап 7. Lifecycle и contract tests
 - [ ] Этап 8. npm workspaces
 - [ ] Этап 9. Динамические внешние плагины

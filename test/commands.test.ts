@@ -1,97 +1,74 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getReplCommands, parseReplCommand } from "../src/ui/commands.js";
+import {
+  CommandRegistry,
+  CommandUsageError,
+  type CommandContext,
+} from "../src/ui/command-registry.js";
+import { createBuiltinCommandRegistry } from "../src/ui/command-modules.js";
 
-test("command registry exposes the built-in help command", () => {
-  assert.ok(getReplCommands().some((command) => command.name === "help"));
-  assert.deepEqual(parseReplCommand("/help session"), {
-    type: "help",
-    command: {
-      name: "session",
-      usage: "/session",
-      description: "Показать идентификатор и путь текущей сессии.",
+function invocation(registry: CommandRegistry, input: string): { name: string; input: unknown } {
+  const parsed = registry.parse(input);
+  assert.ok(parsed && !("error" in parsed));
+  return { name: parsed.module.descriptor.name, input: parsed.input };
+}
+
+test("command registry exposes help and parses built-in command modules", () => {
+  const registry = createBuiltinCommandRegistry();
+  assert.ok(registry.descriptors.some((command) => command.name === "help"));
+  assert.deepEqual(invocation(registry, "/reasoning on"), {
+    name: "reasoning",
+    input: { mode: "compact" },
+  });
+  assert.deepEqual(invocation(registry, "/model list"), {
+    name: "model",
+    input: { list: true },
+  });
+  assert.deepEqual(invocation(registry, "/think max"), {
+    name: "think",
+    input: { selection: "max" },
+  });
+});
+
+test("command registry validates arguments and suggests a similar command", () => {
+  const registry = createBuiltinCommandRegistry();
+  assert.deepEqual(registry.parse("/context extra"), { error: "Использование: /context" });
+  assert.deepEqual(registry.parse("/model first second"), {
+    error: "Использование: /model [list|id]",
+  });
+  assert.deepEqual(registry.parse("/sesion"), {
+    error: "Неизвестная команда: /sesion. Возможно, вы имели в виду /session.",
+  });
+  assert.equal(registry.parse("Обычное сообщение"), undefined);
+  assert.equal(registry.parse("/help\nЭто часть сообщения"), undefined);
+});
+
+test("an independent command registers and runs without changing dispatch infrastructure", async () => {
+  const registry = new CommandRegistry();
+  const calls: string[] = [];
+  registry.register({
+    descriptor: { name: "ping", usage: "/ping value", description: "test" },
+    parse(args) {
+      if (args.length !== 1) throw new CommandUsageError("Использование: /ping value");
+      return args[0]!;
+    },
+    handle(value) {
+      calls.push(String(value));
+      return "continue";
     },
   });
-});
-
-test("reasoning command supports querying and changing its setting", () => {
-  assert.deepEqual(parseReplCommand("/reasoning"), { type: "reasoning" });
-  assert.deepEqual(parseReplCommand("/reasoning on"), {
-    type: "reasoning",
-    mode: "compact",
-  });
-  assert.deepEqual(parseReplCommand("/reasoning compact"), {
-    type: "reasoning",
-    mode: "compact",
-  });
-  assert.deepEqual(parseReplCommand("/reasoning full"), {
-    type: "reasoning",
-    mode: "full",
-  });
-  assert.deepEqual(parseReplCommand("/reasoning off"), {
-    type: "reasoning",
-    mode: "off",
-  });
-});
-
-test("context command accepts no arguments", () => {
-  assert.deepEqual(parseReplCommand("/context"), { type: "context" });
-  assert.deepEqual(parseReplCommand("/context extra"), {
-    type: "error",
-    message: "Использование: /context",
-  });
-});
-
-test("compact command accepts no arguments", () => {
-  assert.deepEqual(parseReplCommand("/compact"), { type: "compact" });
-  assert.deepEqual(parseReplCommand("/compact extra"), {
-    type: "error",
-    message: "Использование: /compact",
-  });
-});
-
-test("model and think commands support querying and runtime selection", () => {
-  assert.deepEqual(parseReplCommand("/model"), { type: "model" });
-  assert.deepEqual(parseReplCommand("/think"), { type: "think" });
-  assert.deepEqual(parseReplCommand("/model list"), {
-    type: "model",
-    list: true,
-  });
-  assert.deepEqual(parseReplCommand("/model deepseek-v4-pro"), {
-    type: "model",
-    id: "deepseek-v4-pro",
-  });
-  assert.deepEqual(parseReplCommand("/think max"), {
-    type: "think",
-    selection: "max",
-  });
-  assert.deepEqual(parseReplCommand("/think off"), {
-    type: "think",
-    selection: "off",
-  });
-  assert.deepEqual(parseReplCommand("/think fast"), {
-    type: "think",
-    selection: "fast",
-  });
-  assert.deepEqual(parseReplCommand("/model first second"), {
-    type: "error",
-    message: "Использование: /model [list|id]",
-  });
-  assert.deepEqual(parseReplCommand("/think low extra"), {
-    type: "error",
-    message: "Использование: /think [off|effort]",
-  });
-});
-
-test("command parser suggests a similar command", () => {
-  assert.deepEqual(parseReplCommand("/sesion"), {
-    type: "error",
-    message: "Неизвестная команда: /sesion. Возможно, вы имели в виду /session.",
-  });
-});
-
-test("plain and multiline user messages are not interpreted as commands", () => {
-  assert.equal(parseReplCommand("Обычное сообщение"), undefined);
-  assert.equal(parseReplCommand("/help\nЭто часть сообщения"), undefined);
+  const parsed = registry.parse("/ping pong");
+  assert.ok(parsed && !("error" in parsed));
+  await registry.dispatch(parsed, {} as CommandContext);
+  assert.deepEqual(calls, ["pong"]);
+  assert.throws(
+    () =>
+      registry.register({
+        descriptor: { name: "ping", usage: "/ping", description: "duplicate" },
+        parse() {},
+        handle: () => "continue",
+      }),
+    /Duplicate command/u,
+  );
 });

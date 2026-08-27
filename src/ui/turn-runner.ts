@@ -1,14 +1,8 @@
-import type { AntApplicationApi, SubmittedTurn } from "../app/application-client.js";
+import type { SubmittedTurn } from "../app/application-client.js";
 import type { AgentSession } from "../app/session.js";
-import type { ConsoleRenderer } from "./console-renderer.js";
-import { TurnChangeTracker } from "./turn-change-summary.js";
+import type { TurnExecutorOptions } from "./presentation-ports.js";
 
-export interface TurnRunnerOptions {
-  workspace: string;
-  client: AntApplicationApi;
-  renderer: ConsoleRenderer;
-  showChanges?: boolean;
-}
+export type TurnRunnerOptions = TurnExecutorOptions;
 
 export class TurnRunner {
   readonly #options: TurnRunnerOptions;
@@ -21,12 +15,12 @@ export class TurnRunner {
     content: string,
     onSessionPrepared?: (session: AgentSession, created: boolean) => void | Promise<void>,
   ): Promise<SubmittedTurn> {
-    const { client, renderer, workspace, showChanges } = this.#options;
+    const { client, renderer, workspace, showChanges, process, git } = this.#options;
     renderer.beginTurn();
 
     // The change tracker takes a Git snapshot and hashes every dirty file, so
     // it is only attached when the summary will actually be shown.
-    const changes = showChanges ? new TurnChangeTracker(workspace) : undefined;
+    const changes = showChanges ? git.createChangeTracker(workspace) : undefined;
     await changes?.begin();
 
     const cancelTurn = new AbortController();
@@ -36,7 +30,7 @@ export class TurnRunner {
         cancelTurn.abort();
       }
     };
-    process.on("SIGINT", onSigint);
+    const removeInterrupt = process.onInterrupt(onSigint);
 
     try {
       const submitted = await client.submitTurn(content, {
@@ -53,7 +47,7 @@ export class TurnRunner {
       }
       return submitted;
     } finally {
-      process.removeListener("SIGINT", onSigint);
+      removeInterrupt();
       renderer.dispose();
     }
   }

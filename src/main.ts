@@ -16,6 +16,17 @@ import { JsonlSessionStore } from "./sessions/jsonl-session-store.js";
 import { codingToolPack } from "./tools/coding-tool-pack.js";
 import { ToolEnvironment } from "./tools/tool-environment.js";
 import { TerminalFrontend } from "./ui/terminal-frontend.js";
+import { configureAnsi } from "./ui/ansi.js";
+import { createBuiltinCommandRegistry } from "./ui/command-modules.js";
+import { ConsoleRenderer } from "./ui/console-renderer.js";
+import { initConsoleSize } from "./ui/console-size.js";
+import {
+  ConsoleTerminal,
+  gitPresentationService,
+  globalUpdateService,
+  nodeProcessControl,
+} from "./ui/terminal-adapters.js";
+import { TurnRunner } from "./ui/turn-runner.js";
 import { VERSION } from "./version.js";
 
 const configurationRegistry = new ConfigurationRegistry();
@@ -40,7 +51,24 @@ const application = new AntApplication({
       }),
     );
   },
-  createFrontend: (options) => new TerminalFrontend(options),
+  createFrontend: (options) =>
+    new TerminalFrontend(options, {
+      createTerminal: () => new ConsoleTerminal(),
+      process: nodeProcessControl,
+      updates: globalUpdateService,
+      git: gitPresentationService,
+      commands: createBuiltinCommandRegistry(),
+      async initialize(color) {
+        configureAnsi(color);
+        await initConsoleSize();
+      },
+      createRenderer: () =>
+        new ConsoleRenderer({
+          reasoningMode: options.reasoningMode,
+          reasoningMaxLines: options.reasoningMaxLines,
+        }),
+      createTurnRunner: (turnOptions) => new TurnRunner(turnOptions),
+    }),
 });
 
 runCli(
