@@ -774,6 +774,42 @@ capabilities, side-effect metadata и независимый contract suite. С�
   реальных внешних реализаций и отдельных permission models;
 - автоматическое обновление plugin без явной команды пользователя.
 
+Результат этапа 9:
+
+- CLI публикует независимый `ant/plugin-api` с host API version, manifest и
+  activation/tool-pack contracts, а также reusable validator для авторских
+  contract tests;
+- manifest validation проверяет schema, стабильные ids и versions,
+  совместимость API, известные permissions и безопасный относительный
+  entrypoint до исполнения plugin code;
+- file registry хранит только явно установленные plugins, approved permissions
+  и enabled state; duplicate ids и повреждённая schema диагностируются;
+- installer принимает локальные npm-compatible directories и tarballs,
+  отключает lifecycle scripts, отклоняет symlinks, сохраняет runtime
+  dependencies и атомарно устанавливает/обновляет plugin;
+- remove переносит package в recoverable `.trash`, enable/disable не меняют
+  package, а команды list/inspect/install/enable/disable/remove выполняются без
+  model API key;
+- loader проверяет registry/manifest consistency, permissions и canonical entry
+  path, изолирует broken activation и выдаёт plugin только approved workspace,
+  logger, permissions и API version;
+- external tool packs проходят общий ownership, duplicate-name, non-empty и
+  capability contract, затем регистрируются тем же `ToolRegistry`, что и
+  встроенный coding pack; конфликтный pack изолируется до пользовательского
+  хода;
+- startup diagnostics показывают version/state каждого установленного plugin,
+  не раскрывая внутреннюю ошибку broken plugin;
+- packed-CLI integration test устанавливает reference plugin из tarball,
+  импортирует публичный `ant/plugin-api`, выполняет реальный external tool call
+  через production composition и продолжает versioned session;
+- README документирует trust model без ложного обещания sandbox, manifest,
+  permissions, lifecycle commands и минимальный TypeScript authoring flow.
+- относительно baseline `aad515e` release tarball уменьшился с 120 948 до
+  69 313 bytes (-43%), unpacked payload — с 538 499 до 290 727 bytes (-46%), а
+  медианный `--version` startup в локальном 10-run замере снизился с 213 до
+  177 ms; внешние runtime dependencies при этом остаются обычными npm
+  dependencies, как до перехода на workspaces.
+
 ## Рекомендуемый порядок ближайших задач
 
 1. Спроектировать application API для `submitTurn`, session lifecycle и
@@ -809,4 +845,4 @@ capabilities, side-effect metadata и независимый contract suite. С�
 - [x] Этап 6. Декомпозиция terminal frontend
 - [x] Этап 7. Lifecycle и contract tests
 - [x] Этап 8. npm workspaces
-- [ ] Этап 9. Динамические внешние плагины
+- [x] Этап 9. Динамические внешние плагины

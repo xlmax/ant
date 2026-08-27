@@ -36,10 +36,31 @@ test("packed CLI installs in a clean project and loads the production compositio
   const installDirectory = join(root, "install");
   const workspace = join(root, "workspace");
   const home = join(root, "home");
+  const pluginSource = join(root, "reference-plugin");
+  let requests = 0;
   const server = createServer((_request, response) => {
+    requests += 1;
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     response.end(
-      `data: ${JSON.stringify({ choices: [{ delta: { content: "Готово из пакета." } }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify(
+        requests === 1
+          ? {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "plugin-call",
+                        function: { name: "plugin_echo", arguments: '{"value":"ok"}' },
+                      },
+                    ],
+                  },
+                },
+              ],
+            }
+          : { choices: [{ delta: { content: "Готово из пакета и плагина." } }] },
+      )}\n\ndata: [DONE]\n\n`,
     );
   });
 
@@ -49,6 +70,7 @@ test("packed CLI installs in a clean project and loads the production compositio
       mkdir(installDirectory, { recursive: true }),
       mkdir(workspace, { recursive: true }),
       mkdir(join(home, ".ant"), { recursive: true }),
+      mkdir(pluginSource, { recursive: true }),
     ]);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -92,12 +114,68 @@ test("packed CLI installs in a clean project and loads the production compositio
     assert.equal(version.code, 0, version.stderr);
     assert.equal(version.stdout.trim(), "0.5.15");
 
+    await writeFile(
+      join(pluginSource, "package.json"),
+      JSON.stringify({ name: "ant-reference-plugin", version: "1.0.0" }),
+    );
+    await writeFile(
+      join(pluginSource, "ant-plugin.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "reference.tools",
+        version: "1.0.0",
+        apiVersion: "^1.0.0",
+        entry: "./index.mjs",
+        permissions: [],
+      }),
+    );
+    await writeFile(
+      join(pluginSource, "index.mjs"),
+      `export default {
+        activate() {
+          return { toolPacks: [{
+            id: "reference.tools",
+            create() { return [{
+              metadata: { ownerId: "reference.tools", sideEffects: "none", parallelSafe: true, requiredCapabilities: [] },
+              spec: { name: "plugin_echo", description: "Reference external plugin", inputSchema: { type: "object" } },
+              async execute(input) { return { plugin: true, input }; }
+            }]; }
+          }] };
+        }
+      };\n`,
+    );
+    const pluginPack = await exec(
+      "npm",
+      ["pack", pluginSource, "--pack-destination", root, "--silent"],
+      { cwd: root },
+    );
+    assert.equal(pluginPack.code, 0, pluginPack.stderr);
+    const pluginTarball = join(root, pluginPack.stdout.trim());
+    const pluginInstall = await exec(binary, ["plugins", "install", pluginTarball, "--trust"], {
+      cwd: workspace,
+      env: { HOME: home, USERPROFILE: home },
+    });
+    assert.equal(pluginInstall.code, 0, pluginInstall.stderr);
+    assert.match(pluginInstall.stdout, /Installed reference\.tools 1\.0\.0/u);
+    const pluginApi = await exec(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        'import("ant/plugin-api").then((api) => console.log(api.PLUGIN_API_VERSION))',
+      ],
+      { cwd: installDirectory },
+    );
+    assert.equal(pluginApi.code, 0, pluginApi.stderr);
+    assert.equal(pluginApi.stdout.trim(), "1.0.0");
+
     const run = await exec(binary, ["Проверь пакет"], {
       cwd: workspace,
       env: { HOME: home, USERPROFILE: home, DEEPSEEK_API_KEY: "packed-test-key" },
     });
     assert.equal(run.code, 0, run.stderr);
-    assert.match(run.stdout, /Готово из пакета\./u);
+    assert.match(run.stdout, /Готово из пакета и плагина\./u);
+    assert.equal(requests, 2);
     const sessionFiles = await readdir(join(workspace, ".ant", "sessions"));
     const journal = sessionFiles.find((name) => name.endsWith(".jsonl"));
     assert.ok(journal);

@@ -121,7 +121,7 @@ The file in the working directory takes priority over the global one, and an env
 
 Before the first model call, Ant assembles the system prompt from Markdown files in this order:
 
-1. `packages/cli/prompts/SYSTEM.md` — base instructions;
+1. bundled `SYSTEM.md` (`packages/cli/prompts/SYSTEM.md` in the repository, `prompts/SYSTEM.md` in the installed package) — base instructions;
 2. `~/.ant/SYSTEM.md` — global user instructions, if the file exists;
 3. `.ant/SYSTEM.md` in the working directory — project-specific instructions, if the file exists;
 4. paths from `prompts.additionalPaths` in settings.
@@ -270,6 +270,56 @@ Ant is an npm-workspaces repository with explicit build and dependency boundarie
 - `packages/cli` — the composition root and the single distributable `ant` executable.
 
 Every package exports only its root public API. Cross-package imports use package names; imports from another package's `src`, `dist`, or undeclared subpaths are rejected by architecture tests. `npm run build` compiles all TypeScript project references and then bundles the production composition into the CLI artifact. `npm pack --workspace ant` produces the installable tarball; users do not need to install or compose the internal workspaces themselves.
+
+## External plugins
+
+Ant supports explicitly installed external tool-pack plugins. A plugin runs as trusted JavaScript inside the Ant process: permissions record what the user approved and constrain the host capabilities passed to its tool pack, but they are not a security sandbox. Install only code you trust.
+
+Plugin management does not require `DEEPSEEK_API_KEY`:
+
+```bash
+ant plugins list
+ant plugins inspect example.tools
+ant plugins install ./example-plugin --trust --allow=filesystem.read
+ant plugins disable example.tools
+ant plugins enable example.tools
+ant plugins remove example.tools
+```
+
+`install` accepts a local npm-compatible directory or tarball and always invokes npm with lifecycle scripts disabled. Reinstalling is an atomic update: Ant validates and stages the new package before replacing the current version. Removal moves the installed package under `~/.ant/plugins/.trash`, so the files remain recoverable. Ant never downloads plugins directly or updates them automatically.
+
+Each package contains `ant-plugin.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.tools",
+  "version": "1.0.0",
+  "apiVersion": "^1.0.0",
+  "entry": "./dist/index.js",
+  "permissions": ["filesystem.read"]
+}
+```
+
+Supported permissions are `filesystem.read`, `filesystem.write`, `process.spawn`, and `network`. The entrypoint must stay inside the installed package and default-export an object with `activate(context)`. Activation may return `toolPacks`; pack ids must equal the plugin id or start with `<plugin-id>.`, and every tool's `ownerId` must equal its pack id.
+
+TypeScript authors can depend on the installed `ant` package without importing private workspaces:
+
+```ts
+import type { AntPlugin } from "ant/plugin-api";
+import { validateExternalToolPack } from "ant/plugin-api";
+
+const plugin: AntPlugin = {
+  activate() {
+    return { toolPacks: [myToolPack] };
+  },
+};
+
+validateExternalToolPack("example.tools", myToolPack, testContext);
+export default plugin;
+```
+
+The reusable validator applies the same ownership, duplicate-name, non-empty-pack, and permission checks used by the host. At startup, malformed, incompatible, disabled, or broken plugins are reported individually; they do not prevent other plugins or the built-in CLI from loading. Plugin API `1.x` currently supports tool packs only. Dynamic model providers, frontends, and session stores remain intentionally out of scope until their permission and lifecycle models are proven independently.
 
 ## Checks
 
