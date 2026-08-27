@@ -1,19 +1,12 @@
-import type { RuntimeLimits, VerificationSettings } from "../app/configuration.js";
-import type { AgentModel, AgentResult, AgentState, Environment } from "../core/agent.js";
-import type { AgentRuntime } from "../core/runtime.js";
+import type { AntApplicationApi, SubmittedTurn } from "../app/application-client.js";
 import type { AgentSession } from "../app/session.js";
 import type { ConsoleRenderer } from "./console-renderer.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 export interface TurnRunnerOptions {
   workspace: string;
-  runtime: AgentRuntime;
-  model: AgentModel;
-  environment: Environment;
+  client: AntApplicationApi;
   renderer: ConsoleRenderer;
-  session: AgentSession;
-  limits: RuntimeLimits;
-  verification?: VerificationSettings;
   showChanges?: boolean;
 }
 
@@ -24,18 +17,11 @@ export class TurnRunner {
     this.#options = options;
   }
 
-  async run(state: AgentState): Promise<AgentResult> {
-    const {
-      runtime,
-      model,
-      environment,
-      renderer,
-      session,
-      limits,
-      workspace,
-      showChanges,
-      verification,
-    } = this.#options;
+  async run(
+    content: string,
+    onSessionPrepared?: (session: AgentSession, created: boolean) => void | Promise<void>,
+  ): Promise<SubmittedTurn> {
+    const { client, renderer, workspace, showChanges } = this.#options;
     renderer.beginTurn();
 
     // The change tracker takes a Git snapshot and hashes every dirty file, so
@@ -53,27 +39,19 @@ export class TurnRunner {
     process.on("SIGINT", onSigint);
 
     try {
-      const result = await runtime.run(state, {
-        model,
-        environment,
-        historyObserver: session.observer,
+      const submitted = await client.submitTurn(content, {
         observers: [renderer, ...(changes ? [changes] : [])],
         onTextDelta: renderer.onTextDelta,
         onReasoningDelta: renderer.onReasoningDelta,
-        signal: AbortSignal.any([
-          cancelTurn.signal,
-          AbortSignal.timeout(limits.turnTimeoutSeconds * 1_000),
-        ]),
-        modelRequestTimeoutMs: limits.modelRequestTimeoutSeconds * 1_000,
-        modelMaxAttempts: limits.modelMaxAttempts,
-        ...(verification === undefined ? {} : { verification }),
+        signal: cancelTurn.signal,
+        ...(onSessionPrepared === undefined ? {} : { onSessionPrepared }),
       });
 
-      await renderer.printResult(result);
+      await renderer.printResult(submitted.result);
       if (changes) {
         await renderer.printChangeSummary(await changes.finish());
       }
-      return result;
+      return submitted;
     } finally {
       process.removeListener("SIGINT", onSigint);
       renderer.dispose();

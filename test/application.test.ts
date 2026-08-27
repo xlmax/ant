@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { type LoadedSettings, type SettingsModule } from "../src/app/configuration.js";
 import { AntApplication, type AntApplicationModules } from "../src/app/application.js";
+import type { AntApplicationApi } from "../src/app/application-client.js";
 import type { AntFrontend, FrontendOptions } from "../src/app/frontend.js";
 import type { ModelProvider } from "../src/app/model-provider.js";
 import type { SessionList, SessionStore } from "../src/app/session.js";
@@ -49,11 +50,13 @@ interface Harness {
   application: AntApplication;
   calls: string[];
   frontendOptions(): FrontendOptions | undefined;
+  frontendClient(): AntApplicationApi | undefined;
 }
 
 function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }): Harness {
   const calls: string[] = [];
   let capturedFrontendOptions: FrontendOptions | undefined;
+  let capturedFrontendClient: AntApplicationApi | undefined;
 
   const settings: SettingsModule = {
     async load(workspace) {
@@ -142,12 +145,10 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
       calls.push(`frontend.create:${options.task}`);
       capturedFrontendOptions = options;
       const frontend: AntFrontend = {
-        async run(host) {
+        async run(client) {
           calls.push("frontend.run");
-          assert.equal(host.runtime, runtime);
-          assert.equal(host.provider, provider);
-          assert.equal(host.sessions, store);
-          assert.equal(host.environment, environment);
+          capturedFrontendClient = client;
+          assert.equal(client.modelSettings, loadedSettings.settings.model);
         },
       };
       return frontend;
@@ -158,6 +159,7 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
     application: new AntApplication(modules),
     calls,
     frontendOptions: () => capturedFrontendOptions,
+    frontendClient: () => capturedFrontendClient,
   };
 }
 
@@ -178,16 +180,19 @@ test("AntApplication builds modules in order and delegates settings mutations", 
   ]);
 
   const options = harness.frontendOptions();
+  const client = harness.frontendClient();
   assert.ok(options);
-  assert.equal(options.modelSettings, loadedSettings.settings.model);
-  assert.equal(await options.settings.saveModelId("custom-vision"), true);
-  await options.settings.saveThinking({ enabled: false, effort: "max" });
+  assert.ok(client);
+  assert.equal((await client.selectModel("custom-vision")).settings.vision, true);
+  await client.selectThinking("off");
+  await client.selectThinking("max");
   await options.settings.saveReasoningMode("compact");
-  assert.deepEqual(harness.calls.slice(-5), [
+  assert.deepEqual(harness.calls.slice(-6), [
     "settings.model:custom-vision",
     `settings.vision:${workspace}`,
     "settings.resolve:custom-vision/undefined",
-    "settings.thinking:false/max",
+    "settings.thinking:false/high",
+    "settings.thinking:true/max",
     "settings.reasoning:compact",
   ]);
 });

@@ -52,7 +52,7 @@ This set covers most day-to-day tasks.
 
 ## Architecture
 
-Ant is assembled by a small `AntHost` from replaceable modules with stable TypeScript ports:
+Ant is assembled by `AntApplication` from replaceable modules with stable TypeScript ports:
 
 - `AgentRuntime` — the agent loop (the built-in implementation delegates to `runAgent`);
 - `AntFrontend` — presentation (the built-in implementation is the terminal frontend);
@@ -60,7 +60,9 @@ Ant is assembled by a small `AntHost` from replaceable modules with stable TypeS
 - `SessionStore` — durable history (JSONL is built in);
 - `Environment` — the available tools.
 
-The host only composes modules; agent policy remains in the runtime. Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
+For each invocation, the application creates an `AntApplicationClient`. It owns the active session, configured model and summarizer, and exposes application use cases such as submitting a turn, compacting context, and selecting a model. Frontends depend on this API instead of composing the runtime, provider, session store, and environment themselves. Agent policy remains in the runtime.
+
+Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
 
 Layer ownership is explicit: `core/` contains the infrastructure-independent agent domain and ports, `app/` contains application contracts and use cases, while `cli/`, `config/`, `models/`, `sessions/`, `tools/`, and `ui/` are concrete adapters. `main.ts` is the composition root. An AST-based architecture test checks every production layer, rejects outward dependencies, and detects runtime import cycles.
 

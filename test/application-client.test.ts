@@ -35,6 +35,8 @@ interface Harness {
   calls: string[];
   runtimeDependencies: AgentDependencies[];
   failModelSave: boolean;
+  failThinkingSave: boolean;
+  summaryText: string;
 }
 
 function createHarness(): Harness {
@@ -42,6 +44,8 @@ function createHarness(): Harness {
   const records: HistoryEvent[] = [];
   const runtimeDependencies: AgentDependencies[] = [];
   let failModelSave = false;
+  let failThinkingSave = false;
+  let summaryText = "summary";
   let nextSession = 1;
 
   const observer: AgentObserver = {
@@ -82,7 +86,8 @@ function createHarness(): Harness {
   });
   const createSummarizer = (id: string): ContextSummarizer => ({
     async summarize() {
-      return `summary:${id}`;
+      calls.push(`summarize:${id}`);
+      return summaryText;
     },
   });
   const provider: ModelProvider = {
@@ -138,6 +143,7 @@ function createHarness(): Harness {
       },
       async saveThinking(thinking) {
         calls.push(`thinking.save:${thinking.enabled}/${thinking.effort}`);
+        if (failThinkingSave) throw new Error("thinking save failed");
       },
     },
   };
@@ -152,6 +158,18 @@ function createHarness(): Harness {
     },
     set failModelSave(value: boolean) {
       failModelSave = value;
+    },
+    get failThinkingSave() {
+      return failThinkingSave;
+    },
+    set failThinkingSave(value: boolean) {
+      failThinkingSave = value;
+    },
+    get summaryText() {
+      return summaryText;
+    },
+    set summaryText(value: string) {
+      summaryText = value;
     },
   };
   return harness;
@@ -215,7 +233,7 @@ test("resume and reset session are application operations", async () => {
 
   const resumed = await harness.client.resumeSession("saved-session");
   assert.equal(resumed.session.id, "saved-session");
-  assert.equal(harness.client.activeSession?.state.events[0]?.type, "task");
+  assert.equal(harness.client.activeSession?.session.id, "saved-session");
 
   harness.client.resetSession();
   assert.equal(harness.client.activeSession, undefined);
@@ -229,8 +247,9 @@ test("model and thinking selections persist before rebuilding model clients", as
   const harness = createHarness();
 
   const selected = await harness.client.selectModel("model-b");
-  assert.equal(selected.id, "model-b");
-  assert.equal(selected.vision, true);
+  assert.equal(selected.changed, true);
+  assert.equal(selected.settings.id, "model-b");
+  assert.equal(selected.settings.vision, true);
   assert.deepEqual(harness.calls.slice(-3), [
     "model.save:model-b",
     "model.create:model-b:true/high",
@@ -238,7 +257,8 @@ test("model and thinking selections persist before rebuilding model clients", as
   ]);
 
   const thinking = await harness.client.selectThinking("off");
-  assert.deepEqual(thinking.thinking, { enabled: false, effort: "high" });
+  assert.equal(thinking.changed, true);
+  assert.deepEqual(thinking.settings.thinking, { enabled: false, effort: "high" });
   assert.deepEqual(harness.calls.slice(-3), [
     "thinking.save:false/high",
     "model.create:model-b:false/high",
@@ -255,6 +275,15 @@ test("failed model persistence leaves active model unchanged", async () => {
 
   await assert.rejects(() => harness.client.selectModel("model-b"), /save failed/u);
   assert.equal(harness.client.modelSettings.id, "model-a");
+  assert.equal(harness.calls.filter((call) => call.startsWith("model.create")).length, 1);
+});
+
+test("failed thinking persistence leaves active model unchanged", async () => {
+  const harness = createHarness();
+  harness.failThinkingSave = true;
+
+  await assert.rejects(() => harness.client.selectThinking("off"), /thinking save failed/u);
+  assert.deepEqual(harness.client.modelSettings.thinking, { enabled: true, effort: "high" });
   assert.equal(harness.calls.filter((call) => call.startsWith("model.create")).length, 1);
 });
 
@@ -280,7 +309,6 @@ test("compactContext persists only a smaller valid compaction", async () => {
   if (result.status !== "compacted") return;
   assert.equal(result.retainedUserTurns, 2);
   assert.ok(result.after.estimatedTokens < result.before.estimatedTokens);
-  assert.equal(harness.client.activeSession?.state.events.at(-1)?.type, "compaction");
   assert.equal(harness.records.at(-1)?.type, "compaction");
 });
 
@@ -290,5 +318,34 @@ test("compactContext does not mutate a missing or short session", async () => {
   assert.deepEqual(await harness.client.compactContext(), { status: "no-session" });
   await harness.client.submitTurn("one");
   assert.deepEqual(await harness.client.compactContext(), { status: "not-enough-history" });
-  assert.notEqual(harness.client.activeSession?.state.events.at(-1)?.type, "compaction");
+  assert.notEqual(harness.records.at(-1)?.type, "compaction");
+});
+
+test("compactContext does not persist a summary that increases context", async () => {
+  const harness = createHarness();
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+  await harness.client.submitTurn("three");
+  const eventsBefore = harness.records.length;
+  harness.summaryText = "very long summary ".repeat(2_000);
+
+  const result = await harness.client.compactContext();
+
+  assert.equal(result.status, "not-smaller");
+  assert.equal(harness.records.length, eventsBefore);
+  assert.notEqual(harness.records.at(-1)?.type, "compaction");
+});
+
+test("submitTurn announces the prepared session before invoking runtime", async () => {
+  const harness = createHarness();
+
+  await harness.client.submitTurn("task", {
+    onSessionPrepared(session, created) {
+      harness.calls.push(`prepared:${session.id}/${String(created)}`);
+    },
+  });
+
+  assert.ok(
+    harness.calls.indexOf("prepared:session-1/true") < harness.calls.indexOf("runtime:task"),
+  );
 });

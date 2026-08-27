@@ -33,7 +33,9 @@ test("/exit prints a resume command only for an active session", async () => {
   try {
     const emptySessions = createSessions();
     assert.equal(
-      await handleReplCommand({ type: "exit" }, { sessions: emptySessions } as ReplCommandContext),
+      await handleReplCommand({ type: "exit" }, {
+        options: { client: { activeSession: emptySessions.active } },
+      } as unknown as ReplCommandContext),
       "exit",
     );
     assert.deepEqual(output, []);
@@ -41,7 +43,9 @@ test("/exit prints a resume command only for an active session", async () => {
     const activeSessions = createSessions();
     await activeSessions.prepareUserMessage("Задача");
     assert.equal(
-      await handleReplCommand({ type: "exit" }, { sessions: activeSessions } as ReplCommandContext),
+      await handleReplCommand({ type: "exit" }, {
+        options: { client: { activeSession: activeSessions.active } },
+      } as unknown as ReplCommandContext),
       "exit",
     );
     assert.equal(output.length, 1);

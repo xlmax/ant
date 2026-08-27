@@ -110,3 +110,25 @@ test("layer analyzer detects runtime cycles but ignores declaration-level type c
     },
   );
 });
+
+test("layer analyzer keeps presentation away from low-level application infrastructure", async () => {
+  await withSourceTree(
+    {
+      "core/runtime.ts": "export interface Runtime {}",
+      "app/model-provider.ts": "export interface Provider {}",
+      "app/session-controller.ts": "export class SessionController {}",
+      "ui/frontend.ts": `
+        import type { Runtime } from "../core/runtime.js";
+        import type { Provider } from "../app/model-provider.js";
+        import { SessionController } from "../app/session-controller.js";
+        export type Leaks = Runtime & Provider;
+        export { SessionController };
+      `,
+    },
+    async (root) => {
+      const violations = await analyzeLayerBoundaries(root);
+      assert.equal(violations.filter((violation) => violation.kind === "dependency").length, 3);
+      assert.ok(violations.every((violation) => violation.message.startsWith("ui/frontend.ts")));
+    },
+  );
+});
