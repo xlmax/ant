@@ -354,6 +354,23 @@ Factory инструмента должен получать ограничен�
 - изменение модельного tool-call protocol;
 - разбиение встроенного coding pack на отдельные npm-пакеты (этап 8).
 
+Результат этапа 3:
+
+- публичные `Tool`, `ToolMetadata`, `ToolContext` и `ToolPack` перенесены в
+  application contract;
+- добавлен `ToolRegistry`, который сохраняет порядок packs и до запуска
+  диагностирует повторный pack id, пустые packs, неверного owner, конфликт имён
+  и недостающие platform capabilities;
+- `ToolEnvironment` определяет допустимость параллельного выполнения по
+  стандартным metadata и выполняет side-effecting tools последовательно;
+- прежний `createCodingTools` заменён встроенным `codingToolPack`; composition
+  root и evaluation harness подключают его через registry;
+- все шесть встроенных tools объявляют owner, side effects, parallel-safety и
+  требуемые filesystem/process capabilities;
+- contract tests подтверждают подключение независимых packs, порядок,
+  диагностику и параллельность; architecture tests фиксируют владение
+  контрактом слоем `app`.
+
 ## Этап 4. Модульная конфигурация
 
 Заменить растущий центральный `AppSettings` композицией секций настроек,
@@ -517,7 +534,7 @@ REPL-команды должны регистрироваться handlers, а �
 
 - [x] Этап 1. Прикладные сценарии
 - [x] Этап 2. Provider-neutral модельный контракт
-- [ ] Этап 3. Tool registry и tool packs
+- [x] Этап 3. Tool registry и tool packs
 - [ ] Этап 4. Модульная конфигурация
 - [ ] Этап 5. Версионированный session contract
 - [ ] Этап 6. Декомпозиция terminal frontend
