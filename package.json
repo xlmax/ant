@@ -10,7 +10,7 @@
     "dev": "node --env-file-if-exists=.env.local --import tsx packages/cli/src/main.ts",
     "clean": "node scripts/clean.mjs",
     "build": "npm run clean && tsc -b && npm run bundle:cli",
-    "bundle:cli": "esbuild packages/cli/src/main.ts --bundle --platform=node --format=esm --target=node20 --external:win32-api --outfile=packages/cli/dist/main.js --sourcemap",
+    "bundle:cli": "esbuild packages/cli/src/main.ts --bundle --platform=node --format=esm --target=node20 --external:highlight.js --external:marked --external:minimatch --external:string-width --external:win32-api --outfile=packages/cli/dist/main.js --sourcemap",
     "start": "node --env-file-if-exists=.env.local packages/cli/dist/main.js",
     "pack:cli": "npm pack --workspace ant",
     "check": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.research.json",

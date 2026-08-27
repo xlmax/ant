@@ -717,21 +717,98 @@ REPL-команды должны регистрироваться handlers, а �
 
 ## Этап 9. Динамические внешние плагины
 
-Переходить к динамической загрузке только после появления нескольких реальных
-альтернативных модулей и стабилизации API.
+Добавить контролируемое внешнее расширение поверх стабилизированного package API.
+Первой поддерживаемой extension point является tool pack: она уже имеет
+capabilities, side-effect metadata и независимый contract suite. Статическая
+регистрация встроенных модулей остаётся полноценным поддерживаемым способом
+композиции.
 
-Потребуются:
+Критерии готовности:
 
-- manifest и discovery;
-- диапазоны совместимых API versions;
-- разрешение зависимостей и конфликтов;
-- trust model и явные permissions;
-- изоляция или ясное предупреждение об исполнении доверенного кода;
-- политика установки, обновления и удаления;
-- диагностика ошибки загрузки без падения всего приложения.
+- опубликованный CLI содержит документированный `ant/plugin-api` с TypeScript
+  контрактами plugin manifest, activation context и external tool pack без
+  импорта внутренних `@ant/*` packages;
+- manifest имеет schema version, стабильный plugin id, plugin version,
+  совместимый диапазон host API, entrypoint и явный список permissions;
+- loader обнаруживает только явно установленные плагины из user registry,
+  валидирует manifest до исполнения кода и запрещает выход entrypoint за корень
+  установленного plugin package;
+- несовместимая API version, неизвестная permission, конфликт plugin id,
+  отсутствующий entrypoint и malformed manifest диагностируются до activation;
+- установка поддерживает локальный каталог или npm-compatible tarball, копирует
+  его атомарно в user plugin directory и не исполняет package lifecycle scripts;
+- install требует явного подтверждения всех запрошенных permissions; registry
+  хранит source, version, approved permissions и enabled state без секретов;
+- повторная установка служит контролируемым update: новая версия сначала
+  валидируется и только затем атомарно заменяет предыдущую; remove обратимо
+  удаляет registry entry и установленный package;
+- плагины считаются доверенным кодом в процессе ANT, что явно отражено в CLI и
+  документации; permissions ограничивают выдаваемые host capabilities, но не
+  заявляют о sandbox/isolation, которых фактически нет;
+- activation получает только workspace, logger, approved permissions и
+  стабильную host API version; plugin не получает application internals или
+  composition root;
+- активированные external tool packs проходят тот же `ToolRegistry` validation,
+  что и встроенный pack; конфликт tool names, owner id или capabilities
+  обнаруживается до пользовательского хода;
+- ошибка одного optional plugin изолируется: остальные плагины и штатный CLI
+  продолжают запуск, а startup diagnostics содержат plugin id, version, state и
+  безопасное сообщение ошибки без повреждения settings и sessions;
+- CLI предоставляет `plugins list`, `plugins inspect`, `plugins install`,
+  `plugins enable`, `plugins disable` и `plugins remove`, не требующие model API
+  key и не запускающие agent session;
+- reference plugin fixture устанавливается, обнаруживается и выполняет tool call
+  в end-to-end тесте из упакованного CLI без изменения исходников платформы;
+- contract, architecture и security regression tests покрывают traversal,
+  symlink escape, permission escalation, несовместимость API, partial install,
+  broken activation и cleanup;
+- README описывает создание, проверку, установку и доверие plugin, а `check`,
+  lint, format check, полный test suite, build и pack verification проходят.
 
-Этот этап не должен блокировать предыдущие: статическая регистрация остаётся
-полноценным поддерживаемым способом композиции.
+Вне объёма этапа:
+
+- sandbox, отдельный процесс или защита от злонамеренного JavaScript после
+  явного доверия пользователя;
+- загрузка plugins напрямую из сети или собственный package registry;
+- динамические model provider, frontend и session-store plugins до появления
+  реальных внешних реализаций и отдельных permission models;
+- автоматическое обновление plugin без явной команды пользователя.
+
+Результат этапа 9:
+
+- CLI публикует независимый `ant/plugin-api` с host API version, manifest и
+  activation/tool-pack contracts, а также reusable validator для авторских
+  contract tests;
+- manifest validation проверяет schema, стабильные ids и versions,
+  совместимость API, известные permissions и безопасный относительный
+  entrypoint до исполнения plugin code;
+- file registry хранит только явно установленные plugins, approved permissions
+  и enabled state; duplicate ids и повреждённая schema диагностируются;
+- installer принимает локальные npm-compatible directories и tarballs,
+  отключает lifecycle scripts, отклоняет symlinks, сохраняет runtime
+  dependencies и атомарно устанавливает/обновляет plugin;
+- remove переносит package в recoverable `.trash`, enable/disable не меняют
+  package, а команды list/inspect/install/enable/disable/remove выполняются без
+  model API key;
+- loader проверяет registry/manifest consistency, permissions и canonical entry
+  path, изолирует broken activation и выдаёт plugin только approved workspace,
+  logger, permissions и API version;
+- external tool packs проходят общий ownership, duplicate-name, non-empty и
+  capability contract, затем регистрируются тем же `ToolRegistry`, что и
+  встроенный coding pack; конфликтный pack изолируется до пользовательского
+  хода;
+- startup diagnostics показывают version/state каждого установленного plugin,
+  не раскрывая внутреннюю ошибку broken plugin;
+- packed-CLI integration test устанавливает reference plugin из tarball,
+  импортирует публичный `ant/plugin-api`, выполняет реальный external tool call
+  через production composition и продолжает versioned session;
+- README документирует trust model без ложного обещания sandbox, manifest,
+  permissions, lifecycle commands и минимальный TypeScript authoring flow.
+- относительно baseline `aad515e` release tarball уменьшился с 120 948 до
+  69 313 bytes (-43%), unpacked payload — с 538 499 до 290 727 bytes (-46%), а
+  медианный `--version` startup в локальном 10-run замере снизился с 213 до
+  177 ms; внешние runtime dependencies при этом остаются обычными npm
+  dependencies, как до перехода на workspaces.
 
 ## Рекомендуемый порядок ближайших задач
 
@@ -768,4 +845,4 @@ REPL-команды должны регистрироваться handlers, а �
 - [x] Этап 6. Декомпозиция terminal frontend
 - [x] Этап 7. Lifecycle и contract tests
 - [x] Этап 8. npm workspaces
-- [ ] Этап 9. Динамические внешние плагины
+- [x] Этап 9. Динамические внешние плагины

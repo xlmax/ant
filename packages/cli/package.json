@@ -11,13 +11,15 @@
     "prepack": "npm run build --prefix ../.."
   },
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+    "./plugin-api": {
+      "types": "./dist/plugin-api.d.ts",
+      "default": "./dist/plugin-api.js"
     }
   },
   "files": [
-    "dist",
+    "dist/main.js",
+    "dist/plugin-api.js",
+    "dist/plugin-api.d.ts",
     "prompts",
     "README.md"
   ],
@@ -25,6 +27,10 @@
     "node": ">=20.12"
   },
   "dependencies": {
+    "highlight.js": "^11.12.0",
+    "marked": "^18.0.10",
+    "minimatch": "^10.2.6",
+    "string-width": "^8.2.2",
     "win32-api": "26.1.2"
   }
 }

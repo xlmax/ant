@@ -1,1 +1,3 @@
 dist/.tsbuildinfo
+dist/*.map
+dist/**/*.map

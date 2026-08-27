@@ -13,6 +13,8 @@ import { applyLocalEnvironment } from "./config/local-environment.js";
 import { registerBuiltinConfigurationSections } from "./config/builtin-configuration-sections.js";
 import { createFileSettingsModule } from "./config/settings-module.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
+import { defaultPluginRoot, handlePluginCommand } from "./plugins/plugin-cli.js";
+import { loadInstalledPlugins, selectCompatibleToolPacks } from "./plugins/plugin-loader.js";
 import { VERSION } from "@ant/contracts";
 import { defaultAgentRuntime } from "@ant/core";
 import {
@@ -34,77 +36,110 @@ import {
 import { JsonlSessionStore } from "@ant/session-jsonl";
 import { codingToolPack, ToolEnvironment } from "@ant/tools-coding";
 
-const configurationRegistry = new ConfigurationRegistry();
-configurationRegistry.register(deepSeekConfigurationSection);
-registerBuiltinConfigurationSections(configurationRegistry);
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const output = {
+    log: (message: string) => console.log(message),
+    error: (message: string) => console.error(message),
+  };
+  if (await handlePluginCommand(args, { output })) return;
 
-const lifecycle = new ModuleRegistry();
-for (const descriptor of [
-  moduleDescriptor("ant.runtime.default", "runtime", ["agent.runtime"]),
-  moduleDescriptor("ant.configuration.file", "configuration", ["configuration.sections"]),
-  moduleDescriptor("ant.provider.deepseek", "model-provider", ["model.provider"]),
-  moduleDescriptor("ant.session.jsonl", "session-store", ["session.store"]),
-  moduleDescriptor("ant.tools.coding", "tool-pack", ["tools.coding"]),
-  moduleDescriptor(
-    "ant.frontend.terminal",
-    "frontend",
-    ["frontend"],
-    ["agent.runtime", "model.provider", "session.store"],
-  ),
-])
-  lifecycle.register({ descriptor });
+  const workspace = process.cwd();
+  const plugins = await loadInstalledPlugins({
+    root: defaultPluginRoot(),
+    workspace,
+    logger: { info: output.log, warn: output.error },
+  });
+  for (const diagnostic of plugins.diagnostics) {
+    output.error(
+      `[plugin] ${diagnostic.id} ${diagnostic.version}: ${diagnostic.state} (${diagnostic.message})`,
+    );
+  }
 
-const application = new AntApplication({
-  lifecycle,
-  runtime: defaultAgentRuntime,
-  settings: createFileSettingsModule(configurationRegistry),
-  loadSystemPrompt,
-  createProvider: createDeepSeekProviderFromEnvironment,
-  createSessionStore: (workspace) => new JsonlSessionStore(join(workspace, ".ant", "sessions")),
-  createEnvironment: (workspace, options) => {
-    const registry = new ToolRegistry();
-    registry.register(codingToolPack);
-    return new ToolEnvironment(
-      registry.createTools({
-        workspace,
-        capabilities: new Set(["filesystem.read", "filesystem.write", "process.spawn"]),
+  const configurationRegistry = new ConfigurationRegistry();
+  configurationRegistry.register(deepSeekConfigurationSection);
+  registerBuiltinConfigurationSections(configurationRegistry);
+
+  const lifecycle = new ModuleRegistry();
+  for (const descriptor of [
+    moduleDescriptor("ant.runtime.default", "runtime", ["agent.runtime"]),
+    moduleDescriptor("ant.configuration.file", "configuration", ["configuration.sections"]),
+    moduleDescriptor("ant.provider.deepseek", "model-provider", ["model.provider"]),
+    moduleDescriptor("ant.session.jsonl", "session-store", ["session.store"]),
+    moduleDescriptor("ant.tools.coding", "tool-pack", ["tools.coding"]),
+    moduleDescriptor(
+      "ant.frontend.terminal",
+      "frontend",
+      ["frontend"],
+      ["agent.runtime", "model.provider", "session.store"],
+    ),
+  ])
+    lifecycle.register({ descriptor });
+
+  const application = new AntApplication({
+    lifecycle,
+    runtime: defaultAgentRuntime,
+    settings: createFileSettingsModule(configurationRegistry),
+    loadSystemPrompt,
+    createProvider: createDeepSeekProviderFromEnvironment,
+    createSessionStore: (root) => new JsonlSessionStore(join(root, ".ant", "sessions")),
+    createEnvironment: (root, options) => {
+      const context = {
+        workspace: root,
+        capabilities: new Set([
+          "filesystem.read",
+          "filesystem.write",
+          "process.spawn",
+          ...plugins.permissions,
+        ]),
         process: options.bashPath === undefined ? {} : { bashPath: options.bashPath },
         logger: { debug() {} },
-      }),
-    );
-  },
-  createFrontend: (options) =>
-    new TerminalFrontend(options, {
-      createTerminal: () => new ConsoleTerminal(),
-      process: nodeProcessControl,
-      updates: globalUpdateService,
-      git: gitPresentationService,
-      commands: createBuiltinCommandRegistry(),
-      async initialize(color) {
-        configureAnsi(color);
-        await initConsoleSize();
-      },
-      createRenderer: () =>
-        new ConsoleRenderer({
-          reasoningMode: options.reasoningMode,
-          reasoningMaxLines: options.reasoningMaxLines,
-        }),
-      createTurnRunner: (turnOptions) => new TurnRunner(turnOptions),
-    }),
-});
-
-runCli(
-  { workspace: process.cwd(), args: process.argv.slice(2) },
-  {
-    application,
-    version: VERSION,
-    applyEnvironment: applyLocalEnvironment,
-    output: {
-      log: (message) => console.log(message),
-      error: (message) => console.error(message),
+      };
+      const accepted = selectCompatibleToolPacks(
+        codingToolPack,
+        plugins.toolPacks,
+        context,
+        (pack) => {
+          output.error(`[plugin] ${pack.id}: tool pack validation failed`);
+        },
+      );
+      const registry = new ToolRegistry();
+      registry.register(codingToolPack);
+      for (const pack of accepted) registry.register(pack);
+      return new ToolEnvironment(registry.createTools(context));
     },
-  },
-).catch((error: unknown) => {
+    createFrontend: (options) =>
+      new TerminalFrontend(options, {
+        createTerminal: () => new ConsoleTerminal(),
+        process: nodeProcessControl,
+        updates: globalUpdateService,
+        git: gitPresentationService,
+        commands: createBuiltinCommandRegistry(),
+        async initialize(color) {
+          configureAnsi(color);
+          await initConsoleSize();
+        },
+        createRenderer: () =>
+          new ConsoleRenderer({
+            reasoningMode: options.reasoningMode,
+            reasoningMaxLines: options.reasoningMaxLines,
+          }),
+        createTurnRunner: (turnOptions) => new TurnRunner(turnOptions),
+      }),
+  });
+
+  await runCli(
+    { workspace, args },
+    {
+      application,
+      version: VERSION,
+      applyEnvironment: applyLocalEnvironment,
+      output,
+    },
+  );
+}
+
+main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
