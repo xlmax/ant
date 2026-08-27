@@ -250,10 +250,37 @@ DeepSeek-специфичные `thinking`, `reasoning_effort`, эвристик
 Критерии готовности:
 
 - `app` не содержит литерал или union-тип `deepseek`;
+- application contract использует `ModelConfiguration` с `providerId`,
+  `modelId` и непрозрачными `providerOptions`, которые интерпретирует только
+  provider adapter;
+- provider возвращает стандартный `ModelDescriptor` с context window и
+  capabilities для vision/reasoning; application и UI не читают provider
+  options напрямую;
 - альтернативный provider можно зарегистрировать без изменения общих типов;
 - capabilities получаются через контракт, а не выводятся UI;
+- правила переключения модели и reasoning принадлежат provider и возвращают
+  новую конфигурацию без мутации исходной;
+- application сохраняет provider-owned update до замены активных model и
+  summarizer; ошибка сохранения оставляет активную конфигурацию неизменной;
+- DeepSeek adapter сам валидирует свои options, определяет vision fallback и
+  поддерживаемые reasoning efforts;
+- UI отображает только стандартный descriptor и не содержит DeepSeek-специфичной
+  логики или названий;
 - текущие настройки DeepSeek продолжают загружаться или мигрируются явно;
-- есть тестовая вторая реализация provider.
+- прежние JSON-настройки (`provider`, `id`, `baseUrl`, `contextWindow`, `vision`,
+  `thinking`) сохраняют поведение и правила безопасности `baseUrl`;
+- есть тестовая вторая реализация provider с иными opaque options и
+  capabilities, проходящая общий contract suite;
+- architecture test запрещает `app` зависеть от каталога `models` и запрещает
+  UI читать provider options.
+
+Вне объёма этапа:
+
+- динамическая регистрация нескольких providers из settings (будущая композиция
+  и plugin lifecycle);
+- namespaced schemas и миграционная инфраструктура конфигурации (этап 4);
+- изменение DeepSeek API protocol и JSONL session format;
+- динамическая загрузка внешних plugins.
 
 ## Этап 3. Tool registry и tool packs
 
