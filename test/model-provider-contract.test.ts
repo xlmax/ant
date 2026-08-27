@@ -115,7 +115,7 @@ test("DeepSeekProvider resolves capabilities and validates its own options", () 
     provider.describe({
       ...deepSeekConfiguration("deepseek-vision"),
       providerOptions: {
-        ...deepSeekConfiguration().providerOptions,
+        ...(deepSeekConfiguration().providerOptions as Record<string, unknown>),
         vision: false,
       },
     }).capabilities.vision,

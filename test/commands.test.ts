@@ -71,8 +71,8 @@ test("model and think commands support querying and runtime selection", () => {
     selection: "off",
   });
   assert.deepEqual(parseReplCommand("/think fast"), {
-    type: "error",
-    message: "Использование: /think [off|low|high|max]",
+    type: "think",
+    selection: "fast",
   });
   assert.deepEqual(parseReplCommand("/model first second"), {
     type: "error",
@@ -80,7 +80,7 @@ test("model and think commands support querying and runtime selection", () => {
   });
   assert.deepEqual(parseReplCommand("/think low extra"), {
     type: "error",
-    message: "Использование: /think [off|low|high|max]",
+    message: "Использование: /think [off|effort]",
   });
 });
 

@@ -24,9 +24,9 @@ test("application contracts contain no DeepSeek-specific model policy", async ()
   );
 });
 
-test("presentation adapters do not inspect opaque provider options", async () => {
+test("presentation adapters contain no provider-specific model policy", async () => {
   const files = await sourceFiles(new URL("../src/ui/", import.meta.url));
-  const leaks = files.filter((file) => /providerOptions/u.test(file.content));
+  const leaks = files.filter((file) => /providerOptions|deepseek/iu.test(file.content));
 
   assert.deepEqual(
     leaks.map((file) => file.path),

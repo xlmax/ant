@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { ModelSettings } from "../app/configuration.js";
+import type { ModelDescriptor } from "../app/model.js";
 import { VERSION } from "../version.js";
 import { ansi } from "./ansi.js";
 const execFileAsync = promisify(execFile);
@@ -37,12 +37,11 @@ export async function resolveGitBranch(workspace: string): Promise<string | unde
 export function formatStartScreen(options: {
   workspace: string;
   branch: string | undefined;
-  modelSettings: ModelSettings;
+  modelDescriptor: ModelDescriptor;
 }): string {
-  const model = `${options.modelSettings.provider}/${options.modelSettings.id}`;
-  const thinking = options.modelSettings.thinking.enabled
-    ? `think: ${options.modelSettings.thinking.effort}`
-    : "think: off";
+  const model = `${options.modelDescriptor.providerId}/${options.modelDescriptor.modelId}`;
+  const reasoning = options.modelDescriptor.capabilities.reasoning;
+  const thinking = reasoning.enabled ? `think: ${reasoning.effort ?? "on"}` : "think: off";
   const commands = TOP_COMMANDS.map((command) => ansi.cyan(command)).join(ansi.dim("  "));
 
   const lines: string[] = [

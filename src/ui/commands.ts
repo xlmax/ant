@@ -1,5 +1,4 @@
 import type { ReasoningDisplayMode } from "../app/configuration.js";
-import type { EffortSelection } from "./runtime-model.js";
 
 export interface ReplCommand {
   name: string;
@@ -16,7 +15,7 @@ export type CommandAction =
   | { type: "compact" }
   | { type: "reasoning"; mode?: ReasoningDisplayMode }
   | { type: "model"; id?: string; list?: true }
-  | { type: "think"; selection?: EffortSelection }
+  | { type: "think"; selection?: string }
   | { type: "update" }
   | { type: "exit" }
   | { type: "error"; message: string };
@@ -64,7 +63,7 @@ const commands: readonly ReplCommand[] = [
   },
   {
     name: "think",
-    usage: "/think [off|low|high|max]",
+    usage: "/think [off|effort]",
     description: "Показать или сменить режим и глубину размышлений до перезапуска.",
   },
   {
@@ -191,13 +190,10 @@ export function parseReplCommand(input: string): CommandAction | undefined {
       if (args.length === 0) {
         return { type: "think" };
       }
-      if (
-        args.length === 1 &&
-        (args[0] === "off" || args[0] === "low" || args[0] === "high" || args[0] === "max")
-      ) {
+      if (args.length === 1 && args[0] !== undefined) {
         return { type: "think", selection: args[0] };
       }
-      return { type: "error", message: "Использование: /think [off|low|high|max]" };
+      return { type: "error", message: "Использование: /think [off|effort]" };
 
     case "new":
     case "session":

@@ -56,11 +56,19 @@ Ant is assembled by `AntApplication` from replaceable modules with stable TypeSc
 
 - `AgentRuntime` — the agent loop (the built-in implementation delegates to `runAgent`);
 - `AntFrontend` — presentation (the built-in implementation is the terminal frontend);
-- `ModelProvider` — model and summarizer construction (DeepSeek is built in);
+- `ModelProvider` — provider-owned model discovery, selection, capabilities, and
+  model/summarizer construction (DeepSeek is built in);
 - `SessionStore` — durable history (JSONL is built in);
 - `Environment` — the available tools.
 
 For each invocation, the application creates an `AntApplicationClient`. It owns the active session, configured model and summarizer, and exposes application use cases such as submitting a turn, compacting context, and selecting a model. Frontends depend on this API instead of composing the runtime, provider, session store, and environment themselves. Agent policy remains in the runtime.
+
+The application identifies a model with a provider-neutral `ModelConfiguration`
+and consumes a standard `ModelDescriptor` for context-window, vision, and
+reasoning capabilities. Provider-specific settings are opaque to the
+application and presentation layers: the provider validates them and owns the
+rules for model and reasoning selection. The existing flat DeepSeek settings
+remain supported as a compatibility format.
 
 Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
 

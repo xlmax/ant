@@ -43,7 +43,7 @@ export async function runRepl(options: ReplOptions): Promise<void> {
     formatStartScreen({
       workspace: options.workspace,
       branch,
-      modelSettings: options.client.modelSettings,
+      modelDescriptor: options.client.modelDescriptor,
     }),
   );
 

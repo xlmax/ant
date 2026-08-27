@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelSettings } from "../src/app/configuration.js";
+import type { ModelDescriptor } from "../src/app/model-provider.js";
 import { configureAnsi } from "../src/ui/ansi.js";
 import { formatStartScreen } from "../src/ui/start-screen.js";
 import { VERSION } from "../src/version.js";
 
-const settings: ModelSettings = {
-  provider: "deepseek",
-  id: "deepseek-v4-flash",
-  baseUrl: "https://api.deepseek.com",
+const descriptor: ModelDescriptor = {
+  providerId: "deepseek",
+  modelId: "deepseek-v4-flash",
   contextWindow: 1_000_000,
-  vision: false,
-  thinking: { enabled: true, effort: "high" },
+  capabilities: {
+    vision: false,
+    reasoning: {
+      supported: true,
+      enabled: true,
+      effort: "high",
+      availableEfforts: ["low", "high", "max"],
+    },
+  },
 };
 
 test("start screen shows logo, version, model, location and commands", () => {
@@ -20,7 +26,7 @@ test("start screen shows logo, version, model, location and commands", () => {
   const screen = formatStartScreen({
     workspace: "C:\\Projects\\aiAgent",
     branch: "dev",
-    modelSettings: settings,
+    modelDescriptor: descriptor,
   });
 
   assert.match(screen, /█████╗/u);
@@ -37,7 +43,7 @@ test("start screen hides git branch when absent", () => {
   const screen = formatStartScreen({
     workspace: "/home/user/project",
     branch: undefined,
-    modelSettings: settings,
+    modelDescriptor: descriptor,
   });
 
   assert.match(screen, /▸ \/home\/user\/project/u);

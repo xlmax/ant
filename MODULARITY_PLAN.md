@@ -115,7 +115,7 @@ composition root или plugin manifest — без изменения `core`, `a
 
 Основные ограничения:
 
-- `ModelSettings` и конфигурация приложения знают о DeepSeek;
+- до этапа 2 `ModelSettings` и конфигурация приложения знали о DeepSeek;
 - terminal frontend владеет значительной частью прикладной оркестрации;
 - до этапа 1 frontend получал низкоуровневые runtime, provider, environment и
   session store вместо прикладных сценариев;
@@ -281,6 +281,25 @@ DeepSeek-специфичные `thinking`, `reasoning_effort`, эвристик
 - namespaced schemas и миграционная инфраструктура конфигурации (этап 4);
 - изменение DeepSeek API protocol и JSONL session format;
 - динамическая загрузка внешних plugins.
+
+Результат этапа 2:
+
+- добавлены provider-neutral `ModelConfiguration`, `ModelDescriptor` и
+  `ModelProvider`; provider-specific options остаются непрозрачными для `app` и
+  UI;
+- DeepSeek adapter владеет валидацией options, vision fallback, reasoning
+  capabilities и правилами переключения модели/reasoning;
+- application client сохраняет provider-owned изменения до замены активных
+  model и summarizer;
+- UI отображает стандартный descriptor и не содержит DeepSeek-специфичной
+  политики;
+- старый плоский формат DeepSeek-настроек продолжает загружаться, включая
+  прежнее правило доверия для `baseUrl`; новый формат `model.options` позволяет
+  хранить opaque provider options;
+- общий contract suite проходит DeepSeek adapter и независимая тестовая
+  реализация provider с другими options и capabilities;
+- архитектурные тесты запрещают DeepSeek-зависимости в `app` и доступ UI к
+  provider options.
 
 ## Этап 3. Tool registry и tool packs
 
@@ -472,7 +491,7 @@ REPL-команды должны регистрироваться handlers, а �
 ## Статус
 
 - [x] Этап 1. Прикладные сценарии
-- [ ] Этап 2. Provider-neutral модельный контракт
+- [x] Этап 2. Provider-neutral модельный контракт
 - [ ] Этап 3. Tool registry и tool packs
 - [ ] Этап 4. Модульная конфигурация
 - [ ] Этап 5. Версионированный session contract

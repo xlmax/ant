@@ -1,30 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelSettings } from "../src/app/configuration.js";
-import { formatModelStatus, selectEffort } from "../src/ui/runtime-model.js";
+import type { ModelDescriptor } from "../src/app/model-provider.js";
+import { formatModelStatus } from "../src/ui/runtime-model.js";
 
-const current: ModelSettings = {
-  provider: "deepseek",
-  id: "deepseek-v4-flash",
-  baseUrl: "https://api.deepseek.com",
+const current: ModelDescriptor = {
+  providerId: "deepseek",
+  modelId: "deepseek-v4-flash",
   contextWindow: 1_000_000,
-  vision: false,
-  thinking: { enabled: true, effort: "high" },
+  capabilities: {
+    vision: false,
+    reasoning: {
+      supported: true,
+      enabled: true,
+      effort: "high",
+      availableEfforts: ["low", "high", "max"],
+    },
+  },
 };
 
-test("runtime effort selection enables thinking and supports turning it off", () => {
-  assert.deepEqual(selectEffort(current, "max").thinking, {
-    enabled: true,
-    effort: "max",
-  });
-  assert.deepEqual(selectEffort(current, "off").thinking, {
-    enabled: false,
-    effort: "high",
-  });
-});
-
-test("runtime model status shows provider, model and thinking mode", () => {
+test("runtime model status shows provider, model and reasoning mode", () => {
   assert.match(formatModelStatus(current), /deepseek\/deepseek-v4-flash/u);
-  assert.match(formatModelStatus(selectEffort(current, "off")), /thinking off/u);
+  assert.match(
+    formatModelStatus({
+      ...current,
+      capabilities: {
+        ...current.capabilities,
+        reasoning: { ...current.capabilities.reasoning, enabled: false },
+      },
+    }),
+    /thinking off/u,
+  );
 });

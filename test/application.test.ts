@@ -16,12 +16,9 @@ import type { AgentRuntime } from "../src/core/runtime.js";
 const loadedSettings: LoadedSettings = {
   settings: {
     model: {
-      provider: "deepseek",
-      id: "test-model",
-      baseUrl: "https://api.deepseek.com",
-      contextWindow: 10_000,
-      vision: false,
-      thinking: { enabled: true, effort: "high" },
+      providerId: "test",
+      modelId: "test-model",
+      providerOptions: { contextWindow: 10_000, vision: false, effort: "high" },
     },
     ui: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: false },
     prompts: { additionalPaths: ["extra.md"] },
@@ -63,19 +60,12 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
       calls.push(`settings.load:${workspace}`);
       return loadedSettings;
     },
-    async readExplicitVision(workspace) {
-      calls.push(`settings.vision:${workspace}`);
-      return undefined;
-    },
-    resolveVision(id, configured) {
-      calls.push(`settings.resolve:${id}/${String(configured)}`);
-      return configured ?? /vision/iu.test(id);
-    },
     async saveModelId(id) {
       calls.push(`settings.model:${id}`);
     },
-    async saveThinking(thinking) {
-      calls.push(`settings.thinking:${thinking.enabled}/${thinking.effort}`);
+    async saveModelProviderOptions(providerId, update) {
+      const value = update as { effort: string };
+      calls.push(`settings.options:${providerId}/${value.effort}`);
     },
     async saveReasoningMode(mode) {
       calls.push(`settings.reasoning:${mode}`);
@@ -105,6 +95,28 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
     },
   };
   const provider: ModelProvider = {
+    id: "test",
+    describe(configuration) {
+      const options = configuration.providerOptions as {
+        contextWindow: number;
+        vision: boolean;
+        effort: string;
+      };
+      return {
+        providerId: "test",
+        modelId: configuration.modelId,
+        contextWindow: options.contextWindow,
+        capabilities: {
+          vision: options.vision,
+          reasoning: {
+            supported: true,
+            enabled: options.effort !== "off",
+            ...(options.effort === "off" ? {} : { effort: options.effort }),
+            availableEfforts: ["high", "max"],
+          },
+        },
+      };
+    },
     createAgentModel() {
       return model;
     },
@@ -113,6 +125,26 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
     },
     async listModels() {
       return ["test-model"];
+    },
+    selectModel(configuration, modelId) {
+      return {
+        ...configuration,
+        modelId,
+        providerOptions: {
+          ...(configuration.providerOptions as object),
+          vision: modelId.includes("vision"),
+        },
+      };
+    },
+    selectReasoning(configuration, selection) {
+      const effort = selection === "off" ? "off" : selection;
+      return {
+        configuration: {
+          ...configuration,
+          providerOptions: { ...(configuration.providerOptions as object), effort },
+        },
+        settingsUpdate: { effort },
+      };
     },
   };
   const runtime: AgentRuntime = {
@@ -148,7 +180,7 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
         async run(client) {
           calls.push("frontend.run");
           capturedFrontendClient = client;
-          assert.equal(client.modelSettings, loadedSettings.settings.model);
+          assert.equal(client.modelDescriptor.modelId, "test-model");
         },
       };
       return frontend;
@@ -183,16 +215,14 @@ test("AntApplication builds modules in order and delegates settings mutations", 
   const client = harness.frontendClient();
   assert.ok(options);
   assert.ok(client);
-  assert.equal((await client.selectModel("custom-vision")).settings.vision, true);
+  assert.equal((await client.selectModel("custom-vision")).descriptor.capabilities.vision, true);
   await client.selectThinking("off");
   await client.selectThinking("max");
   await options.settings.saveReasoningMode("compact");
-  assert.deepEqual(harness.calls.slice(-6), [
+  assert.deepEqual(harness.calls.slice(-4), [
     "settings.model:custom-vision",
-    `settings.vision:${workspace}`,
-    "settings.resolve:custom-vision/undefined",
-    "settings.thinking:false/high",
-    "settings.thinking:true/max",
+    "settings.options:test/off",
+    "settings.options:test/max",
     "settings.reasoning:compact",
   ]);
 });

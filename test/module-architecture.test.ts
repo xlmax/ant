@@ -2,21 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AntApplicationClient } from "../src/app/application-client.js";
-import type { ModelSettings } from "../src/app/configuration.js";
 import type { AntFrontend } from "../src/app/frontend.js";
-import type { ModelProvider } from "../src/app/model-provider.js";
+import type { ModelConfiguration, ModelProvider } from "../src/app/model-provider.js";
 import type { AgentModel, AgentState, Environment } from "../src/core/agent.js";
 import type { ContextSummarizer } from "../src/core/context-events.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
 import type { SessionList, SessionStore } from "../src/app/session.js";
 
-const settings: ModelSettings = {
-  provider: "deepseek",
-  id: "test-model",
-  baseUrl: "https://example.test",
-  contextWindow: 10_000,
-  vision: false,
-  thinking: { enabled: false, effort: "low" },
+const configuration: ModelConfiguration = {
+  providerId: "test",
+  modelId: "test-model",
+  providerOptions: { contextWindow: 10_000 },
 };
 
 class MemorySessionStore implements SessionStore {
@@ -68,20 +64,39 @@ test("application client composes replaceable runtime, provider, session, and en
     },
   };
   const provider: ModelProvider = {
+    id: "test",
+    describe(received) {
+      assert.equal(received, configuration);
+      return {
+        providerId: "test",
+        modelId: received.modelId,
+        contextWindow: 10_000,
+        capabilities: {
+          vision: false,
+          reasoning: { supported: false, enabled: false, availableEfforts: [] },
+        },
+      };
+    },
     createAgentModel(received) {
       calls.push("provider.model");
-      assert.equal(received, settings);
+      assert.equal(received, configuration);
       return model;
     },
     createContextSummarizer(received) {
       calls.push("provider.summarizer");
-      assert.equal(received, settings);
+      assert.equal(received, configuration);
       return summarizer;
     },
     async listModels(received) {
       calls.push("provider.list");
-      assert.equal(received, settings);
+      assert.equal(received, configuration);
       return ["test-model"];
+    },
+    selectModel(received, modelId) {
+      return { ...received, modelId };
+    },
+    selectReasoning() {
+      throw new Error("reasoning is unsupported");
     },
   };
   const sessions = new MemorySessionStore();
@@ -100,12 +115,10 @@ test("application client composes replaceable runtime, provider, session, and en
     sessions,
     environment,
     systemPrompt: "system prompt",
-    modelSettings: settings,
+    modelConfiguration: configuration,
     settings: {
-      async saveModelId() {
-        return false;
-      },
-      async saveThinking() {},
+      async saveModelId() {},
+      async saveModelProviderOptions() {},
     },
     limits: {
       turnTimeoutSeconds: 60,
@@ -118,7 +131,7 @@ test("application client composes replaceable runtime, provider, session, and en
     async run(received) {
       calls.push("frontend");
       assert.equal(received, client);
-      assert.equal(received.modelSettings, settings);
+      assert.equal(received.modelDescriptor.modelId, "test-model");
       assert.deepEqual(await received.listModels(), ["test-model"]);
       const submitted = await received.submitTurn("task");
       assert.equal(submitted.result.status, "completed");

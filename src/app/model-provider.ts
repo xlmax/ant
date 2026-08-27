@@ -1,10 +1,21 @@
-import type { ModelSettings } from "./configuration.js";
 import type { AgentModel } from "../core/agent.js";
 import type { ContextSummarizer } from "../core/context-events.js";
+import type { ModelConfiguration, ModelConfigurationChange, ModelDescriptor } from "./model.js";
+
+export type {
+  ModelConfiguration,
+  ModelConfigurationChange,
+  ModelDescriptor,
+  ReasoningCapability,
+} from "./model.js";
 
 /** Application-owned port implemented by a model-provider adapter. */
 export interface ModelProvider {
-  createAgentModel(settings: ModelSettings): AgentModel;
-  createContextSummarizer(settings: ModelSettings): ContextSummarizer;
-  listModels(settings: ModelSettings, signal?: AbortSignal): Promise<readonly string[]>;
+  readonly id: string;
+  describe(configuration: ModelConfiguration): ModelDescriptor;
+  createAgentModel(configuration: ModelConfiguration): AgentModel;
+  createContextSummarizer(configuration: ModelConfiguration): ContextSummarizer;
+  listModels(configuration: ModelConfiguration, signal?: AbortSignal): Promise<readonly string[]>;
+  selectModel(configuration: ModelConfiguration, modelId: string): ModelConfiguration;
+  selectReasoning(configuration: ModelConfiguration, selection: string): ModelConfigurationChange;
 }

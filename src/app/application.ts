@@ -63,20 +63,10 @@ export class AntApplication {
       workspace,
       loadedSettings.settings.prompts.additionalPaths,
     );
-    const modelSettings = loadedSettings.settings.model;
+    const modelConfiguration = loadedSettings.settings.model;
     const provider = this.#modules.createProvider({
       systemPrompt: systemPrompt.content,
     });
-
-    // Persist the id, then resolve only vision for the runtime switch. Reloading
-    // merged settings here would let a project model.id clobber the selection.
-    const saveModelId = async (id: string): Promise<boolean> => {
-      await this.#modules.settings.saveModelId(id);
-      return this.#modules.settings.resolveVision(
-        id,
-        await this.#modules.settings.readExplicitVision(workspace),
-      );
-    };
 
     const environment = this.#modules.createEnvironment(
       workspace,
@@ -90,10 +80,11 @@ export class AntApplication {
       sessions: store,
       environment,
       systemPrompt: systemPrompt.content,
-      modelSettings,
+      modelConfiguration,
       settings: {
-        saveModelId,
-        saveThinking: (thinking) => this.#modules.settings.saveThinking(thinking),
+        saveModelId: (id) => this.#modules.settings.saveModelId(id),
+        saveModelProviderOptions: (providerId, update) =>
+          this.#modules.settings.saveModelProviderOptions(providerId, update),
       },
       limits: loadedSettings.settings.limits,
       verification: loadedSettings.settings.verification,

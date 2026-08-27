@@ -5,8 +5,11 @@ import {
   AntApplicationClient,
   type ApplicationClientDependencies,
 } from "../src/app/application-client.js";
-import type { ModelSettings } from "../src/app/configuration.js";
-import type { ModelProvider } from "../src/app/model-provider.js";
+import type {
+  ModelConfiguration,
+  ModelDescriptor,
+  ModelProvider,
+} from "../src/app/model-provider.js";
 import type { AgentSession, SessionStore } from "../src/app/session.js";
 import type {
   AgentDependencies,
@@ -20,14 +23,25 @@ import type { ContextSummarizer } from "../src/core/context-events.js";
 import type { AgentRuntime } from "../src/core/runtime.js";
 import { ToolEnvironment } from "../src/tools/tool-environment.js";
 
-const initialSettings: ModelSettings = {
-  provider: "deepseek",
-  id: "model-a",
-  baseUrl: "https://example.test",
-  contextWindow: 10_000,
-  vision: false,
-  thinking: { enabled: true, effort: "high" },
+interface TestProviderOptions {
+  contextWindow: number;
+  vision: boolean;
+  thinking: { enabled: boolean; effort: string };
+}
+
+const initialConfiguration: ModelConfiguration = {
+  providerId: "test",
+  modelId: "model-a",
+  providerOptions: {
+    contextWindow: 10_000,
+    vision: false,
+    thinking: { enabled: true, effort: "high" },
+  } satisfies TestProviderOptions,
 };
+
+function testOptions(configuration: ModelConfiguration): TestProviderOptions {
+  return configuration.providerOptions as TestProviderOptions;
+}
 
 interface Harness {
   client: AntApplicationClient;
@@ -91,21 +105,60 @@ function createHarness(): Harness {
     },
   });
   const provider: ModelProvider = {
-    createAgentModel(settings) {
-      calls.push(
-        `model.create:${settings.id}:${settings.thinking.enabled}/${settings.thinking.effort}`,
-      );
-      return createModel(settings.id);
+    id: "test",
+    describe(configuration): ModelDescriptor {
+      const options = testOptions(configuration);
+      return {
+        providerId: "test",
+        modelId: configuration.modelId,
+        contextWindow: options.contextWindow,
+        capabilities: {
+          vision: options.vision,
+          reasoning: {
+            supported: true,
+            enabled: options.thinking.enabled,
+            ...(options.thinking.enabled ? { effort: options.thinking.effort } : {}),
+            availableEfforts: ["low", "high", "max"],
+          },
+        },
+      };
     },
-    createContextSummarizer(settings) {
-      calls.push(
-        `summarizer.create:${settings.id}:${settings.thinking.enabled}/${settings.thinking.effort}`,
-      );
-      return createSummarizer(settings.id);
+    createAgentModel(configuration) {
+      const thinking = testOptions(configuration).thinking;
+      calls.push(`model.create:${configuration.modelId}:${thinking.enabled}/${thinking.effort}`);
+      return createModel(configuration.modelId);
     },
-    async listModels(settings) {
-      calls.push(`models.list:${settings.id}`);
+    createContextSummarizer(configuration) {
+      const thinking = testOptions(configuration).thinking;
+      calls.push(
+        `summarizer.create:${configuration.modelId}:${thinking.enabled}/${thinking.effort}`,
+      );
+      return createSummarizer(configuration.modelId);
+    },
+    async listModels(configuration) {
+      calls.push(`models.list:${configuration.modelId}`);
       return ["model-a", "model-b"];
+    },
+    selectModel(configuration, modelId) {
+      return {
+        ...configuration,
+        modelId,
+        providerOptions: { ...testOptions(configuration), vision: modelId === "model-b" },
+      };
+    },
+    selectReasoning(configuration, selection) {
+      const options = testOptions(configuration);
+      const thinking = {
+        enabled: selection !== "off",
+        effort: selection === "off" ? options.thinking.effort : selection,
+      };
+      return {
+        configuration: {
+          ...configuration,
+          providerOptions: { ...options, thinking },
+        },
+        settingsUpdate: { thinking },
+      };
     },
   };
   const runtime: AgentRuntime = {
@@ -128,7 +181,7 @@ function createHarness(): Harness {
     sessions: store,
     environment: new ToolEnvironment([]),
     systemPrompt: "system",
-    modelSettings: initialSettings,
+    modelConfiguration: initialConfiguration,
     limits: {
       turnTimeoutSeconds: 60,
       modelRequestTimeoutSeconds: 5,
@@ -139,10 +192,10 @@ function createHarness(): Harness {
       async saveModelId(id) {
         calls.push(`model.save:${id}`);
         if (failModelSave) throw new Error("save failed");
-        return id === "model-b";
       },
-      async saveThinking(thinking) {
-        calls.push(`thinking.save:${thinking.enabled}/${thinking.effort}`);
+      async saveModelProviderOptions(providerId, update) {
+        const thinking = (update as { thinking: { enabled: boolean; effort: string } }).thinking;
+        calls.push(`thinking.save:${providerId}:${thinking.enabled}/${thinking.effort}`);
         if (failThinkingSave) throw new Error("thinking save failed");
       },
     },
@@ -178,7 +231,7 @@ function createHarness(): Harness {
 test("application client owns models and exposes read-only state", () => {
   const harness = createHarness();
 
-  assert.equal(harness.client.modelSettings.id, "model-a");
+  assert.equal(harness.client.modelDescriptor.modelId, "model-a");
   assert.equal(harness.client.activeSession, undefined);
   assert.deepEqual(harness.calls, [
     "model.create:model-a:true/high",
@@ -248,8 +301,8 @@ test("model and thinking selections persist before rebuilding model clients", as
 
   const selected = await harness.client.selectModel("model-b");
   assert.equal(selected.changed, true);
-  assert.equal(selected.settings.id, "model-b");
-  assert.equal(selected.settings.vision, true);
+  assert.equal(selected.descriptor.modelId, "model-b");
+  assert.equal(selected.descriptor.capabilities.vision, true);
   assert.deepEqual(harness.calls.slice(-3), [
     "model.save:model-b",
     "model.create:model-b:true/high",
@@ -258,15 +311,15 @@ test("model and thinking selections persist before rebuilding model clients", as
 
   const thinking = await harness.client.selectThinking("off");
   assert.equal(thinking.changed, true);
-  assert.deepEqual(thinking.settings.thinking, { enabled: false, effort: "high" });
+  assert.equal(thinking.descriptor.capabilities.reasoning.enabled, false);
   assert.deepEqual(harness.calls.slice(-3), [
-    "thinking.save:false/high",
+    "thinking.save:test:false/high",
     "model.create:model-b:false/high",
     "summarizer.create:model-b:false/high",
   ]);
 
   await harness.client.selectThinking("max");
-  assert.deepEqual(harness.client.modelSettings.thinking, { enabled: true, effort: "max" });
+  assert.equal(harness.client.modelDescriptor.capabilities.reasoning.effort, "max");
 });
 
 test("failed model persistence leaves active model unchanged", async () => {
@@ -274,7 +327,7 @@ test("failed model persistence leaves active model unchanged", async () => {
   harness.failModelSave = true;
 
   await assert.rejects(() => harness.client.selectModel("model-b"), /save failed/u);
-  assert.equal(harness.client.modelSettings.id, "model-a");
+  assert.equal(harness.client.modelDescriptor.modelId, "model-a");
   assert.equal(harness.calls.filter((call) => call.startsWith("model.create")).length, 1);
 });
 
@@ -283,7 +336,7 @@ test("failed thinking persistence leaves active model unchanged", async () => {
   harness.failThinkingSave = true;
 
   await assert.rejects(() => harness.client.selectThinking("off"), /thinking save failed/u);
-  assert.deepEqual(harness.client.modelSettings.thinking, { enabled: true, effort: "high" });
+  assert.equal(harness.client.modelDescriptor.capabilities.reasoning.effort, "high");
   assert.equal(harness.calls.filter((call) => call.startsWith("model.create")).length, 1);
 });
 
