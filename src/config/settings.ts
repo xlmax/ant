@@ -5,10 +5,8 @@ import { resolve } from "node:path";
 import type {
   AppSettings,
   LoadedSettings,
-  ModelSettings,
   ProjectSettingsOverrides,
   ReasoningDisplayMode,
-  ReasoningEffort,
   RuntimeLimits,
   VerificationCheck,
 } from "../app/configuration.js";
@@ -24,16 +22,19 @@ export function resolveVision(id: string, configured?: boolean): boolean {
   return configured ?? /vision/i.test(id);
 }
 
+type DeepSeekReasoningEffort = "low" | "high" | "max";
+
 type PartialSettings = {
   model?: {
-    provider?: "deepseek";
+    provider?: string;
     id?: string;
+    options?: unknown;
     baseUrl?: string;
     contextWindow?: number;
     vision?: boolean;
     thinking?: {
       enabled?: boolean;
-      effort?: ReasoningEffort;
+      effort?: DeepSeekReasoningEffort;
     };
   };
   ui?: {
@@ -58,14 +59,15 @@ type PartialSettings = {
 
 const defaults: AppSettings = {
   model: {
-    provider: "deepseek",
-    id: "deepseek-v4-flash",
-    baseUrl: "https://api.deepseek.com",
-    contextWindow: 1_000_000,
-    vision: false,
-    thinking: {
-      enabled: true,
-      effort: "high",
+    providerId: "deepseek",
+    modelId: "deepseek-v4-flash",
+    providerOptions: {
+      baseUrl: "https://api.deepseek.com",
+      contextWindow: 1_000_000,
+      thinking: {
+        enabled: true,
+        effort: "high",
+      },
     },
   },
   ui: {
@@ -181,7 +183,7 @@ function optionalReasoningMode(value: unknown): ReasoningDisplayMode | undefined
   return value;
 }
 
-function optionalEffort(value: unknown): ReasoningEffort | undefined {
+function optionalEffort(value: unknown): DeepSeekReasoningEffort | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -222,11 +224,8 @@ function parseSettings(value: unknown, source: string): PartialSettings {
 
     const provider = optionalString(value.model.provider, "model.provider");
 
-    if (provider !== undefined && provider !== "deepseek") {
-      throw new Error(`Неподдерживаемый provider: ${provider}`);
-    }
-
     const id = optionalString(value.model.id, "model.id");
+    const options = value.model.options;
     const baseUrl = optionalString(value.model.baseUrl, "model.baseUrl");
     const contextWindow = optionalContextWindow(value.model.contextWindow);
     const vision = optionalBoolean(value.model.vision, "model.vision");
@@ -237,6 +236,9 @@ function parseSettings(value: unknown, source: string): PartialSettings {
     }
     if (id !== undefined) {
       model.id = id;
+    }
+    if (options !== undefined) {
+      model.options = options;
     }
     if (baseUrl !== undefined) {
       model.baseUrl = baseUrl;
@@ -369,20 +371,37 @@ function mergeSettings(base: AppSettings, partial: PartialSettings): AppSettings
   const bashPath =
     partial.tools?.bashPath === null ? undefined : (partial.tools?.bashPath ?? base.tools.bashPath);
 
+  const providerId = partial.model?.provider ?? base.model.providerId;
+  const modelId = partial.model?.id ?? base.model.modelId;
+  const baseOptions = isRecord(base.model.providerOptions) ? base.model.providerOptions : {};
+  const explicitOptions = isRecord(partial.model?.options) ? partial.model.options : {};
+  const providerOptions: Record<string, unknown> =
+    providerId === base.model.providerId
+      ? { ...baseOptions, ...explicitOptions }
+      : { ...explicitOptions };
+  if (providerId === "deepseek") {
+    const baseThinking = isRecord(providerOptions.thinking) ? providerOptions.thinking : {};
+    providerOptions.baseUrl =
+      partial.model?.baseUrl ?? providerOptions.baseUrl ?? "https://api.deepseek.com";
+    providerOptions.contextWindow =
+      partial.model?.contextWindow ?? providerOptions.contextWindow ?? 1_000_000;
+    if (partial.model?.vision !== undefined) providerOptions.vision = partial.model.vision;
+    providerOptions.thinking = {
+      ...baseThinking,
+      ...(partial.model?.thinking?.enabled === undefined
+        ? {}
+        : { enabled: partial.model.thinking.enabled }),
+      ...(partial.model?.thinking?.effort === undefined
+        ? {}
+        : { effort: partial.model.thinking.effort }),
+    };
+  }
+
   return {
     model: {
-      provider: partial.model?.provider ?? base.model.provider,
-      id: partial.model?.id ?? base.model.id,
-      baseUrl: partial.model?.baseUrl ?? base.model.baseUrl,
-      contextWindow: partial.model?.contextWindow ?? base.model.contextWindow,
-      // Raw vision is carried through layers without resolving; the heuristic
-      // is applied once, after every layer is merged, so an explicit value is
-      // never clobbered by a later layer that only changes unrelated keys.
-      vision: partial.model?.vision ?? base.model.vision,
-      thinking: {
-        enabled: partial.model?.thinking?.enabled ?? base.model.thinking.enabled,
-        effort: partial.model?.thinking?.effort ?? base.model.thinking.effort,
-      },
+      providerId,
+      modelId,
+      providerOptions,
     },
     ui: {
       reasoningMode: partial.ui?.reasoningMode ?? base.ui.reasoningMode,
@@ -470,7 +489,7 @@ export async function loadSettings(
         // (old versions wrote it there); if it matches the heuristic for its
         // id, treat it as legacy so the heuristic can reapply. Project vision
         // is always a genuine explicit override.
-        const layerId = partial.model?.id ?? settings.model.id;
+        const layerId = partial.model?.id ?? settings.model.modelId;
         const staleUserVision = index === 0 && layerVision === resolveVision(layerId);
         if (!staleUserVision) explicitVision = layerVision;
       }
@@ -483,6 +502,20 @@ export async function loadSettings(
         delete partial.model.baseUrl;
       }
 
+      if (
+        index === 1 &&
+        partial.model?.provider !== undefined &&
+        partial.model.provider !== settings.model.providerId
+      ) {
+        // Project settings may select a model id for the active provider, but
+        // provider selection itself belongs to the trusted user composition.
+        delete partial.model.provider;
+      }
+
+      if (index === 1 && isRecord(partial.model?.options) && "baseUrl" in partial.model.options) {
+        delete partial.model.options.baseUrl;
+      }
+
       settings = mergeSettings(settings, partial);
       sources.push(path);
 
@@ -490,16 +523,20 @@ export async function loadSettings(
         projectOverrides.modelId = partial.model?.id !== undefined;
         projectOverrides.modelThinking =
           partial.model?.thinking?.enabled !== undefined ||
-          partial.model?.thinking?.effort !== undefined;
+          partial.model?.thinking?.effort !== undefined ||
+          partial.model?.options !== undefined;
         projectOverrides.reasoningMode = partial.ui?.reasoningMode !== undefined;
         projectOverrides.showChanges = partial.ui?.showChanges !== undefined;
       }
     }
   }
 
-  // Single point of truth: explicit `model.vision` wins, heuristic is the
-  // fallback applied only when no layer configured the capability explicitly.
-  settings.model.vision = resolveVision(settings.model.id, explicitVision);
+  const finalOptions = isRecord(settings.model.providerOptions)
+    ? { ...settings.model.providerOptions }
+    : {};
+  if (explicitVision === undefined) delete finalOptions.vision;
+  else finalOptions.vision = explicitVision;
+  settings = { ...settings, model: { ...settings.model, providerOptions: finalOptions } };
 
   return { settings, sources, projectOverrides };
 }
@@ -535,9 +572,10 @@ export interface UserSettingsUpdate {
   model?: {
     id?: string;
     vision?: boolean;
+    options?: Record<string, unknown>;
     thinking?: {
       enabled?: boolean;
-      effort?: ReasoningEffort;
+      effort?: DeepSeekReasoningEffort;
     };
   };
   ui?: {
@@ -560,7 +598,7 @@ export async function saveUserSettings(
     if (currentModel !== undefined && !isRecord(currentModel)) {
       throw new Error("Настройка model должна быть объектом");
     }
-    const { thinking: thinkingUpdate, ...modelUpdate } = update.model;
+    const { thinking: thinkingUpdate, options: optionsUpdate, ...modelUpdate } = update.model;
     let currentThinking: Record<string, unknown> | undefined;
     if (thinkingUpdate !== undefined) {
       const savedThinking = currentModel?.thinking;
@@ -575,6 +613,14 @@ export async function saveUserSettings(
     next.model = {
       ...currentModel,
       ...modelUpdate,
+      ...(optionsUpdate === undefined
+        ? {}
+        : {
+            options: {
+              ...(isRecord(currentModel?.options) ? currentModel.options : {}),
+              ...optionsUpdate,
+            },
+          }),
       ...(thinkingUpdate === undefined
         ? {}
         : { thinking: { ...currentThinking, ...thinkingUpdate } }),
@@ -633,9 +679,12 @@ export async function saveUserReasoningMode(
   await saveUserSettings({ ui: { reasoningMode } }, homeDirectory);
 }
 
-export async function saveUserModelThinking(
-  thinking: ModelSettings["thinking"],
+export async function saveUserModelProviderOptions(
+  providerId: string,
+  update: unknown,
   homeDirectory: string = homedir(),
 ): Promise<void> {
-  await saveUserSettings({ model: { thinking } }, homeDirectory);
+  if (providerId.trim() === "") throw new Error("Provider id must not be empty");
+  if (!isRecord(update)) throw new Error("Provider settings update must be an object");
+  await saveUserSettings({ model: { options: update } }, homeDirectory);
 }

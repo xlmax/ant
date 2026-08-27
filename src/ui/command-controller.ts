@@ -135,11 +135,11 @@ export async function handleReplCommand(
       if (command.list) {
         try {
           const models = await client.listModels();
-          console.log(ansi.bold("Доступные модели DeepSeek:"));
+          console.log(ansi.bold("Доступные модели:"));
           if (models.length === 0) console.log(ansi.dim("Provider не вернул доступные модели."));
           for (const id of models)
             console.log(
-              `${id === client.modelSettings.id ? ansi.green("●") : ansi.dim("○")} ${id}`,
+              `${id === client.modelDescriptor.modelId ? ansi.green("●") : ansi.dim("○")} ${id}`,
             );
         } catch (error) {
           console.error(
@@ -149,15 +149,15 @@ export async function handleReplCommand(
           );
         }
       } else if (command.id === undefined) {
-        console.log(ansi.dim(`Модель: ${formatModelStatus(client.modelSettings)}`));
+        console.log(ansi.dim(`Модель: ${formatModelStatus(client.modelDescriptor)}`));
       } else {
         try {
           const selection = await client.selectModel(command.id);
           console.log(
             ansi.dim(
               selection.changed
-                ? `Модель переключена и сохранена: ${formatModelStatus(selection.settings)}`
-                : `Модель уже активна: ${formatModelStatus(selection.settings)}`,
+                ? `Модель переключена и сохранена: ${formatModelStatus(selection.descriptor)}`
+                : `Модель уже активна: ${formatModelStatus(selection.descriptor)}`,
             ),
           );
           if (selection.changed && options.projectOverrides.modelId)
@@ -178,15 +178,15 @@ export async function handleReplCommand(
 
     case "think":
       if (command.selection === undefined) {
-        console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(client.modelSettings)}`));
+        console.log(ansi.dim(`Режим размышлений: ${formatModelStatus(client.modelDescriptor)}`));
       } else {
         try {
           const selection = await client.selectThinking(command.selection);
           console.log(
             ansi.dim(
               selection.changed
-                ? `Рассуждения модели переключены и сохранены: ${formatModelStatus(selection.settings)}`
-                : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(selection.settings)}`,
+                ? `Рассуждения модели переключены и сохранены: ${formatModelStatus(selection.descriptor)}`
+                : `Рассуждения модели уже настроены и сохранены: ${formatModelStatus(selection.descriptor)}`,
             ),
           );
           if (options.projectOverrides.modelThinking)

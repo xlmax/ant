@@ -17,6 +17,7 @@ import { loadSettings } from "../../src/config/settings.js";
 import { loadSystemPrompt } from "../../src/config/system-prompt.js";
 import { ToolEnvironment } from "../../src/tools/tool-environment.js";
 import { DeepSeekModel } from "../../src/models/deepseek-model.js";
+import { DeepSeekProvider } from "../../src/models/deepseek-provider.js";
 import { JsonlSessionStore } from "../../src/sessions/jsonl-session-store.js";
 import { SessionController } from "../../src/app/session-controller.js";
 
@@ -97,15 +98,9 @@ async function createModel(): Promise<DeepSeekModel> {
     loadSettings(process.cwd()),
   ]);
 
-  return new DeepSeekModel({
-    apiKey,
-    systemPrompt: systemPrompt.content,
-    model: loadedSettings.settings.model.id,
-    baseUrl: loadedSettings.settings.model.baseUrl,
-    contextWindow: loadedSettings.settings.model.contextWindow,
-    thinkingEnabled: loadedSettings.settings.model.thinking.enabled,
-    reasoningEffort: loadedSettings.settings.model.thinking.effort,
-  });
+  return new DeepSeekProvider({ apiKey, systemPrompt: systemPrompt.content }).createAgentModel(
+    loadedSettings.settings.model,
+  );
 }
 
 function completedAnswer(result: AgentResult): string {

@@ -1,20 +1,8 @@
 import type { VerificationCheck, VerificationSettings } from "../core/verification.js";
+import type { ModelConfiguration } from "./model-provider.js";
 
 export type { VerificationCheck, VerificationSettings };
-export type ReasoningEffort = "low" | "high" | "max";
 export type ReasoningDisplayMode = "off" | "compact" | "full";
-
-export interface ModelSettings {
-  provider: "deepseek";
-  id: string;
-  baseUrl: string;
-  contextWindow: number;
-  vision: boolean;
-  thinking: {
-    enabled: boolean;
-    effort: ReasoningEffort;
-  };
-}
 
 export interface RuntimeLimits {
   turnTimeoutSeconds: number;
@@ -23,7 +11,7 @@ export interface RuntimeLimits {
 }
 
 export interface AppSettings {
-  model: ModelSettings;
+  model: ModelConfiguration;
   ui: {
     reasoningMode: ReasoningDisplayMode;
     reasoningMaxLines: number;
@@ -56,9 +44,7 @@ export interface LoadedSettings {
 /** Application-owned configuration port implemented by a persistence adapter. */
 export interface SettingsModule {
   load(workspace: string): Promise<LoadedSettings>;
-  readExplicitVision(workspace: string): Promise<boolean | undefined>;
-  resolveVision(id: string, configured?: boolean): boolean;
   saveModelId(id: string): Promise<void>;
-  saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
+  saveModelProviderOptions(providerId: string, update: unknown): Promise<void>;
   saveReasoningMode(mode: ReasoningDisplayMode): Promise<void>;
 }

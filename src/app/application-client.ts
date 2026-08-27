@@ -9,19 +9,14 @@ import type {
 import { estimateContextBudget, type ContextBudget } from "../core/context-budget.js";
 import { createCompactionPlan, type ContextSummarizer } from "../core/context-events.js";
 import type { AgentRuntime } from "../core/runtime.js";
-import type {
-  ModelSettings,
-  ReasoningEffort,
-  RuntimeLimits,
-  VerificationSettings,
-} from "./configuration.js";
-import type { ModelProvider } from "./model-provider.js";
+import type { RuntimeLimits, VerificationSettings } from "./configuration.js";
+import type { ModelConfiguration, ModelDescriptor, ModelProvider } from "./model-provider.js";
 import { SessionController } from "./session-controller.js";
 import type { AgentSession, SessionStore } from "./session.js";
 
 export interface ApplicationSettingsCommands {
-  saveModelId(id: string): Promise<boolean>;
-  saveThinking(thinking: ModelSettings["thinking"]): Promise<void>;
+  saveModelId(id: string): Promise<void>;
+  saveModelProviderOptions(providerId: string, update: unknown): Promise<void>;
 }
 
 export interface ApplicationClientDependencies {
@@ -30,7 +25,7 @@ export interface ApplicationClientDependencies {
   sessions: SessionStore;
   environment: Environment;
   systemPrompt: string;
-  modelSettings: ModelSettings;
+  modelConfiguration: ModelConfiguration;
   settings: ApplicationSettingsCommands;
   limits: RuntimeLimits;
   verification?: VerificationSettings;
@@ -54,10 +49,10 @@ export interface ActiveSessionInfo {
   session: AgentSession;
 }
 
-export type ThinkingSelection = ReasoningEffort | "off";
+export type ThinkingSelection = string;
 
 export interface ModelSelectionResult {
-  settings: ModelSettings;
+  descriptor: ModelDescriptor;
   changed: boolean;
 }
 
@@ -79,7 +74,7 @@ export interface CompactionOptions {
 
 /** Stable use-case surface consumed by presentation adapters. */
 export interface AntApplicationApi {
-  readonly modelSettings: ModelSettings;
+  readonly modelDescriptor: ModelDescriptor;
   readonly activeSession: ActiveSessionInfo | undefined;
   resumeSession(sessionId: string): Promise<ActiveSessionInfo>;
   resetSession(): void;
@@ -89,14 +84,6 @@ export interface AntApplicationApi {
   selectModel(id: string): Promise<ModelSelectionResult>;
   selectThinking(selection: ThinkingSelection): Promise<ModelSelectionResult>;
   compactContext(options?: CompactionOptions): Promise<CompactionResult>;
-}
-
-function selectedThinking(
-  current: ModelSettings["thinking"],
-  selection: ThinkingSelection,
-): ModelSettings["thinking"] {
-  if (selection === "off") return { ...current, enabled: false };
-  return { enabled: true, effort: selection };
 }
 
 /**
@@ -113,7 +100,8 @@ export class AntApplicationClient implements AntApplicationApi {
   readonly #limits: RuntimeLimits;
   readonly #verification: VerificationSettings | undefined;
   readonly #sessions: SessionController;
-  #modelSettings: ModelSettings;
+  #modelConfiguration: ModelConfiguration;
+  #modelDescriptor: ModelDescriptor;
   #model: AgentModel;
   #summarizer: ContextSummarizer;
 
@@ -126,13 +114,21 @@ export class AntApplicationClient implements AntApplicationApi {
     this.#limits = dependencies.limits;
     this.#verification = dependencies.verification;
     this.#sessions = new SessionController(dependencies.sessions);
-    this.#modelSettings = dependencies.modelSettings;
-    this.#model = dependencies.provider.createAgentModel(dependencies.modelSettings);
-    this.#summarizer = dependencies.provider.createContextSummarizer(dependencies.modelSettings);
+    if (dependencies.provider.id !== dependencies.modelConfiguration.providerId) {
+      throw new Error(
+        `Configured provider ${dependencies.modelConfiguration.providerId} does not match active provider ${dependencies.provider.id}`,
+      );
+    }
+    this.#modelConfiguration = dependencies.modelConfiguration;
+    this.#modelDescriptor = dependencies.provider.describe(dependencies.modelConfiguration);
+    this.#model = dependencies.provider.createAgentModel(dependencies.modelConfiguration);
+    this.#summarizer = dependencies.provider.createContextSummarizer(
+      dependencies.modelConfiguration,
+    );
   }
 
-  get modelSettings(): ModelSettings {
-    return this.#modelSettings;
+  get modelDescriptor(): ModelDescriptor {
+    return this.#modelDescriptor;
   }
 
   get activeSession(): ActiveSessionInfo | undefined {
@@ -185,33 +181,40 @@ export class AntApplicationClient implements AntApplicationApi {
       systemPrompt: this.#systemPrompt,
       events: this.#sessions.active?.state.events ?? [],
       tools: this.#environment.tools(),
-      contextWindow: this.#modelSettings.contextWindow,
-      includeImages: this.#modelSettings.vision,
-      includeReasoning: this.#modelSettings.thinking.enabled,
+      contextWindow: this.#modelDescriptor.contextWindow,
+      includeImages: this.#modelDescriptor.capabilities.vision,
+      includeReasoning: this.#modelDescriptor.capabilities.reasoning.enabled,
     });
   }
 
   listModels(signal?: AbortSignal): Promise<readonly string[]> {
-    return this.#provider.listModels(this.#modelSettings, signal);
+    return this.#provider.listModels(this.#modelConfiguration, signal);
   }
 
   async selectModel(id: string): Promise<ModelSelectionResult> {
-    if (id === this.#modelSettings.id) {
-      return { settings: this.#modelSettings, changed: false };
+    if (id === this.#modelDescriptor.modelId) {
+      return { descriptor: this.#modelDescriptor, changed: false };
     }
-    const vision = await this.#settings.saveModelId(id);
-    this.#replaceModel({ ...this.#modelSettings, id, vision });
-    return { settings: this.#modelSettings, changed: true };
+    const configuration = this.#provider.selectModel(this.#modelConfiguration, id);
+    await this.#settings.saveModelId(configuration.modelId);
+    this.#replaceModel(configuration);
+    return { descriptor: this.#modelDescriptor, changed: true };
   }
 
   async selectThinking(selection: ThinkingSelection): Promise<ModelSelectionResult> {
-    const thinking = selectedThinking(this.#modelSettings.thinking, selection);
+    const selected = this.#provider.selectReasoning(this.#modelConfiguration, selection);
+    const nextDescriptor = this.#provider.describe(selected.configuration);
+    const currentReasoning = this.#modelDescriptor.capabilities.reasoning;
+    const nextReasoning = nextDescriptor.capabilities.reasoning;
     const changed =
-      thinking.enabled !== this.#modelSettings.thinking.enabled ||
-      thinking.effort !== this.#modelSettings.thinking.effort;
-    await this.#settings.saveThinking(thinking);
-    if (changed) this.#replaceModel({ ...this.#modelSettings, thinking });
-    return { settings: this.#modelSettings, changed };
+      nextReasoning.enabled !== currentReasoning.enabled ||
+      nextReasoning.effort !== currentReasoning.effort;
+    await this.#settings.saveModelProviderOptions(
+      selected.configuration.providerId,
+      selected.settingsUpdate,
+    );
+    if (changed) this.#replaceModel(selected.configuration);
+    return { descriptor: this.#modelDescriptor, changed };
   }
 
   async compactContext(options: CompactionOptions = {}): Promise<CompactionResult> {
@@ -239,9 +242,9 @@ export class AntApplicationClient implements AntApplicationApi {
       systemPrompt: this.#systemPrompt,
       events: [...active.state.events, event],
       tools: this.#environment.tools(),
-      contextWindow: this.#modelSettings.contextWindow,
-      includeImages: this.#modelSettings.vision,
-      includeReasoning: this.#modelSettings.thinking.enabled,
+      contextWindow: this.#modelDescriptor.contextWindow,
+      includeImages: this.#modelDescriptor.capabilities.vision,
+      includeReasoning: this.#modelDescriptor.capabilities.reasoning.enabled,
     });
     if (after.estimatedTokens >= before.estimatedTokens) {
       return { status: "not-smaller", before, after };
@@ -256,10 +259,12 @@ export class AntApplicationClient implements AntApplicationApi {
     };
   }
 
-  #replaceModel(settings: ModelSettings): void {
-    const model = this.#provider.createAgentModel(settings);
-    const summarizer = this.#provider.createContextSummarizer(settings);
-    this.#modelSettings = settings;
+  #replaceModel(configuration: ModelConfiguration): void {
+    const descriptor = this.#provider.describe(configuration);
+    const model = this.#provider.createAgentModel(configuration);
+    const summarizer = this.#provider.createContextSummarizer(configuration);
+    this.#modelConfiguration = configuration;
+    this.#modelDescriptor = descriptor;
     this.#model = model;
     this.#summarizer = summarizer;
   }

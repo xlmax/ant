@@ -8,9 +8,25 @@ import {
   loadSettings,
   readExplicitVision,
   saveUserModelId,
-  saveUserModelThinking,
+  saveUserModelProviderOptions,
   saveUserReasoningMode,
 } from "../src/config/settings.js";
+import type { LoadedSettings } from "../src/app/configuration.js";
+import { DeepSeekProvider } from "../src/models/deepseek-provider.js";
+
+function modelOptions(loaded: LoadedSettings): Record<string, unknown> {
+  return loaded.settings.model.providerOptions as Record<string, unknown>;
+}
+
+function modelThinking(loaded: LoadedSettings): unknown {
+  return modelOptions(loaded).thinking;
+}
+
+function modelVision(loaded: LoadedSettings): boolean {
+  return new DeepSeekProvider({ apiKey: "test", systemPrompt: "system" }).describe(
+    loaded.settings.model,
+  ).capabilities.vision;
+}
 
 async function temporaryDirectories(): Promise<{ workspace: string; home: string }> {
   const root = await mkdtemp(join(tmpdir(), "ant-settings-"));
@@ -38,8 +54,8 @@ test("stale user-layer vision is ignored before the first /model", async () => {
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.id, "custom-vision-exp");
-    assert.equal(loaded.settings.model.vision, true);
+    assert.equal(loaded.settings.model.modelId, "custom-vision-exp");
+    assert.equal(modelVision(loaded), true);
     assert.equal(await readExplicitVision(workspace, home), undefined);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
@@ -64,8 +80,8 @@ test("project vision overrides an opposite global value", async () => {
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.id, "project-text");
-    assert.equal(loaded.settings.model.vision, false);
+    assert.equal(loaded.settings.model.modelId, "project-text");
+    assert.equal(modelVision(loaded), false);
     assert.equal(await readExplicitVision(workspace, home), false);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
@@ -124,7 +140,7 @@ test("saveUserModelId drops a stale auto-written vision so the heuristic re-appl
       model: { id: "custom-vision-exp" },
     });
     assert.equal(await readExplicitVision(workspace, home), undefined);
-    assert.equal((await loadSettings(workspace, home)).settings.model.vision, true);
+    assert.equal(modelVision(await loadSettings(workspace, home)), true);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -170,8 +186,8 @@ test("explicit vision from an earlier layer survives a later UI-only merge", asy
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.id, "custom-text");
-    assert.equal(loaded.settings.model.vision, true);
+    assert.equal(loaded.settings.model.modelId, "custom-text");
+    assert.equal(modelVision(loaded), true);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -195,7 +211,7 @@ test("heuristic vision is a fallback when no layer sets it explicitly", async ()
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.vision, true);
+    assert.equal(modelVision(loaded), true);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -232,12 +248,13 @@ test("settings merge global and project layers without environment overrides", a
 
     assert.deepEqual(loaded.settings, {
       model: {
-        provider: "deepseek",
-        id: "deepseek-v4-pro",
-        baseUrl: "https://api.deepseek.com",
-        contextWindow: 1_000_000,
-        vision: false,
-        thinking: { enabled: false, effort: "max" },
+        providerId: "deepseek",
+        modelId: "deepseek-v4-pro",
+        providerOptions: {
+          baseUrl: "https://api.deepseek.com",
+          contextWindow: 1_000_000,
+          thinking: { enabled: false, effort: "max" },
+        },
       },
       ui: {
         reasoningMode: "compact",
@@ -311,7 +328,7 @@ test("project settings cannot override model.baseUrl", async () => {
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.baseUrl, "https://proxy.example");
+    assert.equal(modelOptions(loaded).baseUrl, "https://proxy.example");
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -329,7 +346,40 @@ test("project settings cannot set model.baseUrl without a user value", async () 
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.baseUrl, "https://api.deepseek.com");
+    assert.equal(modelOptions(loaded).baseUrl, "https://api.deepseek.com");
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("project opaque options cannot redirect the model endpoint", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { options: { baseUrl: "https://proxy.example" } } }),
+      "utf8",
+    );
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({
+        model: {
+          options: {
+            baseUrl: "https://evil.example",
+            thinking: { enabled: false, effort: "low" },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(modelOptions(loaded).baseUrl, "https://proxy.example");
+    assert.equal((modelOptions(loaded).thinking as { enabled: boolean }).enabled, false);
+    assert.equal(loaded.projectOverrides.modelThinking, true);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -362,9 +412,9 @@ test("saving a selected model updates the global user settings only", async () =
       future: { setting: true },
     });
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.id, "deepseek-v4-pro");
+    assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
     // vision is not persisted explicitly: it is resolved by heuristic on load.
-    assert.equal(loaded.settings.model.vision, false);
+    assert.equal(modelVision(loaded), false);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -381,16 +431,20 @@ test("saving thinking settings uses the global layer", async () => {
       "utf8",
     );
 
-    await saveUserModelThinking({ enabled: true, effort: "max" }, home);
+    await saveUserModelProviderOptions(
+      "deepseek",
+      { thinking: { enabled: true, effort: "max" } },
+      home,
+    );
 
     assert.deepEqual(JSON.parse(await readFile(join(home, ".ant", "settings.json"), "utf8")), {
       model: {
         id: "deepseek-v4-pro",
-        thinking: { enabled: true, effort: "max" },
+        options: { thinking: { enabled: true, effort: "max" } },
       },
       future: { setting: true },
     });
-    assert.deepEqual((await loadSettings(workspace, home)).settings.model.thinking, {
+    assert.deepEqual(modelThinking(await loadSettings(workspace, home)), {
       enabled: true,
       effort: "max",
     });
@@ -402,7 +456,7 @@ test("saving thinking settings uses the global layer", async () => {
       "utf8",
     );
 
-    assert.deepEqual((await loadSettings(workspace, home)).settings.model.thinking, {
+    assert.deepEqual(modelThinking(await loadSettings(workspace, home)), {
       enabled: true,
       effort: "low",
     });
@@ -486,20 +540,25 @@ test("settings reject invalid reasoning display settings", async () => {
   }
 });
 
-test("settings reject unsupported providers and invalid JSON", async () => {
+test("settings preserve opaque provider options and reject invalid JSON", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
-    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await mkdir(join(home, ".ant"), { recursive: true });
     await writeFile(
-      join(workspace, ".ant", "settings.json"),
-      '{"model":{"provider":"other"}}',
+      join(home, ".ant", "settings.json"),
+      '{"model":{"provider":"other","id":"other-model","options":{"window":123}}}',
       "utf8",
     );
 
-    await assert.rejects(loadSettings(workspace, home), /Неподдерживаемый provider: other/u);
+    const loaded = await loadSettings(workspace, home);
+    assert.deepEqual(loaded.settings.model, {
+      providerId: "other",
+      modelId: "other-model",
+      providerOptions: { window: 123 },
+    });
 
-    await writeFile(join(workspace, ".ant", "settings.json"), "{", "utf8");
+    await writeFile(join(home, ".ant", "settings.json"), "{", "utf8");
     await assert.rejects(loadSettings(workspace, home), /некорректный JSON/u);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
