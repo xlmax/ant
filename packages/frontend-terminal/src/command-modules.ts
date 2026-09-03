@@ -4,6 +4,7 @@ import { ansi } from "./ansi.js";
 import {
   CommandRegistry,
   CommandUsageError,
+  formatCommandUsage,
   noArguments,
   type CommandContext,
   type CommandModule,
@@ -24,9 +25,12 @@ function simple(
   usage: string,
   description: string,
   handle: (context: CommandContext) => ReturnType<CommandModule<void>["handle"]>,
+  aliases?: readonly string[],
 ): CommandModule<void> {
+  const descriptor =
+    aliases === undefined ? { name, usage, description } : { name, usage, description, aliases };
   return module(
-    { name, usage, description },
+    descriptor,
     (args) => noArguments(args, usage),
     (_input, context) => handle(context),
   );
@@ -74,6 +78,7 @@ export const compactCommand = simple(
     }
     return "continue" as const;
   },
+  ["cmp"],
 );
 
 interface ModelInput {
@@ -85,6 +90,7 @@ export const modelCommand = module<ModelInput>(
     name: "model",
     usage: "/model [list|id]",
     description: "Показать, запросить список или сменить модель до перезапуска.",
+    aliases: ["m"],
   },
   (args) =>
     args.length === 0
@@ -160,6 +166,7 @@ export const updateCommand = simple(
     }
     return "continue" as const;
   },
+  ["u"],
 );
 
 export function createBuiltinCommandRegistry(): CommandRegistry {
@@ -170,6 +177,7 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         name: "help",
         usage: "/help [команда]",
         description: "Показать список команд или справку по одной команде.",
+        aliases: ["?", "h"],
       },
       (args, commands) => {
         if (args.length > 1) throw new CommandUsageError("Использование: /help [команда]");
@@ -183,19 +191,29 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         if (requested) terminal.log(`${ansi.bold(requested.usage)}\n${requested.description}`);
         else {
           terminal.log(ansi.bold("Доступные команды:"));
-          for (const available of registry.descriptors)
-            terminal.log(`  ${ansi.cyan(available.usage.padEnd(20))} ${available.description}`);
+          const formatted = registry.descriptors.map((available) => formatCommandUsage(available));
+          const width = Math.max(20, ...formatted.map((usage) => usage.length));
+          for (const [index, available] of registry.descriptors.entries())
+            terminal.log(
+              `  ${ansi.cyan(formatted[index]!.padEnd(width))} ${available.description}`,
+            );
         }
         return "continue";
       },
     ),
   );
   registry.register(
-    simple("new", "/new", "Начать новую сессию следующим сообщением.", ({ options, terminal }) => {
-      options.client.resetSession();
-      terminal.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
-      return "continue";
-    }),
+    simple(
+      "new",
+      "/new",
+      "Начать новую сессию следующим сообщением.",
+      ({ options, terminal }) => {
+        options.client.resetSession();
+        terminal.log(ansi.dim("Новая сессия будет создана следующим сообщением."));
+        return "continue";
+      },
+      ["n"],
+    ),
   );
   registry.register(
     simple(
@@ -213,13 +231,20 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         );
         return "continue";
       },
+      ["s"],
     ),
   );
   registry.register(
-    simple("clear", "/clear", "Очистить экран терминала.", ({ terminal }) => {
-      terminal.clear();
-      return "continue";
-    }),
+    simple(
+      "clear",
+      "/clear",
+      "Очистить экран терминала.",
+      ({ terminal }) => {
+        terminal.clear();
+        return "continue";
+      },
+      ["c"],
+    ),
   );
   registry.register(
     simple(
@@ -230,6 +255,7 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         terminal.log(formatContextStatus(options.client.getContextStatus()));
         return "continue";
       },
+      ["ctx"],
     ),
   );
   registry.register(compactCommand);
@@ -239,6 +265,7 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         name: "reasoning",
         usage: "/reasoning [off|compact|full]",
         description: "Скрыть, компактно показать или полностью вывести рассуждения модели.",
+        aliases: ["r"],
       },
       (args) => {
         if (args.length === 0) return {};
@@ -284,6 +311,7 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         name: "think",
         usage: "/think [off|effort]",
         description: "Показать или сменить режим и глубину размышлений до перезапуска.",
+        aliases: ["t"],
       },
       (args) => {
         if (args.length > 1) throw new CommandUsageError("Использование: /think [off|effort]");
@@ -322,13 +350,19 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
   );
   registry.register(updateCommand);
   registry.register(
-    simple("exit", "/exit", "Выйти из интерактивного режима.", ({ options, terminal }) => {
-      if (options.client.activeSession)
-        terminal.log(
-          ansi.dim(`Для продолжения сессии: ant -s ${options.client.activeSession.session.id}`),
-        );
-      return "exit";
-    }),
+    simple(
+      "exit",
+      "/exit",
+      "Выйти из интерактивного режима.",
+      ({ options, terminal }) => {
+        if (options.client.activeSession)
+          terminal.log(
+            ansi.dim(`Для продолжения сессии: ant -s ${options.client.activeSession.session.id}`),
+          );
+        return "exit";
+      },
+      ["q"],
+    ),
   );
   return registry;
 }
