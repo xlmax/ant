@@ -195,13 +195,13 @@ npm run dev
 
 Or just `ant` if installed globally.
 
-There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/key`, `/balance`, `/update`, `/exit`.
+There are commands inside — `/help` shows the full list. Key ones: `/help (?, h)`, `/new (n)`, `/session (s)`, `/clear (c)`, `/context (ctx)`, `/compact (cmp)`, `/model (m)`, `/think (t)`, `/reasoning (r)`, `/key (k)`, `/balance (bal)`, `/update (u)`, `/exit (q)`.
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
 - `/key` reports only whether the DeepSeek key is configured and its source; `/key set` securely replaces the saved credential and `/key clear` removes only the saved credential. `DEEPSEEK_API_KEY` is never changed and always has priority.
 - `/balance` queries DeepSeek's official account endpoint directly. It does not use the configurable model `baseUrl`, so the API key is never sent to a model proxy for this account operation.
-- `/model` and `/think` switch the model and reasoning mode on the fly:
+- `/model (m)` and `/think (t)` switch the model and reasoning mode on the fly:
 
 ```text
 /model                     # show the current model
@@ -212,7 +212,7 @@ There are commands inside — `/help` shows the full list. Key ones: `/new`, `/s
 /reasoning off|compact|full # choose reasoning display mode
 ```
 
-`/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it.
+`/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it. `/help` also accepts `?` and `h`.
 
 Reasoning display modes:
 

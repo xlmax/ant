@@ -37,6 +37,7 @@ export function createBalanceCommand(loadBalance: DeepSeekBalanceLoader): Comman
       name: "balance",
       usage: "/balance",
       description: "Показать текущий баланс DeepSeek API.",
+      aliases: ["bal"],
     },
     parse(args) {
       noArguments(args, "/balance");

@@ -9,6 +9,7 @@ export function createKeyCommand(manager: DeepSeekCredentialManager): CommandMod
       name: "key",
       usage: "/key [set|clear]",
       description: "Проверить, задать или удалить DeepSeek API key.",
+      aliases: ["k"],
     },
     parse(args) {
       if (args.length === 0) return "status";

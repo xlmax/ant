@@ -10,6 +10,7 @@ export interface CommandDescriptor {
   readonly name: string;
   readonly usage: string;
   readonly description: string;
+  readonly aliases?: readonly string[];
 }
 
 export interface CommandContext {
@@ -37,6 +38,26 @@ export type ParsedCommand = CommandInvocation | { readonly error: string } | und
 
 export class CommandUsageError extends Error {}
 
+const COMMAND_NAME_PATTERN = /^[a-z][a-z0-9-]*$/u;
+
+function isValidCommandToken(value: string): boolean {
+  return value === "?" || COMMAND_NAME_PATTERN.test(value);
+}
+
+function formatAliasList(aliases: readonly string[]): string {
+  return aliases.length === 0 ? "" : ` (${aliases.join(", ")})`;
+}
+
+export function formatCommandUsage(descriptor: CommandDescriptor): string {
+  const aliases = descriptor.aliases ?? [];
+  if (aliases.length === 0) return descriptor.usage;
+  const commandPrefix = `/${descriptor.name}`;
+  if (!descriptor.usage.startsWith(commandPrefix)) {
+    return `${descriptor.usage}${formatAliasList(aliases)}`;
+  }
+  return `${commandPrefix}${formatAliasList(aliases)}${descriptor.usage.slice(commandPrefix.length)}`;
+}
+
 function editDistance(left: string, right: string): number {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
@@ -57,12 +78,25 @@ function editDistance(left: string, right: string): number {
 
 export class CommandRegistry {
   readonly #modules = new Map<string, CommandModule>();
+  readonly #aliases = new Map<string, CommandModule>();
 
   register(module: CommandModule): void {
-    const { name } = module.descriptor;
-    if (!/^[a-z][a-z0-9-]*$/u.test(name)) throw new Error(`Invalid command name: ${name}`);
-    if (this.#modules.has(name)) throw new Error(`Duplicate command: /${name}`);
+    const { name, aliases = [] } = module.descriptor;
+    if (!COMMAND_NAME_PATTERN.test(name)) throw new Error(`Invalid command name: ${name}`);
+    if (this.#modules.has(name) || this.#aliases.has(name))
+      throw new Error(`Duplicate command: /${name}`);
+    const uniqueAliases = new Set<string>();
+    for (const alias of aliases) {
+      if (!isValidCommandToken(alias)) throw new Error(`Invalid command alias: ${alias}`);
+      if (alias === name) throw new Error(`Duplicate alias: /${alias}`);
+      if (uniqueAliases.has(alias)) throw new Error(`Duplicate alias: /${alias}`);
+      if (this.#modules.has(alias) || this.#aliases.has(alias)) {
+        throw new Error(`Duplicate alias: /${alias}`);
+      }
+      uniqueAliases.add(alias);
+    }
     this.#modules.set(name, module);
+    for (const alias of uniqueAliases) this.#aliases.set(alias, module);
   }
 
   get descriptors(): readonly CommandDescriptor[] {
@@ -70,18 +104,29 @@ export class CommandRegistry {
   }
 
   find(name: string): CommandDescriptor | undefined {
-    return this.#modules.get(name)?.descriptor;
+    return this.#modules.get(name)?.descriptor ?? this.#aliases.get(name)?.descriptor;
   }
 
   parse(input: string): ParsedCommand {
     if (!input.startsWith("/") || input.includes("\n")) return undefined;
     const [name, ...args] = input.slice(1).trim().split(/\s+/u);
     if (!name) return { error: "Введите /help, чтобы увидеть команды." };
-    const module = this.#modules.get(name);
+    const module = this.#modules.get(name) ?? this.#aliases.get(name);
     if (!module) {
-      const candidate = [...this.#modules.values()]
-        .map((item) => ({ item, distance: editDistance(name, item.descriptor.name) }))
-        .sort((left, right) => left.distance - right.distance)[0];
+      let candidate: { item: CommandModule; distance: number } | undefined;
+      for (const item of this.#modules.values()) {
+        const names = [item.descriptor.name, ...(item.descriptor.aliases ?? [])];
+        const distance = Math.min(
+          ...names.map((candidateName) => editDistance(name, candidateName)),
+        );
+        if (
+          candidate === undefined ||
+          distance < candidate.distance ||
+          (distance === candidate.distance && item.descriptor.name < candidate.item.descriptor.name)
+        ) {
+          candidate = { item, distance };
+        }
+      }
       return {
         error:
           candidate && candidate.distance <= 2
