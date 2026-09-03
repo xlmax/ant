@@ -324,7 +324,7 @@ export async function readAndroidTerminalInput(
   history: InputHistory,
   prompt: string,
   options: AndroidTerminalInputOptions = {},
-): Promise<string> {
+): Promise<string | undefined> {
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
   const originalRawMode = Boolean(input.isRaw);
@@ -390,6 +390,10 @@ export async function readAndroidTerminalInput(
         }
 
         if (action.type === "cancel") {
+          if (editor.value === "") {
+            output.write("\n");
+            return undefined;
+          }
           editor.replace("");
           history.reset();
           cursor = redraw(editor, cursor, prompt, output);
@@ -423,7 +427,7 @@ export async function readTerminalInput(
   history: InputHistory,
   fallback?: Pick<Interface, "question">,
   prompt = "",
-): Promise<string> {
+): Promise<string | undefined> {
   if (process.platform === "win32" && process.stdin.isTTY) {
     return readWindowsConsoleInput(history, prompt);
   }

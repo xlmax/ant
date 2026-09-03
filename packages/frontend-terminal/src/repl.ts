@@ -64,6 +64,7 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
   try {
     while (true) {
       const input = await terminal.read(inputHistory, userInputPrompt());
+      if (input === undefined) return;
       if (input.trim() === "") continue;
 
       const command = commands.parse(input.trim());

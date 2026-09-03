@@ -41,7 +41,7 @@ export class ConsoleTerminal implements TerminalPort {
   clear(): void {
     stdout.write("\u001B[2J\u001B[H");
   }
-  async read(history: InputHistory, prompt: string): Promise<string> {
+  async read(history: InputHistory, prompt: string): Promise<string | undefined> {
     openUserInputFrame();
     try {
       return await readTerminalInput(history, this.#readline, prompt);

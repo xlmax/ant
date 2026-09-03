@@ -59,7 +59,7 @@ async function startInput(
 ): Promise<{
   input: FakeInput;
   output: FakeOutput;
-  result: Promise<string>;
+  result: Promise<string | undefined>;
 }> {
   const input = new FakeInput();
   const output = new FakeOutput();
@@ -75,7 +75,7 @@ async function startInput(
 async function readChunks(
   chunks: readonly (string | Buffer)[],
   history = new InputHistory(),
-): Promise<{ value: string; input: FakeInput; output: FakeOutput }> {
+): Promise<{ value: string | undefined; input: FakeInput; output: FakeOutput }> {
   const active = await startInput(history);
   for (const chunk of chunks) active.input.emit("data", chunk);
   const value = await active.result;
@@ -146,6 +146,20 @@ test("Android Ctrl+C clears the current draft and keeps editing", async () => {
   const { value, input, output } = await readChunks(["discard\u0003kept\r"]);
 
   assert.equal(value, "kept");
+  assertTerminalRestored(input, output);
+});
+
+test("Android Ctrl+C exits when the current draft is empty", async () => {
+  const { value, input, output } = await readChunks(["\u0003"]);
+
+  assert.equal(value, undefined);
+  assertTerminalRestored(input, output);
+});
+
+test("Android second Ctrl+C exits after the first one clears the draft", async () => {
+  const { value, input, output } = await readChunks(["discard\u0003\u0003"]);
+
+  assert.equal(value, undefined);
   assertTerminalRestored(input, output);
 });
 

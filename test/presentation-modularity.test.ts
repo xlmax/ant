@@ -143,7 +143,7 @@ test("turn runner uses injected Git tracker and always removes its signal listen
   );
 });
 
-test("REPL uses injected terminal, updater and Git service and always closes input", async () => {
+test("REPL uses injected services and closes input after a terminal interrupt", async () => {
   let closed = 0;
   let branchChecks = 0;
   let updateChecks = 0;
@@ -151,7 +151,7 @@ test("REPL uses injected terminal, updater and Git service and always closes inp
   const replTerminal = {
     ...terminal(output),
     async read() {
-      return "/exit";
+      return undefined;
     },
     close() {
       closed += 1;

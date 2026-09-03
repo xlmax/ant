@@ -12,7 +12,7 @@ export interface TerminalPort {
   error(message: string): void;
   write(message: string): void;
   clear(): void;
-  read(history: InputHistory, prompt: string): Promise<string>;
+  read(history: InputHistory, prompt: string): Promise<string | undefined>;
   close(): void;
 }
 
