@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createBalanceCommand } from "../packages/cli/src/balance-command.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
 import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
 import type {
   ProcessControl,
   TerminalPort,
 } from "../packages/frontend-terminal/src/presentation-ports.js";
 import { DeepSeekAccountClient } from "../packages/provider-deepseek/src/deepseek-account-client.js";
+
+test.afterEach(() => configureAnsi(true));
 
 test("DeepSeek account client fetches and validates the current balance", async () => {
   const apiKey = "never-print-this";
@@ -76,6 +79,7 @@ test("DeepSeek account client reports safe API errors and malformed responses", 
 });
 
 test("balance command formats account balances and handles failures", async () => {
+  configureAnsi(false);
   const output: string[] = [];
   const terminal = {
     log: (message: string) => output.push(message),
@@ -93,6 +97,12 @@ test("balance command formats account balances and handles failures", async () =
     available: true,
     balances: [
       {
+        currency: "CNY",
+        totalBalance: "0.00",
+        grantedBalance: "0.00",
+        toppedUpBalance: "0.00",
+      },
+      {
         currency: "USD",
         totalBalance: "12.34",
         grantedBalance: "2.34",
@@ -100,10 +110,85 @@ test("balance command formats account balances and handles failures", async () =
       },
     ],
   })).handle(undefined, context);
-  assert.match(output.join("\n"), /USD: 12\.34.*topped up: 10\.00.*granted: 2\.34/u);
+  assert.equal(
+    output.join("\n"),
+    [
+      "DeepSeek API balance",
+      "Status: available",
+      "",
+      "USD",
+      "  Total:      12.34",
+      "  Topped up:  10.00",
+      "  Granted:    2.34",
+    ].join("\n"),
+  );
+
+  await createBalanceCommand(async () => ({
+    available: true,
+    balances: [
+      {
+        currency: "CNY",
+        totalBalance: "8.00",
+        grantedBalance: "0.00",
+        toppedUpBalance: "8.00",
+      },
+      {
+        currency: "USD",
+        totalBalance: "0.00",
+        grantedBalance: "0.00",
+        toppedUpBalance: "0.00",
+      },
+    ],
+  })).handle(undefined, context);
+  assert.match(output.at(-1) ?? "", /CNY[\s\S]*8\.00/u);
+  assert.doesNotMatch(output.at(-1) ?? "", /USD/u);
 
   await createBalanceCommand(async () => {
     throw new Error("offline");
   }).handle(undefined, context);
   assert.match(output.at(-1) ?? "", /Не удалось получить баланс DeepSeek: offline/u);
+});
+
+test("balance command highlights status and currencies in a color terminal", async () => {
+  const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const output: string[] = [];
+  const terminal = {
+    log: (message: string) => output.push(message),
+  } as unknown as TerminalPort;
+  const processControl = {
+    onInterrupt() {
+      return () => {};
+    },
+  } as unknown as ProcessControl;
+
+  Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+  configureAnsi(true);
+  try {
+    await createBalanceCommand(async () => ({
+      available: false,
+      balances: [
+        {
+          currency: "USD",
+          totalBalance: "0.00",
+          grantedBalance: "0.00",
+          toppedUpBalance: "0.00",
+        },
+      ],
+    })).handle(undefined, {
+      terminal,
+      process: processControl,
+    } as CommandContext);
+
+    const rendered = output.join("\n");
+    const escape = String.fromCharCode(27);
+    assert.ok(rendered.includes(`${escape}[36mDeepSeek API balance`));
+    assert.ok(rendered.includes(`${escape}[31munavailable`));
+    assert.ok(rendered.includes(`${escape}[36mUSD`));
+  } finally {
+    if (isTTYDescriptor) {
+      Object.defineProperty(process.stdout, "isTTY", isTTYDescriptor);
+    } else {
+      Reflect.deleteProperty(process.stdout, "isTTY");
+    }
+  }
 });
