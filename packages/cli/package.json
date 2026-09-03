@@ -30,7 +30,9 @@
     "highlight.js": "^11.12.0",
     "marked": "^18.0.10",
     "minimatch": "^10.2.6",
-    "string-width": "^8.2.2",
+    "string-width": "^8.2.2"
+  },
+  "optionalDependencies": {
     "win32-api": "26.1.2"
   }
 }

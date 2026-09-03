@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,10 +93,25 @@ test("packed CLI installs in a clean project and loads the production compositio
     await writeFile(join(installDirectory, "package.json"), '{"private":true}', "utf8");
     const installed = await exec(
       "npm",
-      ["install", "--ignore-scripts", join(packDirectory, tarball)],
+      ["install", "--omit=optional", join(packDirectory, tarball)],
       { cwd: installDirectory },
     );
     assert.equal(installed.code, 0, installed.stderr);
+
+    const installedManifest = JSON.parse(
+      await readFile(join(installDirectory, "node_modules", "ant", "package.json"), "utf8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    };
+    assert.equal(installedManifest.dependencies?.["win32-api"], undefined);
+    assert.equal(installedManifest.optionalDependencies?.["win32-api"], "26.1.2");
+    await assert.rejects(access(join(installDirectory, "node_modules", "win32-api")));
+    await assert.rejects(access(join(installDirectory, "node_modules", "koffi")));
+    assert.match(
+      await readFile(join(installDirectory, "node_modules", "ant", "dist", "main.js"), "utf8"),
+      /import\("win32-api"\)/u,
+    );
 
     await writeFile(
       join(home, ".ant", "settings.json"),
