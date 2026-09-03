@@ -344,25 +344,26 @@ async function appendSessionRecord(
   sessionId: string,
   serializedRecord: string,
 ): Promise<void> {
+  await stat(filePath);
   const file = await open(filePath, "a+");
 
   try {
     const fileSize = (await file.stat()).size;
-    if (fileSize === 0) throw new Error("Невозможно продолжить пустую сессию");
-
-    const finalByte = Buffer.allocUnsafe(1);
-    await file.read(finalByte, 0, 1, fileSize - 1);
-    if (finalByte[0] !== 0x0a) {
-      const finalLine = await readFinalLine(file, fileSize);
-      try {
-        const finalRecord = parseRecord(finalLine.content, 1);
-        if (finalRecord.sessionId !== sessionId) {
-          throw new Error("Идентификатор сессии не совпадает с содержимым файла");
+    if (fileSize > 0) {
+      const finalByte = Buffer.allocUnsafe(1);
+      await file.read(finalByte, 0, 1, fileSize - 1);
+      if (finalByte[0] !== 0x0a) {
+        const finalLine = await readFinalLine(file, fileSize);
+        try {
+          const finalRecord = parseRecord(finalLine.content, 1);
+          if (finalRecord.sessionId !== sessionId) {
+            throw new Error("Идентификатор сессии не совпадает с содержимым файла");
+          }
+          await file.appendFile("\n", "utf8");
+        } catch (error) {
+          if (!(error instanceof InvalidRecordJsonError) || finalLine.start === 0) throw error;
+          await file.truncate(finalLine.start);
         }
-        await file.appendFile("\n", "utf8");
-      } catch (error) {
-        if (!(error instanceof InvalidRecordJsonError) || finalLine.start === 0) throw error;
-        await file.truncate(finalLine.start);
       }
     }
 
