@@ -1,6 +1,6 @@
 {
   "name": "@ant/provider-deepseek",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,8 +13,8 @@
     "dist"
   ],
   "dependencies": {
-    "@ant/contracts": "0.5.15",
-    "@ant/core": "0.5.15",
-    "@ant/app": "0.5.15"
+    "@ant/contracts": "0.5.16",
+    "@ant/core": "0.5.16",
+    "@ant/app": "0.5.16"
   }
 }
