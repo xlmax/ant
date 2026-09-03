@@ -155,7 +155,7 @@ test("command registry validates arguments, lists aliases, and suggests a simila
   await registry.dispatch(modelRequested, {
     terminal: { log: (message: string) => modelHelp.push(message) },
   } as unknown as CommandContext);
-  assert.match(modelHelp.join("\n"), /^\/model \[list\|id\]/u);
+  assert.match(modelHelp.join("\n"), /^\/model \(m\) \[list\|id\]/u);
 });
 
 test("an independent command registers and runs without changing dispatch infrastructure", async () => {

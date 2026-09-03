@@ -188,7 +188,8 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
         return requested;
       },
       (requested, { terminal }) => {
-        if (requested) terminal.log(`${ansi.bold(requested.usage)}\n${requested.description}`);
+        if (requested)
+          terminal.log(`${ansi.bold(formatCommandUsage(requested))}\n${requested.description}`);
         else {
           terminal.log(ansi.bold("Доступные команды:"));
           const formatted = registry.descriptors.map((available) => formatCommandUsage(available));
