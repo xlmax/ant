@@ -195,7 +195,7 @@ npm run dev
 
 Or just `ant` if installed globally.
 
-There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/key`, `/update`, `/exit`.
+There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/key`, `/balance`, `/update`, `/exit`.
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
