@@ -34,7 +34,7 @@ export class DeepSeekCredentialManager {
     return key === "" ? undefined : key;
   }
 
-  async resolve(): Promise<ResolvedDeepSeekCredential> {
+  async resolve(signal?: AbortSignal): Promise<ResolvedDeepSeekCredential> {
     const environmentKey = this.#environmentKey();
     if (environmentKey) return { apiKey: environmentKey, source: "environment" };
 
@@ -52,7 +52,7 @@ export class DeepSeekCredentialManager {
     }
 
     if (!this.#interactive) throw this.#nonInteractiveError();
-    return this.#onboard();
+    return this.#onboard(signal);
   }
 
   async status(): Promise<DeepSeekCredentialSource | undefined> {
@@ -65,9 +65,9 @@ export class DeepSeekCredentialManager {
     return this.#sessionCredential?.source;
   }
 
-  async promptAndSave(): Promise<"saved" | "cancelled"> {
+  async promptAndSave(signal?: AbortSignal): Promise<"saved" | "cancelled"> {
     if (!this.#interactive) throw this.#nonInteractiveError();
-    const apiKey = await this.#terminal.readSecret("API key:\n> ");
+    const apiKey = await this.#terminal.readSecret("API key:\n> ", signal);
     if (apiKey === undefined) return "cancelled";
     if (apiKey.trim() === "") throw new Error("API key must not be empty.");
     await this.#store.writeDeepSeekKey(apiKey);
@@ -83,11 +83,11 @@ export class DeepSeekCredentialManager {
     return this.#environmentKey() !== undefined;
   }
 
-  async #onboard(): Promise<ResolvedDeepSeekCredential> {
+  async #onboard(signal?: AbortSignal): Promise<ResolvedDeepSeekCredential> {
     this.#terminal.log("DeepSeek API key is not configured.");
     let apiKey: string | undefined;
     while (!apiKey) {
-      const entered = await this.#terminal.readSecret("\nAPI key:\n> ");
+      const entered = await this.#terminal.readSecret("\nAPI key:\n> ", signal);
       if (entered === undefined) throw new Error("DeepSeek API key entry was cancelled.");
       apiKey = entered.trim();
       if (!apiKey) this.#terminal.error("API key must not be empty.");
@@ -97,7 +97,7 @@ export class DeepSeekCredentialManager {
     while (true) {
       let answer: boolean | undefined;
       try {
-        answer = await this.#terminal.confirm("Save for future sessions? [Y/n] ");
+        answer = await this.#terminal.confirm("Save for future sessions? [Y/n] ", signal);
       } catch (error) {
         this.#terminal.error(error instanceof Error ? error.message : String(error));
         continue;

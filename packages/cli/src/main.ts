@@ -128,7 +128,9 @@ async function main(): Promise<void> {
       commands.register(createKeyCommand(credentials));
       commands.register(
         createBalanceCommand(async (signal) => {
-          const credential = await credentials.resolve();
+          const credential = await credentials.resolve(signal);
+          // Account balance is a DeepSeek-only endpoint. Deliberately avoid the
+          // configurable model baseUrl so an API key is never sent to a model proxy.
           return new DeepSeekAccountClient({ apiKey: credential.apiKey }).getBalance(signal);
         }),
       );

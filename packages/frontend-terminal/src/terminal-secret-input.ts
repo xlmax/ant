@@ -20,6 +20,7 @@ export interface HiddenTerminalInputOptions {
   input?: SecretInputStream;
   output?: SecretOutputStream;
   hidden?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function readTerminalPrompt(
@@ -44,7 +45,10 @@ export async function readTerminalPrompt(
     output.write(prompt);
     const chunks = on(input, "data", {
       close: ["end", "close"],
-      signal: eventsAbort.signal,
+      signal:
+        options.signal === undefined
+          ? eventsAbort.signal
+          : AbortSignal.any([eventsAbort.signal, options.signal]),
     });
     input.resume();
 
@@ -83,6 +87,12 @@ export async function readTerminalPrompt(
     }
 
     throw new Error("Поток терминального ввода завершён");
+  } catch (error) {
+    if (options.signal?.aborted) {
+      output.write("\n");
+      return undefined;
+    }
+    throw error;
   } finally {
     eventsAbort.abort();
     try {

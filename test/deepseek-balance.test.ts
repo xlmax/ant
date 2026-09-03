@@ -50,15 +50,21 @@ test("DeepSeek account client fetches and validates the current balance", async 
   );
 });
 
-test("DeepSeek account client reports status and malformed responses without exposing the key", async () => {
+test("DeepSeek account client reports safe API errors and malformed responses", async () => {
   const apiKey = "never-print-this";
   const statusClient = new DeepSeekAccountClient({
     apiKey,
-    fetch: async () => new Response("denied", { status: 401 }),
+    fetch: async () =>
+      new Response(JSON.stringify({ error: { message: `invalid credential ${apiKey}` } }), {
+        status: 401,
+      }),
   });
   await assert.rejects(statusClient.getBalance(), (error: unknown) => {
     return (
-      error instanceof Error && error.message.includes("401") && !error.message.includes(apiKey)
+      error instanceof Error &&
+      error.message.includes("401") &&
+      error.message.includes("invalid credential [redacted]") &&
+      !error.message.includes(apiKey)
     );
   });
 

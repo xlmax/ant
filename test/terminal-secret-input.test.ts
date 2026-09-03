@@ -62,6 +62,25 @@ test("hidden terminal input restores raw mode when Ctrl+C cancels", async () => 
   assert.deepEqual(active.input.rawModes, [true, false]);
 });
 
+test("hidden terminal input restores raw mode when an external signal cancels", async () => {
+  const input = new FakeSecretInput();
+  const output = new FakeSecretOutput();
+  const cancel = new AbortController();
+  const result = readHiddenTerminalInput("API key: ", {
+    input,
+    output,
+    signal: cancel.signal,
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  cancel.abort();
+
+  assert.equal(await result, undefined);
+  assert.equal(output.value, "API key: \n");
+  assert.deepEqual(input.rawModes, [true, false]);
+  assert.equal(input.readableFlowing, false);
+});
+
 test("hidden terminal input rejects non-TTY streams without enabling raw mode", async () => {
   const input = new FakeSecretInput();
   const output = new FakeSecretOutput();

@@ -26,6 +26,11 @@ function requiredString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
+function errorMessage(payload: unknown): string | undefined {
+  if (!isRecord(payload) || !isRecord(payload.error)) return undefined;
+  return requiredString(payload.error.message);
+}
+
 function parseBalance(payload: unknown): DeepSeekBalance {
   if (!isRecord(payload) || typeof payload.is_available !== "boolean") {
     throw new Error("DeepSeek returned an invalid balance response");
@@ -80,7 +85,18 @@ export class DeepSeekAccountClient {
       throw error;
     }
 
-    if (!response.ok) throw new Error(`DeepSeek balance API returned ${response.status}`);
+    if (!response.ok) {
+      let detail: string | undefined;
+      try {
+        detail = errorMessage(JSON.parse(await response.text()));
+      } catch {
+        // The HTTP status remains actionable when the API does not return JSON.
+      }
+      const safeDetail = detail?.replaceAll(this.#apiKey, "[redacted]").slice(0, 300);
+      throw new Error(
+        `DeepSeek balance API returned ${response.status}${safeDetail ? `: ${safeDetail}` : ""}`,
+      );
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(await response.text());
