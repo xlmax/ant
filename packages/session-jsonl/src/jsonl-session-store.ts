@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, stat, truncate } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, readFile, stat, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -15,6 +15,7 @@ import { writeFileAtomically } from "./atomic-write.js";
 
 const SESSION_VERSION = 2;
 const SESSION_METADATA_VERSION = 2;
+const TAIL_READ_CHUNK_BYTES = 64 * 1024;
 
 interface StoredSessionRecord extends SessionRecord {
   sessionId: string;
@@ -303,6 +304,74 @@ async function readSessionRecords(filePath: string): Promise<ReadSessionRecordsR
   };
 }
 
+interface FinalLine {
+  /** Byte offset immediately after the previous newline, or zero for the first line. */
+  start: number;
+  content: string;
+}
+
+async function readFinalLine(
+  file: Awaited<ReturnType<typeof open>>,
+  fileSize: number,
+): Promise<FinalLine> {
+  const chunks: Buffer[] = [];
+  let position = fileSize;
+
+  while (position > 0) {
+    const length = Math.min(TAIL_READ_CHUNK_BYTES, position);
+    position -= length;
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await file.read(buffer, 0, length, position);
+    const chunk = buffer.subarray(0, bytesRead);
+    const newline = chunk.lastIndexOf(0x0a);
+
+    if (newline >= 0) {
+      chunks.unshift(chunk.subarray(newline + 1));
+      return {
+        start: position + newline + 1,
+        content: Buffer.concat(chunks).toString("utf8"),
+      };
+    }
+
+    chunks.unshift(chunk);
+  }
+
+  return { start: 0, content: Buffer.concat(chunks).toString("utf8") };
+}
+
+async function appendSessionRecord(
+  filePath: string,
+  sessionId: string,
+  serializedRecord: string,
+): Promise<void> {
+  const file = await open(filePath, "a+");
+
+  try {
+    const fileSize = (await file.stat()).size;
+    if (fileSize === 0) throw new Error("Невозможно продолжить пустую сессию");
+
+    const finalByte = Buffer.allocUnsafe(1);
+    await file.read(finalByte, 0, 1, fileSize - 1);
+    if (finalByte[0] !== 0x0a) {
+      const finalLine = await readFinalLine(file, fileSize);
+      try {
+        const finalRecord = parseRecord(finalLine.content, 1);
+        if (finalRecord.sessionId !== sessionId) {
+          throw new Error("Идентификатор сессии не совпадает с содержимым файла");
+        }
+        await file.appendFile("\n", "utf8");
+      } catch (error) {
+        if (!(error instanceof InvalidRecordJsonError) || finalLine.start === 0) throw error;
+        await file.truncate(finalLine.start);
+      }
+    }
+
+    await file.appendFile(serializedRecord, "utf8");
+  } finally {
+    await file.close();
+  }
+}
+
 export class JsonlSessionStore implements SessionStore {
   readonly #sessionDirectory: string;
 
@@ -342,14 +411,18 @@ export class JsonlSessionStore implements SessionStore {
 
   async append(sessionId: string, payload: unknown): Promise<SessionRecord> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
-    await stat(filePath);
+    let summary: JsonlSessionSummary | undefined;
+    try {
+      summary = await readSessionMetadata(this.#sessionDirectory, sessionId);
+    } catch {
+      // Metadata is only a cache. If it is absent or damaged, append to the
+      // journal and let the next read/list rebuild it from the JSONL source.
+    }
     const timestamp = new Date().toISOString();
-    await appendFile(filePath, serializeRecord(sessionId, payload, timestamp), "utf8");
-    const records = (await readSessionRecords(filePath)).records;
-    await writeSessionMetadata(
-      this.#sessionDirectory,
-      summaryFromRecords(sessionId, filePath, records),
-    );
+    await appendSessionRecord(filePath, sessionId, serializeRecord(sessionId, payload, timestamp));
+    if (summary) {
+      await writeSessionMetadata(this.#sessionDirectory, { ...summary, updatedAt: timestamp });
+    }
     return {
       schemaVersion: SESSION_VERSION,
       sessionId,

@@ -141,6 +141,70 @@ test("JSONL repairs only a torn final JSON record", async () => {
   }
 });
 
+test("JSONL append repairs a torn tail without a preliminary full read", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Task", payloads: [{ value: 1 }] });
+    const path = session.location!;
+    const valid = await readFile(path, "utf8");
+    await writeFile(path, `${valid}{"schemaVersion":2`, "utf8");
+
+    await store.append(session.id, { value: 2 });
+
+    assert.deepEqual(
+      (await store.read(session.id)).records.map((record) => record.payload),
+      [{ value: 1 }, { value: 2 }],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL append preserves a large valid final record without a trailing newline", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const largeValue = "x".repeat(96 * 1024);
+    const session = await store.create({ task: "Task", payloads: [{ largeValue }] });
+    const path = session.location!;
+    const withoutNewline = (await readFile(path, "utf8")).replace(/\n$/u, "");
+    await writeFile(path, withoutNewline, "utf8");
+
+    await store.append(session.id, { value: 2 });
+
+    assert.deepEqual(
+      (await store.read(session.id)).records.map((record) => record.payload),
+      [{ largeValue }, { value: 2 }],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL append parses only constant-size metadata, not every journal record", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({
+      task: "Task",
+      payloads: Array.from({ length: 1_000 }, (_, index) => ({ index })),
+    });
+    const parse = JSON.parse;
+    let parseCalls = 0;
+    context.mock.method(JSON, "parse", (...args: Parameters<typeof JSON.parse>) => {
+      parseCalls += 1;
+      return parse(...args);
+    });
+
+    await store.append(session.id, { value: "appended" });
+
+    assert.equal(parseCalls, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL rejects future envelope and payload versions without truncating", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
   try {
