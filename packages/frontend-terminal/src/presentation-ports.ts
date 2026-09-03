@@ -13,8 +13,8 @@ export interface TerminalPort {
   write(message: string): void;
   clear(): void;
   read(history: InputHistory, prompt: string): Promise<string | undefined>;
-  readSecret(prompt: string): Promise<string | undefined>;
-  confirm(prompt: string): Promise<boolean | undefined>;
+  readSecret(prompt: string, signal?: AbortSignal): Promise<string | undefined>;
+  confirm(prompt: string, signal?: AbortSignal): Promise<boolean | undefined>;
   close(): void;
 }
 

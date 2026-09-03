@@ -219,6 +219,41 @@ test("Ctrl+C cancels key entry", async () => {
   }
 });
 
+test("credential onboarding follows an external cancellation signal", async () => {
+  const item = await temporaryStore();
+  const cancel = new AbortController();
+  const fake = terminal();
+  let markPromptStarted: (() => void) | undefined;
+  const promptStarted = new Promise<void>((resolve) => {
+    markPromptStarted = resolve;
+  });
+  fake.readSecret = async (_prompt, signal) => {
+    markPromptStarted?.();
+    await new Promise<void>((resolve) => {
+      if (signal?.aborted) {
+        resolve();
+        return;
+      }
+      signal?.addEventListener("abort", () => resolve(), { once: true });
+    });
+    return undefined;
+  };
+  try {
+    const manager = new DeepSeekCredentialManager({
+      store: item.store,
+      terminal: fake,
+      interactive: true,
+      environment: {},
+    });
+    const pending = manager.resolve(cancel.signal);
+    await promptStarted;
+    cancel.abort();
+    await assert.rejects(pending, /cancelled/u);
+  } finally {
+    await rm(item.root, { recursive: true, force: true });
+  }
+});
+
 test("key command reports source, saves and clears without revealing secrets", async () => {
   const item = await temporaryStore();
   const fake = terminal(["command-secret"]);

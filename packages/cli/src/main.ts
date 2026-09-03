@@ -9,6 +9,7 @@ import {
   moduleDescriptor,
 } from "@ant/app";
 import { runCli } from "./cli-adapter.js";
+import { createBalanceCommand } from "./balance-command.js";
 import { applyLocalEnvironment } from "./config/local-environment.js";
 import { registerBuiltinConfigurationSections } from "./config/builtin-configuration-sections.js";
 import { createFileSettingsModule } from "./config/settings-module.js";
@@ -32,7 +33,11 @@ import {
   initConsoleSize,
   nodeProcessControl,
 } from "@ant/frontend-terminal";
-import { DeepSeekProvider, deepSeekConfigurationSection } from "@ant/provider-deepseek";
+import {
+  DeepSeekAccountClient,
+  DeepSeekProvider,
+  deepSeekConfigurationSection,
+} from "@ant/provider-deepseek";
 import { JsonlSessionStore } from "@ant/session-jsonl";
 import { codingToolPack, ToolEnvironment } from "@ant/tools-coding";
 
@@ -121,6 +126,14 @@ async function main(): Promise<void> {
     createFrontend: (options) => {
       const commands = createBuiltinCommandRegistry();
       commands.register(createKeyCommand(credentials));
+      commands.register(
+        createBalanceCommand(async (signal) => {
+          const credential = await credentials.resolve(signal);
+          // Account balance is a DeepSeek-only endpoint. Deliberately avoid the
+          // configurable model baseUrl so an API key is never sent to a model proxy.
+          return new DeepSeekAccountClient({ apiKey: credential.apiKey }).getBalance(signal);
+        }),
+      );
       return new TerminalFrontend(options, {
         createTerminal: () => terminal,
         process: nodeProcessControl,
