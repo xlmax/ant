@@ -1,6 +1,6 @@
 {
   "name": "@ant/core",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,6 +13,6 @@
     "dist"
   ],
   "dependencies": {
-    "@ant/contracts": "0.5.17"
+    "@ant/contracts": "0.5.18"
   }
 }

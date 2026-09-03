@@ -127,7 +127,7 @@ test("packed CLI installs in a clean project and loads the production compositio
     const binary = join(installDirectory, "node_modules", ".bin", "ant");
     const version = await exec(binary, ["--version"], { cwd: workspace });
     assert.equal(version.code, 0, version.stderr);
-    assert.equal(version.stdout.trim(), "0.5.17");
+    assert.equal(version.stdout.trim(), "0.5.18");
 
     await writeFile(
       join(pluginSource, "package.json"),
