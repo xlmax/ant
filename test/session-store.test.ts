@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -155,6 +155,26 @@ test("JSONL append repairs a torn tail without a preliminary full read", async (
     assert.deepEqual(
       (await store.read(session.id)).records.map((record) => record.payload),
       [{ value: 1 }, { value: 2 }],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL append does not create an unknown journal and accepts an existing empty one", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const sessionId = "00000000-0000-0000-0000-000000000000";
+
+    await assert.rejects(() => store.append(sessionId, { value: 1 }));
+    assert.deepEqual(await readdir(directory), []);
+
+    await writeFile(join(directory, `${sessionId}.jsonl`), "", "utf8");
+    await store.append(sessionId, { value: 1 });
+    assert.deepEqual(
+      (await store.read(sessionId)).records.map((record) => record.payload),
+      [{ value: 1 }],
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
