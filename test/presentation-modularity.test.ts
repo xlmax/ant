@@ -25,6 +25,12 @@ function terminal(output: string[]): TerminalPort {
     async read() {
       return "";
     },
+    async readSecret() {
+      return "";
+    },
+    async confirm() {
+      return true;
+    },
     close() {},
   };
 }

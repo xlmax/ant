@@ -109,13 +109,21 @@ npm run dev -- -s <session-id> "now run the tests"
 
 ## Running
 
-Put a temporary key in `.env.local` in the working directory, or globally in `~/.ant/.env.local`:
+Start Ant directly:
+
+```bash
+ant
+```
+
+If no DeepSeek key is configured, an interactive terminal asks for it without echoing the value and can save it for later launches. Stored credentials live in `~/.config/ant/credentials.json` on Unix and Android, and `%APPDATA%\ant\credentials.json` on Windows. They are separate from project settings.
+
+For automation or an explicit override, set `DEEPSEEK_API_KEY` in the environment or put it in `.env.local` in the working directory (or globally in `~/.ant/.env.local`):
 
 ```dotenv
 DEEPSEEK_API_KEY=your_temporary_key
 ```
 
-The file in the working directory takes priority over the global one, and an environment variable takes priority over both. Both files are ignored by Git.
+The file in the working directory takes priority over the global one, and an environment variable takes priority over both. Any environment value has priority over the saved ANT credential. Both `.env.local` files are ignored by Git.
 
 ### System prompt
 
@@ -163,7 +171,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
 
 The previous flat format remains supported and is migrated atomically when a command first saves user settings. Unknown sections and unsupported root or section versions are rejected instead of being silently ignored.
 
-Only `deepseek` is supported. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Keep `DEEPSEEK_API_KEY` in `.env.local`.
+Only `deepseek` is supported. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Use `/key` to inspect or manage the saved DeepSeek credential; the command never displays the key.
 
 `contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 
@@ -187,10 +195,11 @@ npm run dev
 
 Or just `ant` if installed globally.
 
-There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/update`, `/exit`.
+There are commands inside — `/help` shows the full list. Key ones: `/new`, `/session`, `/clear`, `/context`, `/compact`, `/model`, `/think`, `/reasoning`, `/key`, `/update`, `/exit`.
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
+- `/key` reports only whether the DeepSeek key is configured and its source; `/key set` securely replaces the saved credential and `/key clear` removes only the saved credential. `DEEPSEEK_API_KEY` is never changed and always has priority.
 - `/model` and `/think` switch the model and reasoning mode on the fly:
 
 ```text

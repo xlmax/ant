@@ -6,4 +6,5 @@ export * from "./console-size.js";
 export * from "./presentation-ports.js";
 export * from "./terminal-adapters.js";
 export * from "./terminal-frontend.js";
+export * from "./terminal-secret-input.js";
 export * from "./turn-runner.js";

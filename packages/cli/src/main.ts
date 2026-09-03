@@ -13,6 +13,9 @@ import { applyLocalEnvironment } from "./config/local-environment.js";
 import { registerBuiltinConfigurationSections } from "./config/builtin-configuration-sections.js";
 import { createFileSettingsModule } from "./config/settings-module.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
+import { FileCredentialStore } from "./credentials/credential-store.js";
+import { DeepSeekCredentialManager } from "./credentials/deepseek-credentials.js";
+import { createKeyCommand } from "./credentials/key-command.js";
 import { defaultPluginRoot, handlePluginCommand } from "./plugins/plugin-cli.js";
 import { loadInstalledPlugins, selectCompatibleToolPacks } from "./plugins/plugin-loader.js";
 import { VERSION } from "@ant/contracts";
@@ -29,10 +32,7 @@ import {
   initConsoleSize,
   nodeProcessControl,
 } from "@ant/frontend-terminal";
-import {
-  createDeepSeekProviderFromEnvironment,
-  deepSeekConfigurationSection,
-} from "@ant/provider-deepseek";
+import { DeepSeekProvider, deepSeekConfigurationSection } from "@ant/provider-deepseek";
 import { JsonlSessionStore } from "@ant/session-jsonl";
 import { codingToolPack, ToolEnvironment } from "@ant/tools-coding";
 
@@ -55,6 +55,13 @@ async function main(): Promise<void> {
       `[plugin] ${diagnostic.id} ${diagnostic.version}: ${diagnostic.state} (${diagnostic.message})`,
     );
   }
+
+  const terminal = new ConsoleTerminal();
+  const credentials = new DeepSeekCredentialManager({
+    store: new FileCredentialStore(),
+    terminal,
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  });
 
   const configurationRegistry = new ConfigurationRegistry();
   configurationRegistry.register(deepSeekConfigurationSection);
@@ -81,7 +88,10 @@ async function main(): Promise<void> {
     runtime: defaultAgentRuntime,
     settings: createFileSettingsModule(configurationRegistry),
     loadSystemPrompt,
-    createProvider: createDeepSeekProviderFromEnvironment,
+    async createProvider({ systemPrompt }) {
+      const credential = await credentials.resolve();
+      return new DeepSeekProvider({ apiKey: credential.apiKey, systemPrompt });
+    },
     createSessionStore: (root) => new JsonlSessionStore(join(root, ".ant", "sessions")),
     createEnvironment: (root, options) => {
       const context = {
@@ -108,13 +118,15 @@ async function main(): Promise<void> {
       for (const pack of accepted) registry.register(pack);
       return new ToolEnvironment(registry.createTools(context));
     },
-    createFrontend: (options) =>
-      new TerminalFrontend(options, {
-        createTerminal: () => new ConsoleTerminal(),
+    createFrontend: (options) => {
+      const commands = createBuiltinCommandRegistry();
+      commands.register(createKeyCommand(credentials));
+      return new TerminalFrontend(options, {
+        createTerminal: () => terminal,
         process: nodeProcessControl,
         updates: globalUpdateService,
         git: gitPresentationService,
-        commands: createBuiltinCommandRegistry(),
+        commands,
         async initialize(color) {
           configureAnsi(color);
           await initConsoleSize();
@@ -125,7 +137,8 @@ async function main(): Promise<void> {
             reasoningMaxLines: options.reasoningMaxLines,
           }),
         createTurnRunner: (turnOptions) => new TurnRunner(turnOptions),
-      }),
+      });
+    },
   });
 
   await runCli(

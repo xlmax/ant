@@ -28,7 +28,7 @@ export interface AntApplicationModules {
   runtime: AgentRuntime;
   settings: SettingsModule;
   loadSystemPrompt(workspace: string, additionalPaths: readonly string[]): Promise<SystemPrompt>;
-  createProvider(options: ProviderBootstrapOptions): ModelProvider;
+  createProvider(options: ProviderBootstrapOptions): ModelProvider | Promise<ModelProvider>;
   createSessionStore(workspace: string): SessionStore;
   createEnvironment(workspace: string, options: EnvironmentBootstrapOptions): Environment;
   createFrontend(options: FrontendOptions): AntFrontend;
@@ -85,7 +85,7 @@ export class AntApplication {
     const verification = configuration.get(VERIFICATION_CONFIGURATION);
     const ui = configuration.get(UI_CONFIGURATION);
     const systemPrompt = await this.#modules.loadSystemPrompt(workspace, prompts.additionalPaths);
-    const provider = this.#modules.createProvider({
+    const provider = await this.#modules.createProvider({
       systemPrompt: systemPrompt.content,
     });
 

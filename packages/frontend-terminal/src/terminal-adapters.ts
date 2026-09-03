@@ -18,12 +18,17 @@ import { TurnChangeTracker } from "./turn-change-summary.js";
 const execFileAsync = promisify(execFile);
 
 export class ConsoleTerminal implements TerminalPort {
-  readonly #readline: Interface | undefined;
+  #readline: Interface | undefined;
 
-  constructor() {
-    this.#readline = usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY))
-      ? undefined
-      : createInterface({ input: stdin, output: stdout });
+  #getReadline(): Interface | undefined {
+    if (usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY))) return undefined;
+    this.#readline ??= createInterface({ input: stdin, output: stdout });
+    return this.#readline;
+  }
+
+  #closeReadline(): void {
+    this.#readline?.close();
+    this.#readline = undefined;
   }
 
   log(message: string): void {
@@ -44,13 +49,30 @@ export class ConsoleTerminal implements TerminalPort {
   async read(history: InputHistory, prompt: string): Promise<string | undefined> {
     openUserInputFrame();
     try {
-      return await readTerminalInput(history, this.#readline, prompt);
+      return await readTerminalInput(history, this.#getReadline(), prompt);
     } finally {
       closeUserInputFrame();
     }
   }
+  async readSecret(prompt: string): Promise<string | undefined> {
+    if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
+    this.#closeReadline();
+    const { readHiddenTerminalInput } = await import("./terminal-secret-input.js");
+    return readHiddenTerminalInput(prompt);
+  }
+  async confirm(prompt: string): Promise<boolean | undefined> {
+    if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
+    this.#closeReadline();
+    const { readTerminalPrompt } = await import("./terminal-secret-input.js");
+    const answer = await readTerminalPrompt(prompt, { hidden: false });
+    if (answer === undefined) return undefined;
+    const normalized = answer.trim().toLowerCase();
+    if (normalized === "" || normalized === "y" || normalized === "yes") return true;
+    if (normalized === "n" || normalized === "no") return false;
+    throw new Error("Введите Y или N.");
+  }
   close(): void {
-    this.#readline?.close();
+    this.#closeReadline();
   }
 }
 
