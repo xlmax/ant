@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -200,6 +200,61 @@ test("JSONL append parses only constant-size metadata, not every journal record"
     await store.append(session.id, { value: "appended" });
 
     assert.equal(parseCalls, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL preserves a session across many appends", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Task", payloads: [{ index: 0 }] });
+    for (let index = 1; index <= 100; index += 1) {
+      await store.append(session.id, { index });
+    }
+
+    const records = await store.read(session.id);
+    assert.equal(records.records.length, 101);
+    assert.deepEqual(records.records.at(-1)?.payload, { index: 100 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL append updates the metadata sidecar without rebuilding the journal", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Metadata task", payloads: [{ value: 1 }] });
+    const record = await store.append(session.id, { value: 2 });
+    const metadata = JSON.parse(
+      await readFile(join(directory, `${session.id}.meta.json`), "utf8"),
+    ) as Record<string, unknown>;
+
+    assert.equal(metadata.updatedAt, record.timestamp);
+    assert.equal(metadata.task, "Metadata task");
+    assert.equal(metadata.fileSize, (await stat(session.location!)).size);
+    assert.equal(metadata.modifiedAtMs, (await stat(session.location!)).mtimeMs);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL list rebuilds a missing metadata sidecar from the journal", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Recovered task", payloads: [{ value: 1 }] });
+    const metadataPath = join(directory, `${session.id}.meta.json`);
+    await rm(metadataPath);
+
+    const listed = await store.list();
+
+    assert.deepEqual(listed.warnings, []);
+    assert.equal(listed.sessions[0]?.id, session.id);
+    assert.equal(listed.sessions[0]?.task, "Recovered task");
+    assert.equal(JSON.parse(await readFile(metadataPath, "utf8")).id, session.id);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
