@@ -14,21 +14,21 @@ const DISABLE_BRACKETED_PASTE = "\u001B[?2004l";
 
 class FakeInput extends EventEmitter {
   isRaw = false;
-  paused = true;
+  readableFlowing: boolean | null = null;
   resumeChunk: string | undefined;
   readonly rawModes: boolean[] = [];
 
   isPaused(): boolean {
-    return this.paused;
+    return this.readableFlowing === false;
   }
 
   pause(): this {
-    this.paused = true;
+    this.readableFlowing = false;
     return this;
   }
 
   resume(): this {
-    this.paused = false;
+    this.readableFlowing = true;
     if (this.resumeChunk !== undefined) {
       const chunk = this.resumeChunk;
       this.resumeChunk = undefined;

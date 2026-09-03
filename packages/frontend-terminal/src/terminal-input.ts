@@ -21,7 +21,7 @@ const DISABLE_BRACKETED_PASTE = "\u001B[?2004l";
 
 interface TerminalInputStream extends NodeJS.EventEmitter {
   readonly isRaw?: boolean;
-  isPaused(): boolean;
+  readonly readableFlowing?: boolean | null;
   pause(): this;
   resume(): this;
   setRawMode(mode: boolean): this;
@@ -328,7 +328,7 @@ export async function readAndroidTerminalInput(
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
   const originalRawMode = Boolean(input.isRaw);
-  const originallyPaused = input.isPaused();
+  const originallyFlowing = input.readableFlowing === true;
   const eventsAbort = new AbortController();
   const abortEvents = () => eventsAbort.abort(options.signal?.reason);
   if (options.signal?.aborted) {
@@ -417,7 +417,7 @@ export async function readAndroidTerminalInput(
       try {
         if (rawModeChanged) input.setRawMode(originalRawMode);
       } finally {
-        if (originallyPaused) input.pause();
+        if (!originallyFlowing) input.pause();
       }
     }
   }
