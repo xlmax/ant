@@ -59,11 +59,16 @@ export class TextEditor {
     this.#cursor = this.#characters.length;
   }
 
+  insert(value: string): void {
+    const characters = Array.from(value);
+    this.#characters.splice(this.#cursor, 0, ...characters);
+    this.#cursor += characters.length;
+  }
+
   apply(action: ConsoleInputAction, columns: number, initialColumn = 0): void {
     switch (action.type) {
       case "character":
-        this.#characters.splice(this.#cursor, 0, action.value);
-        this.#cursor += 1;
+        this.insert(action.value);
         return;
 
       case "newline":

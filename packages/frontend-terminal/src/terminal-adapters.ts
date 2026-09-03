@@ -12,7 +12,7 @@ import type {
   TerminalPort,
   UpdateService,
 } from "./presentation-ports.js";
-import { readTerminalInput } from "./terminal-input.js";
+import { readTerminalInput, usesCustomTerminalInput } from "./terminal-input.js";
 import { TurnChangeTracker } from "./turn-change-summary.js";
 
 const execFileAsync = promisify(execFile);
@@ -21,10 +21,9 @@ export class ConsoleTerminal implements TerminalPort {
   readonly #readline: Interface | undefined;
 
   constructor() {
-    this.#readline =
-      process.platform === "win32" && stdin.isTTY
-        ? undefined
-        : createInterface({ input: stdin, output: stdout });
+    this.#readline = usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY))
+      ? undefined
+      : createInterface({ input: stdin, output: stdout });
   }
 
   log(message: string): void {

@@ -1,18 +1,42 @@
-import { stdout } from "node:process";
+import { on } from "node:events";
+import { stdin, stdout } from "node:process";
 import type { Interface } from "node:readline/promises";
 
+import { AndroidInputDecoder } from "./android-input.js";
 import { displayWidth } from "./display-width.js";
 import { InputHistory } from "./input-history.js";
 import { TextEditor, type CursorPosition } from "./text-editor.js";
 import {
   hasPendingKeyDownInBuffer,
   mapWindowsKeyEvent,
+  type ConsoleInputAction,
   type WindowsInputRecord,
 } from "./windows-console-input.js";
 
 const STD_INPUT_HANDLE = -10;
 const ENABLE_PROCESSED_INPUT = 0x0001;
 const PEEK_INPUT_RECORDS = 64;
+const ENABLE_BRACKETED_PASTE = "\u001B[?2004h";
+const DISABLE_BRACKETED_PASTE = "\u001B[?2004l";
+
+interface TerminalInputStream extends NodeJS.EventEmitter {
+  readonly isRaw?: boolean;
+  isPaused(): boolean;
+  pause(): this;
+  resume(): this;
+  setRawMode(mode: boolean): this;
+}
+
+interface TerminalOutputStream {
+  readonly columns?: number;
+  write(value: string): unknown;
+}
+
+export interface AndroidTerminalInputOptions {
+  input?: TerminalInputStream;
+  output?: TerminalOutputStream;
+  signal?: AbortSignal;
+}
 
 interface InputRecordValue {
   EventType?: number;
@@ -80,24 +104,28 @@ export function canEraseInline(before: CursorPosition, after: CursorPosition): b
   return before.row === after.row;
 }
 
-function moveCursor(from: CursorPosition, to: CursorPosition): void {
+function moveCursor(
+  from: CursorPosition,
+  to: CursorPosition,
+  output: TerminalOutputStream = stdout,
+): void {
   const rows = to.row - from.row;
 
   if (rows === 0) {
     const columns = to.column - from.column;
 
     if (columns < 0) {
-      stdout.write(`\u001B[${-columns}D`);
+      output.write(`\u001B[${-columns}D`);
     } else if (columns > 0) {
-      stdout.write(`\u001B[${columns}C`);
+      output.write(`\u001B[${columns}C`);
     }
     return;
   }
 
-  stdout.write(rows < 0 ? `\u001B[${-rows}A` : `\u001B[${rows}B`);
-  stdout.write("\r");
+  output.write(rows < 0 ? `\u001B[${-rows}A` : `\u001B[${rows}B`);
+  output.write("\r");
   if (to.column > 0) {
-    stdout.write(`\u001B[${to.column + 1}G`);
+    output.write(`\u001B[${to.column + 1}G`);
   }
 }
 
@@ -105,30 +133,76 @@ function redraw(
   editor: TextEditor,
   previousCursor: CursorPosition,
   prompt: string,
+  output: TerminalOutputStream = stdout,
 ): CursorPosition {
-  stdout.write("\u001B[?25l");
+  output.write("\u001B[?25l");
 
   if (previousCursor.row > 0) {
-    stdout.write(`\u001B[${previousCursor.row}A`);
+    output.write(`\u001B[${previousCursor.row}A`);
   }
-  stdout.write("\r\u001B[J");
+  output.write("\r\u001B[J");
 
-  const rendered = editor.render(Math.max(1, stdout.columns ?? 80), prompt);
-  stdout.write(rendered.text);
+  const rendered = editor.render(Math.max(1, output.columns ?? 80), prompt);
+  output.write(rendered.text);
 
   const rowsUp = rendered.end.row - rendered.cursor.row;
   if (rowsUp > 0) {
-    stdout.write(`\u001B[${rowsUp}A`);
+    output.write(`\u001B[${rowsUp}A`);
   }
-  stdout.write("\r");
+  output.write("\r");
 
   if (rendered.cursor.column > 0) {
-    const column = Math.min(Math.max(1, stdout.columns ?? 80), rendered.cursor.column + 1);
-    stdout.write(`\u001B[${column}G`);
+    const column = Math.min(Math.max(1, output.columns ?? 80), rendered.cursor.column + 1);
+    output.write(`\u001B[${column}G`);
   }
 
-  stdout.write("\u001B[?25h");
+  output.write("\u001B[?25h");
   return rendered.cursor;
+}
+
+function applyEditorAction(
+  editor: TextEditor,
+  action: Exclude<ConsoleInputAction, { type: "submit" | "cancel" | "ignore" }>,
+  cursor: CursorPosition,
+  prompt: string,
+  output: TerminalOutputStream = stdout,
+): CursorPosition {
+  const columns = Math.max(1, output.columns ?? 80);
+  const promptWidth = displayWidth(prompt);
+  const cursorAtEnd = editor.cursorAtEnd;
+  const renderedBefore = editor.render(columns, prompt);
+  const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
+  const inlineEraseCandidate =
+    cursorAtEnd &&
+    action.type === "backspace" &&
+    editor.characterBeforeCursor !== undefined &&
+    editor.characterBeforeCursor !== "\n" &&
+    renderedBefore.cursor.column > 0;
+  const moveCursorOnly =
+    action.type === "left" ||
+    action.type === "right" ||
+    action.type === "up" ||
+    action.type === "down" ||
+    action.type === "home" ||
+    action.type === "end";
+  editor.apply(action, columns, Math.min(columns, promptWidth));
+  const renderedAfter = editor.render(columns, prompt);
+  const eraseInline =
+    inlineEraseCandidate && canEraseInline(renderedBefore.cursor, renderedAfter.cursor);
+
+  if (appendAtEnd) {
+    output.write(action.type === "character" ? action.value : "\n");
+    return renderedAfter.cursor;
+  }
+  if (eraseInline) {
+    output.write("\b \b");
+    return renderedAfter.cursor;
+  }
+  if (moveCursorOnly) {
+    moveCursor(cursor, renderedAfter.cursor, output);
+    return renderedAfter.cursor;
+  }
+  return redraw(editor, cursor, prompt, output);
 }
 
 async function readWindowsConsoleInput(history: InputHistory, prompt: string): Promise<string> {
@@ -149,7 +223,6 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
   }
 
   const editor = new TextEditor();
-  const promptWidth = displayWidth(prompt);
   stdout.write(prompt);
   let cursor = editor.render(Math.max(1, stdout.columns ?? 80), prompt).cursor;
 
@@ -236,45 +309,113 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
         history.reset();
       }
 
-      const columns = Math.max(1, stdout.columns ?? 80);
-      const cursorAtEnd = editor.cursorAtEnd;
-      const renderedBefore = editor.render(columns, prompt);
-      const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
-      const inlineEraseCandidate =
-        cursorAtEnd &&
-        action.type === "backspace" &&
-        editor.characterBeforeCursor !== undefined &&
-        editor.characterBeforeCursor !== "\n" &&
-        renderedBefore.cursor.column > 0;
-      const moveCursorOnly =
-        action.type === "left" ||
-        action.type === "right" ||
-        action.type === "up" ||
-        action.type === "down" ||
-        action.type === "home" ||
-        action.type === "end";
-      editor.apply(action, columns, Math.min(columns, promptWidth));
-      const renderedAfter = editor.render(columns, prompt);
-      // A terminal backspace cannot reliably cross a soft-wrap boundary. Redraw
-      // instead when deleting the first character of a visual line.
-      const eraseInline =
-        inlineEraseCandidate && canEraseInline(renderedBefore.cursor, renderedAfter.cursor);
-
-      if (appendAtEnd) {
-        stdout.write(action.type === "character" ? action.value : "\n");
-        cursor = renderedAfter.cursor;
-      } else if (eraseInline) {
-        stdout.write("\b \b");
-        cursor = renderedAfter.cursor;
-      } else if (moveCursorOnly) {
-        moveCursor(cursor, renderedAfter.cursor);
-        cursor = renderedAfter.cursor;
-      } else {
-        cursor = redraw(editor, cursor, prompt);
-      }
+      cursor = applyEditorAction(editor, action, cursor, prompt);
     }
   } finally {
     api.setConsoleMode(input, originalMode[0]);
+  }
+}
+
+export function usesCustomTerminalInput(platform: NodeJS.Platform, isTTY: boolean): boolean {
+  return isTTY && (platform === "win32" || platform === "android");
+}
+
+export async function readAndroidTerminalInput(
+  history: InputHistory,
+  prompt: string,
+  options: AndroidTerminalInputOptions = {},
+): Promise<string> {
+  const input = options.input ?? stdin;
+  const output = options.output ?? stdout;
+  const originalRawMode = Boolean(input.isRaw);
+  const originallyPaused = input.isPaused();
+  const eventsAbort = new AbortController();
+  const abortEvents = () => eventsAbort.abort(options.signal?.reason);
+  if (options.signal?.aborted) {
+    abortEvents();
+  } else {
+    options.signal?.addEventListener("abort", abortEvents, { once: true });
+  }
+
+  let rawModeChanged = false;
+  let bracketedPasteEnabled = false;
+
+  try {
+    input.setRawMode(true);
+    rawModeChanged = true;
+    output.write(ENABLE_BRACKETED_PASTE);
+    bracketedPasteEnabled = true;
+
+    const editor = new TextEditor();
+    output.write(prompt);
+    let cursor = editor.render(Math.max(1, output.columns ?? 80), prompt).cursor;
+    const decoder = new AndroidInputDecoder();
+    const chunks = on(input, "data", {
+      close: ["end", "close"],
+      signal: eventsAbort.signal,
+    });
+    input.resume();
+
+    for await (const [chunk] of chunks) {
+      for (const event of decoder.write(Buffer.isBuffer(chunk) ? chunk : String(chunk))) {
+        if (event.type === "paste") {
+          history.reset();
+          editor.insert(event.value);
+          cursor = redraw(editor, cursor, prompt, output);
+          continue;
+        }
+
+        const { action } = event;
+        if (action.type === "up" && (editor.value === "" || history.isBrowsing)) {
+          const previous = history.previous(editor.value);
+          if (previous !== undefined) {
+            editor.replace(previous);
+            cursor = redraw(editor, cursor, prompt, output);
+          }
+          continue;
+        }
+
+        if (action.type === "down" && history.isBrowsing) {
+          const next = history.next();
+          if (next !== undefined) {
+            editor.replace(next);
+            cursor = redraw(editor, cursor, prompt, output);
+          }
+          continue;
+        }
+
+        if (action.type === "submit") {
+          output.write("\n");
+          return editor.value;
+        }
+
+        if (action.type === "cancel") {
+          editor.replace("");
+          history.reset();
+          cursor = redraw(editor, cursor, prompt, output);
+          continue;
+        }
+
+        if (action.type === "ignore") continue;
+
+        history.reset();
+        cursor = applyEditorAction(editor, action, cursor, prompt, output);
+      }
+    }
+
+    throw new Error("Поток терминального ввода завершён");
+  } finally {
+    eventsAbort.abort();
+    options.signal?.removeEventListener("abort", abortEvents);
+    try {
+      if (bracketedPasteEnabled) output.write(DISABLE_BRACKETED_PASTE);
+    } finally {
+      try {
+        if (rawModeChanged) input.setRawMode(originalRawMode);
+      } finally {
+        if (originallyPaused) input.pause();
+      }
+    }
   }
 }
 
@@ -285,6 +426,10 @@ export async function readTerminalInput(
 ): Promise<string> {
   if (process.platform === "win32" && process.stdin.isTTY) {
     return readWindowsConsoleInput(history, prompt);
+  }
+
+  if (process.platform === "android" && process.stdin.isTTY) {
+    return readAndroidTerminalInput(history, prompt);
   }
 
   if (!fallback) {
