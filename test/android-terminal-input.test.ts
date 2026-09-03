@@ -115,6 +115,19 @@ test("Android raw input submits ordinary text with CR", async () => {
   assertTerminalRestored(input, output);
 });
 
+test("Android Enter keeps editing while the current draft is empty", async () => {
+  const empty = await readChunks(["\rhello\r"]);
+
+  assert.equal(empty.value, "hello");
+  assert.equal(empty.output.value.includes("\nhello"), false);
+});
+
+test("Android Enter clears a whitespace-only draft without submitting it", async () => {
+  const { value } = await readChunks(["   \rkept\r"]);
+
+  assert.equal(value, "kept");
+});
+
 test("Android raw input subscribes before resuming stdin", async () => {
   const input = new FakeInput();
   const output = new FakeOutput();

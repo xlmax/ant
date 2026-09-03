@@ -385,6 +385,14 @@ export async function readAndroidTerminalInput(
         }
 
         if (action.type === "submit") {
+          if (editor.value.trim() === "") {
+            if (editor.value !== "") {
+              editor.replace("");
+              history.reset();
+              cursor = redraw(editor, cursor, prompt, output);
+            }
+            continue;
+          }
           output.write("\n");
           return editor.value;
         }
