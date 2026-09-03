@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { VERSION } from "../../packages/contracts/src/version.js";
+
 async function exec(
   command: string,
   args: readonly string[],
@@ -127,7 +129,7 @@ test("packed CLI installs in a clean project and loads the production compositio
     const binary = join(installDirectory, "node_modules", ".bin", "ant");
     const version = await exec(binary, ["--version"], { cwd: workspace });
     assert.equal(version.code, 0, version.stderr);
-    assert.equal(version.stdout.trim(), "0.5.23");
+    assert.equal(version.stdout.trim(), VERSION);
 
     await writeFile(
       join(pluginSource, "package.json"),
