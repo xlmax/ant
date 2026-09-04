@@ -4,6 +4,7 @@ import test from "node:test";
 
 import type { AntApplicationApi } from "../packages/app/src/application-client.js";
 import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
+import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
 import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
 import type { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
 import type {
@@ -231,6 +232,120 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
     { closed, branchChecks, updateChecks },
     { closed: 1, branchChecks: 1, updateChecks: 1 },
   );
+});
+
+test("REPL resume replays the last turn after the continuation banner", async () => {
+  configureAnsi(false);
+  try {
+    const output: string[] = [];
+    const replTerminal = {
+      ...terminal(output),
+      async read() {
+        return undefined;
+      },
+      write(message: string) {
+        output.push(message);
+      },
+    };
+    const process: ProcessControl = {
+      onInterrupt() {
+        return () => {};
+      },
+      timeout: () => new AbortController().signal,
+      setExitCode() {},
+    };
+    const git: GitPresentationService = {
+      async branch() {
+        return "feature";
+      },
+      createChangeTracker() {
+        throw new Error("turn tracker is not needed");
+      },
+    };
+    const client = {
+      activeSession: undefined,
+      modelDescriptor: {
+        providerId: "test",
+        modelId: "model",
+        contextWindow: 1_000,
+        capabilities: {
+          vision: false,
+          reasoning: { supported: true, enabled: true, effort: "high", availableEfforts: [] },
+        },
+      },
+      async resumeSession(sessionId: string) {
+        return { session: { id: sessionId } };
+      },
+      getLastTurnEvents() {
+        return [
+          { type: "user", content: "Сделай это" },
+          {
+            type: "decision",
+            decision: {
+              type: "tools",
+              reasoning: "Сначала читаю файл.",
+              calls: [{ id: "read-1", name: "read", input: { path: "src/app.ts" } }],
+            },
+          },
+          {
+            type: "observation",
+            call: { id: "read-1", name: "read", input: { path: "src/app.ts" } },
+            observation: { ok: true, value: { stdout: "SECRET-RAW" } },
+          },
+          {
+            type: "decision",
+            decision: { type: "finish", answer: "Готово" },
+          },
+        ];
+      },
+    } as unknown as AntApplicationApi;
+
+    await runRepl(
+      {
+        workspace: ".",
+        client,
+        settings: { async saveReasoningMode() {} },
+        projectOverrides: {
+          modelId: false,
+          modelThinking: false,
+          reasoningMode: false,
+          showChanges: false,
+        },
+        reasoningMode: "full",
+        reasoningMaxLines: 5,
+        showChanges: false,
+        resume: "session-1",
+      },
+      {
+        terminal: replTerminal,
+        process,
+        git,
+        updates: {
+          managedByNpm: false,
+          async check() {
+            return undefined;
+          },
+          async install() {},
+        },
+        commands: createBuiltinCommandRegistry(),
+        createRenderer: () => ({}) as ConsoleRenderer,
+        createTurnRunner: () => {
+          throw new Error("turn runner is not needed");
+        },
+      },
+    );
+
+    const joined = output.join("\n");
+    assert.match(joined, /Продолжена сессия: session-1/u);
+    assert.match(joined, /Сделай это/u);
+    assert.match(joined, /Сначала читаю файл\./u);
+    assert.match(joined, /→ read src\/app\.ts/u);
+    assert.match(joined, /✓ read/u);
+    assert.match(joined, /Готово/u);
+    assert.doesNotMatch(joined, /SECRET-RAW/u);
+  } finally {
+    configureAnsi(true);
+  }
 });
 
 test("presentation orchestration depends on ports, not concrete process, updater or Git adapters", async () => {

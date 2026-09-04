@@ -12,16 +12,12 @@ import { StreamingMarkdownRenderer } from "./markdown.js";
 import { consoleWidth } from "./console-size.js";
 import { sectionFooter, sectionHeader } from "./section.js";
 import { TypingPump } from "./typing-pump.js";
+import { formatToolLabel } from "./turn-formatters.js";
 import { formatTurnChangeSummary, type TurnChangeSummary } from "./turn-change-summary.js";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 80;
-const TOOL_LABEL_MAX_CHARS = 60;
 const ERROR_REASON_MAX_CHARS = 120;
-
-function formatValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
 
 function formatDuration(durationMs: number): string {
   return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(1)} s`;
@@ -33,29 +29,6 @@ function singleLine(value: string, maxChars: number): string {
   const chars = Array.from(collapsed);
   if (chars.length <= maxChars) return collapsed;
   return `${chars.slice(0, maxChars - 1).join("")}…`;
-}
-
-function stringProperty(value: unknown, property: string): string | undefined {
-  if (typeof value !== "object" || value === null || !(property in value)) return undefined;
-  const candidate = (value as Record<string, unknown>)[property];
-  return typeof candidate === "string" ? candidate : undefined;
-}
-
-function formatToolLabel(name: string, input: unknown): string {
-  const record = typeof input === "object" && input !== null ? input : undefined;
-  switch (name) {
-    case "bash":
-      return singleLine(stringProperty(record, "command") ?? "", TOOL_LABEL_MAX_CHARS);
-    case "grep":
-    case "glob":
-      return singleLine(stringProperty(record, "pattern") ?? "", TOOL_LABEL_MAX_CHARS);
-    case "read":
-    case "write":
-    case "edit":
-      return singleLine(stringProperty(record, "path") ?? "", TOOL_LABEL_MAX_CHARS);
-    default:
-      return singleLine(formatValue(input), TOOL_LABEL_MAX_CHARS);
-  }
 }
 
 function bashExitCode(value: unknown): number | undefined {

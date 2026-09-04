@@ -6,6 +6,7 @@ import { ansi } from "./ansi.js";
 import type { CommandRegistry } from "./command-registry.js";
 import { InputHistory } from "./input-history.js";
 import { userInputPrompt } from "./input-frame.js";
+import { formatResumeReplay } from "./resume-replay.js";
 import type {
   GitPresentationService,
   ProcessControl,
@@ -54,6 +55,12 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
   if (options.resume) {
     const resumed = await options.client.resumeSession(options.resume);
     terminal.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
+    terminal.write(
+      formatResumeReplay(options.client.getLastTurnEvents(), {
+        reasoningMode: options.reasoningMode,
+        reasoningMaxLines: options.reasoningMaxLines,
+      }),
+    );
   }
 
   const updateInfo = updates.managedByNpm

@@ -64,7 +64,20 @@ function createHarness(): Harness {
   let nextSession = 1;
 
   const session = (id: string): AgentSession => ({ id, location: `/sessions/${id}` });
-  const resumedState: AgentState = { events: [{ type: "task", content: "resumed" }] };
+  const resumedState: AgentState = {
+    events: [
+      { type: "task", content: "resumed" },
+      { type: "decision", decision: { type: "finish", answer: "saved" } },
+      {
+        type: "compaction",
+        summary: "previous turn compacted",
+        retainedEvents: [
+          { type: "task", content: "resumed" },
+          { type: "decision", decision: { type: "finish", answer: "saved" } },
+        ],
+      },
+    ],
+  };
   const store: SessionStore = {
     async create(input) {
       calls.push("session.create:task");
@@ -287,6 +300,10 @@ test("resume and reset session are application operations", async () => {
   const resumed = await harness.client.resumeSession("saved-session");
   assert.equal(resumed.session.id, "saved-session");
   assert.equal(harness.client.activeSession?.session.id, "saved-session");
+  assert.deepEqual(
+    harness.client.getLastTurnEvents()?.map((event) => event.type),
+    ["task", "decision"],
+  );
 
   harness.client.resetSession();
   assert.equal(harness.client.activeSession, undefined);
@@ -294,6 +311,18 @@ test("resume and reset session are application operations", async () => {
   const submitted = await harness.client.submitTurn("new task");
   assert.equal(submitted.created, true);
   assert.equal(submitted.session.id, "session-1");
+});
+
+test("last turn events expose the latest replayable slice", async () => {
+  const harness = createHarness();
+
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+
+  assert.deepEqual(
+    harness.client.getLastTurnEvents()?.map((event) => event.type),
+    ["user", "decision"],
+  );
 });
 
 test("model and thinking selections persist before rebuilding model clients", async () => {
