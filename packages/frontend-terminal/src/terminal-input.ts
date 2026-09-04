@@ -2,22 +2,28 @@ import { on } from "node:events";
 import { stdin, stdout } from "node:process";
 import type { Interface } from "node:readline/promises";
 
-import { AndroidInputDecoder } from "./android-input.js";
-import { displayWidth } from "./display-width.js";
 import { InputHistory } from "./input-history.js";
-import { TextEditor, type CursorPosition } from "./text-editor.js";
 import {
-  hasPendingKeyDownInBuffer,
-  mapWindowsKeyEvent,
-  type ConsoleInputAction,
-  type WindowsInputRecord,
-} from "./windows-console-input.js";
+  TerminalInputController,
+  type TerminalInputResult,
+  type TerminalOutputStream,
+} from "./terminal-input-controller.js";
+export { canEraseInline } from "./terminal-input-controller.js";
+import { mapWindowsKeyEvent } from "./windows-console-input.js";
+import { VtInputDecoder, type VtInputEvent } from "./vt-input.js";
 
 const STD_INPUT_HANDLE = -10;
 const ENABLE_PROCESSED_INPUT = 0x0001;
-const PEEK_INPUT_RECORDS = 64;
 const ENABLE_BRACKETED_PASTE = "\u001B[?2004h";
 const DISABLE_BRACKETED_PASTE = "\u001B[?2004l";
+
+interface VtInputState {
+  readonly decoder: VtInputDecoder;
+  readonly pendingEvents: VtInputEvent[];
+  ended: boolean;
+}
+
+const vtInputStates = new WeakMap<TerminalInputStream, VtInputState>();
 
 interface TerminalInputStream extends NodeJS.EventEmitter {
   readonly isRaw?: boolean;
@@ -27,15 +33,22 @@ interface TerminalInputStream extends NodeJS.EventEmitter {
   setRawMode(mode: boolean): this;
 }
 
-interface TerminalOutputStream {
-  readonly columns?: number;
-  write(value: string): unknown;
-}
-
-export interface AndroidTerminalInputOptions {
+export interface VtTerminalInputOptions {
   input?: TerminalInputStream;
   output?: TerminalOutputStream;
   signal?: AbortSignal;
+}
+
+export type TerminalInputBackend = "readline" | "vt" | "win32";
+
+export interface TerminalInputEnvironment {
+  readonly TERM?: string;
+  readonly TERM_PROGRAM?: string;
+  readonly WT_SESSION?: string;
+  readonly MSYSTEM?: string;
+  readonly CYGWIN?: string;
+  readonly ORCA_TERMINAL_HANDLE?: string;
+  readonly ANT_INPUT_BACKEND?: string;
 }
 
 interface InputRecordValue {
@@ -48,10 +61,6 @@ interface InputRecordValue {
   };
 }
 
-interface InputRecordBufferValue {
-  Records?: InputRecordValue[];
-}
-
 async function loadWindowsConsoleApi() {
   const { ffi } = await import("win32-api");
   const KeyEventRecord = ffi.struct("AgentKeyEventRecord", {
@@ -62,13 +71,10 @@ async function loadWindowsConsoleApi() {
     UnicodeChar: "uint16",
     dwControlKeyState: "uint32",
   });
-  const InputRecord = ffi.struct("AgentInputRecord", {
+  ffi.struct("AgentInputRecord", {
     EventType: "uint16",
     Padding: "uint16",
     KeyEvent: KeyEventRecord,
-  });
-  ffi.struct("AgentInputRecordBuffer", {
-    Records: ffi.array(InputRecord, PEEK_INPUT_RECORDS),
   });
   const kernel32 = ffi.load("kernel32.dll");
 
@@ -83,12 +89,6 @@ async function loadWindowsConsoleApi() {
     readConsoleInputW: kernel32.func(
       "int32 __stdcall ReadConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecord *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
     ),
-    peekConsoleInputW: kernel32.func(
-      "int32 __stdcall PeekConsoleInputW(void *hConsoleInput, _Out_ AgentInputRecordBuffer *lpBuffer, uint32 nLength, _Out_ uint32 *lpNumberOfEventsRead)",
-    ),
-    flushConsoleInputBuffer: kernel32.func(
-      "int32 __stdcall FlushConsoleInputBuffer(void *hConsoleInput)",
-    ),
   };
 }
 
@@ -100,112 +100,10 @@ function getWindowsConsoleApi(): Promise<WindowsConsoleApi> {
   return windowsConsoleApi;
 }
 
-export function canEraseInline(before: CursorPosition, after: CursorPosition): boolean {
-  return before.row === after.row;
-}
-
-function moveCursor(
-  from: CursorPosition,
-  to: CursorPosition,
-  output: TerminalOutputStream = stdout,
-): void {
-  const rows = to.row - from.row;
-
-  if (rows === 0) {
-    const columns = to.column - from.column;
-
-    if (columns < 0) {
-      output.write(`\u001B[${-columns}D`);
-    } else if (columns > 0) {
-      output.write(`\u001B[${columns}C`);
-    }
-    return;
-  }
-
-  output.write(rows < 0 ? `\u001B[${-rows}A` : `\u001B[${rows}B`);
-  output.write("\r");
-  if (to.column > 0) {
-    output.write(`\u001B[${to.column + 1}G`);
-  }
-}
-
-function redraw(
-  editor: TextEditor,
-  previousCursor: CursorPosition,
+async function readWindowsConsoleInput(
+  history: InputHistory,
   prompt: string,
-  output: TerminalOutputStream = stdout,
-): CursorPosition {
-  output.write("\u001B[?25l");
-
-  if (previousCursor.row > 0) {
-    output.write(`\u001B[${previousCursor.row}A`);
-  }
-  output.write("\r\u001B[J");
-
-  const rendered = editor.render(Math.max(1, output.columns ?? 80), prompt);
-  output.write(rendered.text);
-
-  const rowsUp = rendered.end.row - rendered.cursor.row;
-  if (rowsUp > 0) {
-    output.write(`\u001B[${rowsUp}A`);
-  }
-  output.write("\r");
-
-  if (rendered.cursor.column > 0) {
-    const column = Math.min(Math.max(1, output.columns ?? 80), rendered.cursor.column + 1);
-    output.write(`\u001B[${column}G`);
-  }
-
-  output.write("\u001B[?25h");
-  return rendered.cursor;
-}
-
-function applyEditorAction(
-  editor: TextEditor,
-  action: Exclude<ConsoleInputAction, { type: "submit" | "cancel" | "ignore" }>,
-  cursor: CursorPosition,
-  prompt: string,
-  output: TerminalOutputStream = stdout,
-): CursorPosition {
-  const columns = Math.max(1, output.columns ?? 80);
-  const promptWidth = displayWidth(prompt);
-  const cursorAtEnd = editor.cursorAtEnd;
-  const renderedBefore = editor.render(columns, prompt);
-  const appendAtEnd = cursorAtEnd && (action.type === "character" || action.type === "newline");
-  const inlineEraseCandidate =
-    cursorAtEnd &&
-    action.type === "backspace" &&
-    editor.characterBeforeCursor !== undefined &&
-    editor.characterBeforeCursor !== "\n" &&
-    renderedBefore.cursor.column > 0;
-  const moveCursorOnly =
-    action.type === "left" ||
-    action.type === "right" ||
-    action.type === "up" ||
-    action.type === "down" ||
-    action.type === "home" ||
-    action.type === "end";
-  editor.apply(action, columns, Math.min(columns, promptWidth));
-  const renderedAfter = editor.render(columns, prompt);
-  const eraseInline =
-    inlineEraseCandidate && canEraseInline(renderedBefore.cursor, renderedAfter.cursor);
-
-  if (appendAtEnd) {
-    output.write(action.type === "character" ? action.value : "\n");
-    return renderedAfter.cursor;
-  }
-  if (eraseInline) {
-    output.write("\b \b");
-    return renderedAfter.cursor;
-  }
-  if (moveCursorOnly) {
-    moveCursor(cursor, renderedAfter.cursor, output);
-    return renderedAfter.cursor;
-  }
-  return redraw(editor, cursor, prompt, output);
-}
-
-async function readWindowsConsoleInput(history: InputHistory, prompt: string): Promise<string> {
+): Promise<string | undefined> {
   const api = await getWindowsConsoleApi();
   const input = api.getStdHandle(STD_INPUT_HANDLE);
 
@@ -218,15 +116,16 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
     throw new Error("Не удалось прочитать режим Windows console input.");
   }
 
-  if (!api.setConsoleMode(input, originalMode[0] & ~ENABLE_PROCESSED_INPUT)) {
+  const originalConsoleMode = originalMode[0];
+  if (!api.setConsoleMode(input, originalConsoleMode & ~ENABLE_PROCESSED_INPUT)) {
     throw new Error("Не удалось настроить Windows console input.");
   }
 
-  const editor = new TextEditor();
-  stdout.write(prompt);
-  let cursor = editor.render(Math.max(1, stdout.columns ?? 80), prompt).cursor;
-
+  let operationFailed = false;
+  let operationError: unknown;
+  let resultValue: string | undefined;
   try {
+    const controller = new TerminalInputController(history, prompt, stdout);
     while (true) {
       const record: InputRecordValue = {};
       const eventsRead: [number | null] = [null];
@@ -237,7 +136,7 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
       }
 
       const key = record.KeyEvent;
-      let action = mapWindowsKeyEvent({
+      const action = mapWindowsKeyEvent({
         eventType: record.EventType,
         bKeyDown: key?.bKeyDown,
         virtualKeyCode: key?.wVirtualKeyCode,
@@ -245,85 +144,110 @@ async function readWindowsConsoleInput(history: InputHistory, prompt: string): P
         controlKeyState: key?.dwControlKeyState,
       });
 
-      if (action.type === "up" && (editor.value === "" || history.isBrowsing)) {
-        const previous = history.previous(editor.value);
-
-        if (previous !== undefined) {
-          editor.replace(previous);
-          cursor = redraw(editor, cursor, prompt);
-        }
-        continue;
+      const result = controller.handle({ type: "action", action });
+      if (result.done) {
+        resultValue = result.value;
+        break;
       }
-
-      if (action.type === "down" && history.isBrowsing) {
-        const next = history.next();
-
-        if (next !== undefined) {
-          editor.replace(next);
-          cursor = redraw(editor, cursor, prompt);
-        }
-        continue;
-      }
-
-      if (action.type === "submit") {
-        const buffer: InputRecordBufferValue = {};
-        const eventsPeeked: [number | null] = [null];
-        const peekSucceeded = api.peekConsoleInputW(
-          input,
-          buffer,
-          PEEK_INPUT_RECORDS,
-          eventsPeeked,
-        );
-        const peekedCount = eventsPeeked[0] ?? 0;
-        const pendingRecords: WindowsInputRecord[] = (buffer.Records ?? []).map((record) => ({
-          eventType: record?.EventType,
-          bKeyDown: record?.KeyEvent?.bKeyDown,
-        }));
-
-        if (peekSucceeded && hasPendingKeyDownInBuffer(pendingRecords, peekedCount)) {
-          action = { type: "newline" };
-        } else {
-          stdout.write("\n");
-          return editor.value;
-        }
-      }
-
-      if (action.type === "cancel") {
-        editor.replace("");
-        history.reset();
-        cursor = redraw(editor, cursor, prompt);
-        api.flushConsoleInputBuffer(input);
-        continue;
-      }
-
-      if (action.type === "ignore") {
-        continue;
-      }
-
-      if (
-        action.type === "character" ||
-        action.type === "newline" ||
-        action.type === "backspace" ||
-        action.type === "delete"
-      ) {
-        history.reset();
-      }
-
-      cursor = applyEditorAction(editor, action, cursor, prompt);
     }
-  } finally {
-    api.setConsoleMode(input, originalMode[0]);
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
   }
+
+  let restored = false;
+  try {
+    restored = Boolean(api.setConsoleMode(input, originalConsoleMode));
+  } catch (error) {
+    if (!operationFailed) {
+      operationFailed = true;
+      operationError = error;
+    }
+  }
+  if (operationFailed) throw operationError;
+  if (!restored) {
+    throw new Error("Не удалось восстановить режим Windows console input.");
+  }
+  return resultValue;
 }
 
-export function usesCustomTerminalInput(platform: NodeJS.Platform, isTTY: boolean): boolean {
-  return isTTY && (platform === "win32" || platform === "android");
+function identifiesVtTerminal(environment: TerminalInputEnvironment): boolean {
+  if (
+    environment.TERM_PROGRAM ||
+    environment.WT_SESSION ||
+    environment.MSYSTEM ||
+    environment.CYGWIN ||
+    environment.ORCA_TERMINAL_HANDLE
+  ) {
+    return true;
+  }
+  return /^(?:ansi|cygwin|msys|screen|tmux|vt\d+|xterm)/iu.test(environment.TERM ?? "");
 }
 
-export async function readAndroidTerminalInput(
+export function selectTerminalInputBackend(
+  platform: NodeJS.Platform,
+  inputIsTTY: boolean,
+  outputIsTTY: boolean,
+  environment: TerminalInputEnvironment = process.env,
+): TerminalInputBackend {
+  const requestedBackend = environment.ANT_INPUT_BACKEND?.trim().toLowerCase();
+  if (
+    requestedBackend !== undefined &&
+    requestedBackend !== "" &&
+    requestedBackend !== "auto" &&
+    requestedBackend !== "readline" &&
+    requestedBackend !== "vt" &&
+    requestedBackend !== "win32"
+  ) {
+    throw new Error(
+      `Некорректный ANT_INPUT_BACKEND=${environment.ANT_INPUT_BACKEND}. Ожидается auto, vt, win32 или readline.`,
+    );
+  }
+  if (requestedBackend === "win32" && platform !== "win32") {
+    throw new Error("ANT_INPUT_BACKEND=win32 поддерживается только в Windows.");
+  }
+
+  if (!inputIsTTY || !outputIsTTY) return "readline";
+  if (
+    requestedBackend === "readline" ||
+    requestedBackend === "vt" ||
+    requestedBackend === "win32"
+  ) {
+    return requestedBackend;
+  }
+
+  if (environment.TERM === "dumb") return "readline";
+  if (platform === "android") return "vt";
+  if (platform === "win32") return identifiesVtTerminal(environment) ? "vt" : "win32";
+  return "vt";
+}
+
+export function usesCustomTerminalInput(
+  platform: NodeJS.Platform,
+  inputIsTTY: boolean,
+  outputIsTTY: boolean,
+  environment: TerminalInputEnvironment = process.env,
+): boolean {
+  return selectTerminalInputBackend(platform, inputIsTTY, outputIsTTY, environment) !== "readline";
+}
+
+function getVtInputState(input: TerminalInputStream): VtInputState {
+  const existing = vtInputStates.get(input);
+  if (existing) return existing;
+
+  const created: VtInputState = {
+    decoder: new VtInputDecoder(),
+    pendingEvents: [],
+    ended: false,
+  };
+  vtInputStates.set(input, created);
+  return created;
+}
+
+export async function readVtTerminalInput(
   history: InputHistory,
   prompt: string,
-  options: AndroidTerminalInputOptions = {},
+  options: VtTerminalInputOptions = {},
 ): Promise<string | undefined> {
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
@@ -346,76 +270,47 @@ export async function readAndroidTerminalInput(
     output.write(ENABLE_BRACKETED_PASTE);
     bracketedPasteEnabled = true;
 
-    const editor = new TextEditor();
-    output.write(prompt);
-    let cursor = editor.render(Math.max(1, output.columns ?? 80), prompt).cursor;
-    const decoder = new AndroidInputDecoder();
+    const controller = new TerminalInputController(history, prompt, output);
+    const state = getVtInputState(input);
     const chunks = on(input, "data", {
       close: ["end", "close"],
       signal: eventsAbort.signal,
     });
-    input.resume();
-
-    for await (const [chunk] of chunks) {
-      for (const event of decoder.write(Buffer.isBuffer(chunk) ? chunk : String(chunk))) {
-        if (event.type === "paste") {
-          history.reset();
-          editor.insert(event.value);
-          cursor = redraw(editor, cursor, prompt, output);
-          continue;
+    const handleEvents = (events: readonly VtInputEvent[]): TerminalInputResult => {
+      for (let index = 0; index < events.length; index++) {
+        const result = controller.handle(events[index]!);
+        if (result.done) {
+          state.pendingEvents.push(...events.slice(index + 1));
+          return result;
         }
-
-        const { action } = event;
-        if (action.type === "up" && (editor.value === "" || history.isBrowsing)) {
-          const previous = history.previous(editor.value);
-          if (previous !== undefined) {
-            editor.replace(previous);
-            cursor = redraw(editor, cursor, prompt, output);
-          }
-          continue;
-        }
-
-        if (action.type === "down" && history.isBrowsing) {
-          const next = history.next();
-          if (next !== undefined) {
-            editor.replace(next);
-            cursor = redraw(editor, cursor, prompt, output);
-          }
-          continue;
-        }
-
-        if (action.type === "submit") {
-          if (editor.value.trim() === "") {
-            if (editor.value !== "") {
-              editor.replace("");
-              history.reset();
-              cursor = redraw(editor, cursor, prompt, output);
-            }
-            continue;
-          }
-          output.write("\n");
-          return editor.value;
-        }
-
-        if (action.type === "cancel") {
-          if (editor.value === "") {
-            output.write("\n");
-            return undefined;
-          }
-          editor.replace("");
-          history.reset();
-          cursor = redraw(editor, cursor, prompt, output);
-          continue;
-        }
-
-        if (action.type === "ignore") continue;
-
-        history.reset();
-        cursor = applyEditorAction(editor, action, cursor, prompt, output);
       }
+      return { done: false };
+    };
+
+    const pendingResult = handleEvents(state.pendingEvents.splice(0));
+    if (pendingResult.done) return pendingResult.value;
+    if (state.ended) {
+      vtInputStates.delete(input);
+      output.write("\n");
+      return undefined;
     }
 
-    throw new Error("Поток терминального ввода завершён");
+    input.resume();
+    for await (const [chunk] of chunks) {
+      const events = state.decoder.write(Buffer.isBuffer(chunk) ? chunk : String(chunk));
+      const result = handleEvents(events);
+      if (result.done) return result.value;
+    }
+
+    state.ended = true;
+    const finalResult = handleEvents(state.decoder.end());
+    if (finalResult.done) return finalResult.value;
+    vtInputStates.delete(input);
+    output.write("\n");
+    return undefined;
+  } catch (error) {
+    vtInputStates.delete(input);
+    throw error;
   } finally {
     eventsAbort.abort();
     options.signal?.removeEventListener("abort", abortEvents);
@@ -436,13 +331,14 @@ export async function readTerminalInput(
   fallback?: Pick<Interface, "question">,
   prompt = "",
 ): Promise<string | undefined> {
-  if (process.platform === "win32" && process.stdin.isTTY) {
-    return readWindowsConsoleInput(history, prompt);
-  }
-
-  if (process.platform === "android" && process.stdin.isTTY) {
-    return readAndroidTerminalInput(history, prompt);
-  }
+  const backend = selectTerminalInputBackend(
+    process.platform,
+    Boolean(process.stdin.isTTY),
+    Boolean(process.stdout.isTTY),
+    process.env,
+  );
+  if (backend === "win32") return readWindowsConsoleInput(history, prompt);
+  if (backend === "vt") return readVtTerminalInput(history, prompt);
 
   if (!fallback) {
     throw new Error("Интерактивный ввод недоступен");

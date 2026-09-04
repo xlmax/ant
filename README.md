@@ -229,15 +229,20 @@ After each turn, Ant can print a short summary: which commands ran and which fil
 
 ### REPL input
 
-On Windows the REPL uses the Windows Console API, so it supports multiline input without a TUI:
+In an interactive terminal the REPL selects either the native Windows Console backend or a VT backend for PTYs such as Orca, Android terminals, and terminal multiplexers. Both use the same multiline editor:
 
 - `Enter` — send the message;
-- `Shift+Enter` — new line;
-- `Ctrl+C` — clear the draft (during a turn — cancel it);
+- `Shift+Enter` — new line when the terminal reports modified Enter;
+- `Ctrl+J` — portable new line fallback for VT/PTY terminals;
+- `Alt+Enter` or `Ctrl+Enter` — new line when supported by the terminal;
+- `Ctrl+C` — clear a non-empty draft; press it again on the empty draft to exit (during a turn — cancel it);
+- `Ctrl+D` — exit when the draft is empty;
 - `↑`/`↓` — history of sent messages when the field is empty;
 - `←`/`→`, `Home`, `End`, `Backspace`, `Delete` — editing.
 
-Other platforms use standard `readline`. Emoji and wide Unicode characters may still affect the cursor position.
+VT terminals also use bracketed paste so pasted newlines stay inside the draft. Both native Windows and VT input pass through the same editor controller, so submit, cancel, history, and editing semantics stay consistent. Some legacy terminal protocols cannot distinguish `Shift+Enter` from `Enter`; use `Ctrl+J` there. Emoji and wide Unicode characters may still affect the cursor position.
+
+Backend detection can be overridden for an unusual terminal with `ANT_INPUT_BACKEND=vt`, `win32`, or `readline` (`win32` is Windows-only). Redirected input or output always uses `readline`. Legacy native Windows consoles cannot reliably distinguish clipboard paste from fast typing, so guaranteed multiline paste is limited to the VT backend.
 
 One-off task:
 

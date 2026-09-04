@@ -21,7 +21,9 @@ export class ConsoleTerminal implements TerminalPort {
   #readline: Interface | undefined;
 
   #getReadline(): Interface | undefined {
-    if (usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY))) return undefined;
+    if (usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY), Boolean(stdout.isTTY))) {
+      return undefined;
+    }
     this.#readline ??= createInterface({ input: stdin, output: stdout });
     return this.#readline;
   }

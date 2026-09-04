@@ -1,4 +1,4 @@
-import type { ConsoleInputAction } from "./windows-console-input.js";
+import type { ConsoleInputAction } from "./console-input-action.js";
 import { displayWidth } from "./display-width.js";
 
 export interface CursorPosition {
@@ -134,6 +134,7 @@ export class TextEditor {
 
       case "submit":
       case "cancel":
+      case "eof":
       case "ignore":
         return;
     }
