@@ -40,6 +40,29 @@ export class SessionController {
     return this.#active;
   }
 
+  getLastTurnEvents(): readonly HistoryEvent[] | undefined {
+    const events = this.#active?.state.events;
+    if (events === undefined || events.length === 0) return undefined;
+
+    let end = events.length;
+    while (end > 0 && events[end - 1]?.type === "compaction") {
+      end -= 1;
+    }
+    if (end === 0) return undefined;
+
+    let start = -1;
+    for (let index = end - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type === "task" || event?.type === "user") {
+        start = index;
+        break;
+      }
+    }
+    if (start === -1) return undefined;
+
+    return events.slice(start, end);
+  }
+
   /** Persists before mutating memory so failed writes cannot advance state. */
   async appendPersistentEvent(event: HistoryEvent): Promise<void> {
     if (!this.#active) throw new Error("Нет активной сессии");

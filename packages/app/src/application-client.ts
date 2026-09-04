@@ -3,6 +3,7 @@ import type {
   AgentObserver,
   AgentResult,
   Environment,
+  HistoryEvent,
   ReasoningDeltaHandler,
   TextDeltaHandler,
 } from "@ant/core";
@@ -77,6 +78,7 @@ export interface AntApplicationApi {
   readonly modelDescriptor: ModelDescriptor;
   readonly activeSession: ActiveSessionInfo | undefined;
   resumeSession(sessionId: string): Promise<ActiveSessionInfo>;
+  getLastTurnEvents(): readonly HistoryEvent[] | undefined;
   resetSession(): void;
   submitTurn(content: string, options?: SubmitTurnOptions): Promise<SubmittedTurn>;
   getContextStatus(): ContextBudget;
@@ -139,6 +141,10 @@ export class AntApplicationClient implements AntApplicationApi {
   async resumeSession(sessionId: string): Promise<ActiveSessionInfo> {
     const active = await this.#sessions.resume(sessionId);
     return { session: active.session };
+  }
+
+  getLastTurnEvents(): readonly HistoryEvent[] | undefined {
+    return this.#sessions.getLastTurnEvents();
   }
 
   resetSession(): void {
