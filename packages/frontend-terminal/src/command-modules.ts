@@ -85,10 +85,17 @@ interface ModelInput {
   id?: string;
   list?: true;
 }
+
+const MODEL_INDEX_PATTERN = /^[1-9]\d*$/u;
+
+function formatModelIndexRangeError(length: number): string {
+  return `Номер модели вне диапазона (1–${length}).`;
+}
+
 export const modelCommand = module<ModelInput>(
   {
     name: "model",
-    usage: "/model [list|id]",
+    usage: "/model [list|id|N]",
     description: "Показать, запросить список или сменить модель до перезапуска.",
     aliases: ["m"],
   },
@@ -104,19 +111,52 @@ export const modelCommand = module<ModelInput>(
             })(),
   async (input, { options, terminal }) => {
     const { client } = options;
-    try {
-      if (input.list) {
+    if (input.list) {
+      try {
         const models = await client.listModels();
         terminal.log(ansi.bold("Доступные модели:"));
         if (models.length === 0) terminal.log(ansi.dim("Provider не вернул доступные модели."));
-        for (const id of models)
-          terminal.log(
-            `${id === client.modelDescriptor.modelId ? ansi.green("●") : ansi.dim("○")} ${id}`,
-          );
-      } else if (input.id === undefined)
-        terminal.log(ansi.dim(`Модель: ${formatModelStatus(client.modelDescriptor)}`));
-      else {
-        const selection = await client.selectModel(input.id);
+        const numberWidth = String(models.length).length;
+        for (const [index, id] of models.entries()) {
+          const marker = id === client.modelDescriptor.modelId ? ansi.green("●") : ansi.dim("○");
+          terminal.log(`${String(index + 1).padStart(numberWidth)} ${marker} ${id}`);
+        }
+      } catch (error) {
+        terminal.error(
+          ansi.red(
+            `Не удалось получить список моделей: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
+      return "continue" as const;
+    }
+
+    if (input.id === undefined) {
+      terminal.log(ansi.dim(`Модель: ${formatModelStatus(client.modelDescriptor)}`));
+      return "continue" as const;
+    }
+
+    if (MODEL_INDEX_PATTERN.test(input.id)) {
+      let models: readonly string[];
+      try {
+        models = await client.listModels();
+      } catch (error) {
+        terminal.error(
+          ansi.red(
+            `Не удалось получить список моделей: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+        return "continue" as const;
+      }
+
+      const index = Number(input.id);
+      if (index < 1 || index > models.length) {
+        terminal.error(ansi.red(formatModelIndexRangeError(models.length)));
+        return "continue" as const;
+      }
+
+      try {
+        const selection = await client.selectModel(models[index - 1]!);
         terminal.log(
           ansi.dim(
             selection.changed
@@ -128,11 +168,33 @@ export const modelCommand = module<ModelInput>(
           terminal.warn(
             ansi.yellow("⚠ Проектная настройка model.id перекроет это значение после перезапуска."),
           );
+      } catch (error) {
+        terminal.error(
+          ansi.red(
+            `Не удалось сохранить модель: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
       }
+      return "continue" as const;
+    }
+
+    try {
+      const selection = await client.selectModel(input.id);
+      terminal.log(
+        ansi.dim(
+          selection.changed
+            ? `Модель переключена и сохранена: ${formatModelStatus(selection.descriptor)}`
+            : `Модель уже активна: ${formatModelStatus(selection.descriptor)}`,
+        ),
+      );
+      if (selection.changed && options.projectOverrides.modelId)
+        terminal.warn(
+          ansi.yellow("⚠ Проектная настройка model.id перекроет это значение после перезапуска."),
+        );
     } catch (error) {
       terminal.error(
         ansi.red(
-          `${input.list ? "Не удалось получить список моделей" : "Не удалось сохранить модель"}: ${error instanceof Error ? error.message : String(error)}`,
+          `Не удалось сохранить модель: ${error instanceof Error ? error.message : String(error)}`,
         ),
       );
     }

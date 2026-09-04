@@ -11,6 +11,7 @@ import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/
 import { createBalanceCommand } from "../packages/cli/src/balance-command.js";
 import { createKeyCommand } from "../packages/cli/src/credentials/key-command.js";
 import type { DeepSeekCredentialManager } from "../packages/cli/src/credentials/deepseek-credentials.js";
+import type { ModelDescriptor } from "../packages/app/src/model-provider.js";
 
 test.afterEach(() => configureAnsi(true));
 
@@ -43,6 +44,47 @@ function createInteractiveRegistry(): CommandRegistry {
     })),
   );
   return registry;
+}
+
+function modelDescriptor(modelId: string): ModelDescriptor {
+  return {
+    providerId: "test",
+    modelId,
+    contextWindow: 1_000,
+    capabilities: {
+      vision: false,
+      reasoning: {
+        supported: true,
+        enabled: true,
+        effort: "high",
+        availableEfforts: ["low", "high", "max"],
+      },
+    },
+  };
+}
+
+function createModelContext(
+  client: {
+    modelDescriptor: ModelDescriptor;
+    listModels?: () => Promise<readonly string[]>;
+    selectModel?: (id: string) => Promise<{ descriptor: ModelDescriptor; changed: boolean }>;
+  },
+  output?: { log?: string[]; warn?: string[]; error?: string[] },
+): CommandContext {
+  const log = output?.log ?? [];
+  const warn = output?.warn ?? [];
+  const error = output?.error ?? [];
+  return {
+    options: {
+      client,
+      projectOverrides: {},
+    },
+    terminal: {
+      log: (message: string) => log.push(message),
+      warn: (message: string) => warn.push(message),
+      error: (message: string) => error.push(message),
+    },
+  } as unknown as CommandContext;
 }
 
 test("command registry exposes help aliases and parses built-in command aliases", () => {
@@ -115,6 +157,10 @@ test("command registry exposes help aliases and parses built-in command aliases"
     name: "model",
     input: { list: true },
   });
+  assert.deepEqual(invocation(registry, "/model 2"), {
+    name: "model",
+    input: { id: "2" },
+  });
   assert.deepEqual(invocation(registry, "/think max"), {
     name: "think",
     input: { selection: "max" },
@@ -155,7 +201,73 @@ test("command registry validates arguments, lists aliases, and suggests a simila
   await registry.dispatch(modelRequested, {
     terminal: { log: (message: string) => modelHelp.push(message) },
   } as unknown as CommandContext);
-  assert.match(modelHelp.join("\n"), /^\/model \(m\) \[list\|id\]/u);
+  assert.match(modelHelp.join("\n"), /^\/model \(m\) \[list\|id\|N\]/u);
+});
+
+test("model command supports numeric selection, range errors, and numbered lists", async () => {
+  configureAnsi(false);
+  const registry = createInteractiveRegistry();
+  const listModels = async () => ["deepseek-chat", "deepseek-reasoner"] as const;
+  const selected: string[] = [];
+  const output = { log: [] as string[], warn: [] as string[], error: [] as string[] };
+  const context = createModelContext(
+    {
+      modelDescriptor: modelDescriptor("deepseek-reasoner"),
+      listModels,
+      async selectModel(id: string) {
+        selected.push(id);
+        return { descriptor: modelDescriptor(id), changed: id !== "deepseek-reasoner" };
+      },
+    },
+    output,
+  );
+
+  const list = registry.parse("/model list");
+  assert.ok(list && !("error" in list));
+  await registry.dispatch(list, context);
+  assert.deepEqual(output.log, ["Доступные модели:", "1 ○ deepseek-chat", "2 ● deepseek-reasoner"]);
+
+  output.log.length = 0;
+  const selectByNumber = registry.parse("/model 1");
+  assert.ok(selectByNumber && !("error" in selectByNumber));
+  await registry.dispatch(selectByNumber, context);
+  assert.deepEqual(selected, ["deepseek-chat"]);
+  assert.deepEqual(output.log, [
+    "Модель переключена и сохранена: test/deepseek-chat · thinking high · context 1 000",
+  ]);
+
+  output.log.length = 0;
+  selected.length = 0;
+  const outOfRange = registry.parse("/model 3");
+  assert.ok(outOfRange && !("error" in outOfRange));
+  await registry.dispatch(outOfRange, context);
+  assert.deepEqual(output.error, ["Номер модели вне диапазона (1–2)."]);
+  assert.deepEqual(selected, []);
+
+  output.error.length = 0;
+  const selectById = registry.parse("/model deepseek-chat");
+  assert.ok(selectById && !("error" in selectById));
+  await registry.dispatch(selectById, context);
+  assert.deepEqual(selected, ["deepseek-chat"]);
+
+  output.error.length = 0;
+  output.log.length = 0;
+  const failingContext = createModelContext(
+    {
+      modelDescriptor: modelDescriptor("deepseek-reasoner"),
+      async listModels() {
+        throw new Error("network down");
+      },
+      async selectModel(id: string) {
+        return { descriptor: modelDescriptor(id), changed: true };
+      },
+    },
+    output,
+  );
+  const numericSelection = registry.parse("/model 2");
+  assert.ok(numericSelection && !("error" in numericSelection));
+  await registry.dispatch(numericSelection, failingContext);
+  assert.deepEqual(output.error, ["Не удалось получить список моделей: network down"]);
 });
 
 test("an independent command registers and runs without changing dispatch infrastructure", async () => {

@@ -207,10 +207,13 @@ There are commands inside — `/help` shows the full list. Key ones: `/help (?, 
 /model                     # show the current model
 /model list                # list available models
 /model deepseek-v4-pro     # switch the model
+/model 2                   # switch by number from /model list
 /think                     # show the reasoning mode
 /think low|high|max|off    # set depth or disable thinking
 /reasoning off|compact|full # choose reasoning display mode
 ```
+
+`/model [list|id|N]` accepts either a model id or a 1-based number from `/model list`. If the argument looks like a positive integer, the number wins.
 
 `/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it. `/help` also accepts `?` and `h`.
 
