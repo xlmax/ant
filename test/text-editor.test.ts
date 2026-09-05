@@ -34,6 +34,17 @@ test("render keeps a prompt prefix while editing and wrapping", () => {
   assert.deepEqual(rendered.end, { row: 1, column: 1 });
 });
 
+test("render treats the right edge as the start of the next row", () => {
+  const editor = new TextEditor();
+  editor.replace("abcdefgh");
+
+  const rendered = editor.render(10, "› ");
+
+  assert.equal(rendered.text, "› abcdefgh");
+  assert.deepEqual(rendered.cursor, { row: 1, column: 0 });
+  assert.deepEqual(rendered.end, { row: 1, column: 0 });
+});
+
 test("arrow keys and delete edit the buffer at the cursor", () => {
   const editor = new TextEditor();
 
