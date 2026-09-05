@@ -1,6 +1,6 @@
 {
   "name": "@ant/session-jsonl",
-  "version": "0.5.29",
+  "version": "0.5.30",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,8 +13,8 @@
     "dist"
   ],
   "dependencies": {
-    "@ant/contracts": "0.5.29",
-    "@ant/core": "0.5.29",
-    "@ant/app": "0.5.29"
+    "@ant/contracts": "0.5.30",
+    "@ant/core": "0.5.30",
+    "@ant/app": "0.5.30"
   }
 }
