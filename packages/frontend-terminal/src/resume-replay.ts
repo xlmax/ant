@@ -20,9 +20,12 @@ function renderMarkdown(text: string): string {
 function formatUserMessage(content: string): string {
   const lines = content.split(/\r?\n/u);
   const prompt = userInputPrompt();
-  if (lines.length === 0) return prompt;
-  if (lines.length === 1) return `${prompt}${lines[0] ?? ""}`;
-  return [`${prompt}${lines[0] ?? ""}`, ...lines.slice(1).map((line) => `  ${line}`)].join("\n");
+  return [
+    sectionFooter(ansi.violet),
+    `${prompt}${lines[0] ?? ""}`,
+    ...lines.slice(1),
+    sectionFooter(ansi.violet),
+  ].join("\n");
 }
 
 function tailLines(text: string, maxLines: number): string {
