@@ -66,6 +66,7 @@ test("compact and update commands use injected process and update ports", async 
       },
       async install() {
         installs += 1;
+        return { status: "updated" as const };
       },
     },
   } as unknown as CommandContext;
@@ -81,6 +82,49 @@ test("compact and update commands use injected process and update ports", async 
   assert.equal(removals, 1);
   assert.equal(checks, 1);
   assert.equal(installs, 1);
+});
+
+test("update command explains manual recovery when Windows holds koffi.node", async () => {
+  configureAnsi(false);
+  try {
+    const output: string[] = [];
+    const url = "https://github.com/xlmax/ant/releases/download/v9.0.0/ant-9.0.0.tgz";
+    const context = {
+      options: { client: {} },
+      renderer: {},
+      terminal: terminal(output),
+      process: {
+        onInterrupt() {
+          return () => {};
+        },
+        timeout: () => new AbortController().signal,
+        setExitCode() {},
+      },
+      updates: {
+        managedByNpm: false,
+        async check() {
+          return { version: "9.0.0", url };
+        },
+        async install() {
+          return { status: "blocked-by-loaded-native-module" as const };
+        },
+      },
+    } as unknown as CommandContext;
+    const registry = createBuiltinCommandRegistry();
+    const parsed = registry.parse("/update");
+    assert.ok(parsed && !("error" in parsed));
+
+    await registry.dispatch(parsed, context);
+
+    const message = output.join("\n");
+    assert.match(message, /1\. Выполните \/exit\./u);
+    assert.match(message, /2\. В PowerShell выполните:/u);
+    assert.match(message, new RegExp(`npm install -g ${url.replaceAll(".", "\\.")}`, "u"));
+    assert.match(message, /3\. Продолжите сессию командой:\n {3}ant -c/u);
+    assert.doesNotMatch(message, /EBUSY|4294963214|koffi\.node/u);
+  } finally {
+    configureAnsi(true);
+  }
 });
 
 test("turn runner uses injected Git tracker and always removes its signal listener", async () => {
@@ -218,7 +262,9 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
           updateChecks += 1;
           return undefined;
         },
-        async install() {},
+        async install() {
+          return { status: "updated" as const };
+        },
       },
       commands: createBuiltinCommandRegistry(),
       createRenderer: () => ({}) as ConsoleRenderer,
@@ -325,7 +371,9 @@ test("REPL resume replays the last turn after the continuation banner", async ()
           async check() {
             return undefined;
           },
-          async install() {},
+          async install() {
+            return { status: "updated" as const };
+          },
         },
         commands: createBuiltinCommandRegistry(),
         createRenderer: () => ({}) as ConsoleRenderer,

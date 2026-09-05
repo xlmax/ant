@@ -4,7 +4,14 @@ import type { AgentSession } from "@ant/app";
 import type { AgentObserver, AgentResult } from "@ant/core";
 import type { InputHistory } from "./input-history.js";
 import type { TurnChangeSummary } from "./turn-change-summary.js";
-import type { UpdateInfo } from "./updates/updates.js";
+
+export interface UpdateInfo {
+  readonly version: string;
+  readonly url?: string;
+}
+
+export type UpdateInstallResult =
+  { status: "updated" } | { status: "blocked-by-loaded-native-module" };
 
 export interface TerminalPort {
   log(message: string): void;
@@ -27,7 +34,7 @@ export interface ProcessControl {
 export interface UpdateService {
   readonly managedByNpm: boolean;
   check(currentVersion: string, signal: AbortSignal): Promise<UpdateInfo | undefined>;
-  install(url: string): Promise<void>;
+  install(url: string): Promise<UpdateInstallResult>;
 }
 
 export interface ChangeTracker extends AgentObserver {

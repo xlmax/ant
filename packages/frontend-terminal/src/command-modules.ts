@@ -208,16 +208,33 @@ export const updateCommand = simple(
   "Проверить и установить новую версию глобально.",
   async ({ terminal, process, updates }) => {
     const info = await updates.check(VERSION, process.timeout(5_000));
+    const releaseUrl = info?.url;
     if (!info) terminal.log(ansi.dim("Вы используете актуальную версию ant."));
-    else if (!info.url)
+    else if (!releaseUrl)
       terminal.error(ansi.red("Не удалось найти установочный файл для обновления."));
     else {
       terminal.log(ansi.dim(`Обновляю ant до ${info.version}…`));
       try {
-        await updates.install(info.url);
-        terminal.log(
-          ansi.green(`Обновлено до ${info.version}. Перезапустите: /exit, затем ant -c.`),
-        );
+        const result = await updates.install(releaseUrl);
+        if (result.status === "blocked-by-loaded-native-module") {
+          terminal.error(
+            ansi.yellow(
+              [
+                "Windows не может заменить используемый нативный модуль ANT.",
+                "Завершите обновление вручную:",
+                "1. Выполните /exit.",
+                "2. В PowerShell выполните:",
+                `   npm install -g ${releaseUrl}`,
+                "3. Продолжите сессию командой:",
+                "   ant -c",
+              ].join("\n"),
+            ),
+          );
+        } else {
+          terminal.log(
+            ansi.green(`Обновлено до ${info.version}. Перезапустите: /exit, затем ant -c.`),
+          );
+        }
       } catch (error) {
         terminal.error(
           ansi.red(

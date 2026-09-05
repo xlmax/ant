@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
 
-export interface UpdateInfo {
-  version: string;
-  url?: string;
+import type { UpdateInfo, UpdateInstallResult } from "../presentation-ports.js";
+
+export interface GlobalUpdateRuntime {
+  readonly platform?: NodeJS.Platform;
+  readonly spawnProcess?: typeof spawn;
+  readonly writeStdout?: (chunk: Buffer) => void;
+  readonly writeStderr?: (chunk: Buffer) => void;
 }
 
 const RELEASE_API_URL = "https://api.github.com/repos/xlmax/ant/releases/latest";
@@ -21,9 +25,15 @@ function parseVersion(version: string): number[] {
 export function isTrustedReleaseAssetUrl(url: string, version: string): boolean {
   try {
     const parsed = new URL(url);
+    const expected = `https://github.com${RELEASE_REPOSITORY_PATH}/v${version}/ant-${version}.tgz`;
     return (
+      url === expected &&
+      parsed.href === expected &&
       parsed.protocol === "https:" &&
       parsed.hostname === "github.com" &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.port === "" &&
       parsed.search === "" &&
       parsed.hash === "" &&
       parsed.pathname === `${RELEASE_REPOSITORY_PATH}/v${version}/ant-${version}.tgz`
@@ -122,45 +132,64 @@ export function isRunningUnderNpm(env: NodeJS.ProcessEnv = process.env): boolean
   return env.npm_lifecycle_event !== undefined || env.npm_execpath !== undefined;
 }
 
-export function runGlobalUpdate(url: string): Promise<void> {
+export function isLoadedKoffiBusyError(stderr: string): boolean {
+  return /\bEBUSY\b/iu.test(stderr) && /koffi\.node/iu.test(stderr);
+}
+
+export function runGlobalUpdate(
+  url: string,
+  runtime: GlobalUpdateRuntime = {},
+): Promise<UpdateInstallResult> {
   if (!isTrustedReleaseAssetUrl(url, url.match(/\/ant-(\d+(?:\.\d+)+)\.tgz$/u)?.[1] ?? "")) {
     return Promise.reject(new Error("Недоверенный URL установочного файла обновления"));
   }
 
   return new Promise((resolve, reject) => {
-    const isWindows = process.platform === "win32";
+    const isWindows = (runtime.platform ?? process.platform) === "win32";
     const command = isWindows ? "cmd.exe" : "npm";
     const args = isWindows
       ? ["/d", "/s", "/c", "npm.cmd", "install", "-g", url]
       : ["install", "-g", url];
-    const child = spawn(command, args, {
+    const child = (runtime.spawnProcess ?? spawn)(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       shell: false,
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      process.stdout.write(chunk);
+      if (runtime.writeStdout) runtime.writeStdout(chunk);
+      else process.stdout.write(chunk);
     });
 
-    // npm может печатать в stderr безвредный EPERM при попытке заменить
-    // koffi.node, пока запущенный ant держит его в памяти (Windows). Обновление
-    // при этом проходит успешно, поэтому держим stderr в буфере и показываем
-    // только в случае реального сбоя, чтобы не сыпать шумом в консоль.
+    // Windows может удерживать загруженную koffi.node до завершения ANT.
+    // Буфер позволяет передать этот известный случай команде без шумного stderr.
     const stderrChunks: Buffer[] = [];
     child.stderr?.on("data", (chunk: Buffer) => {
       stderrChunks.push(chunk);
     });
-    child.on("error", reject);
+    let spawnFailed = false;
+    child.on("error", (error) => {
+      spawnFailed = true;
+      reject(error);
+    });
     child.on("close", (exitCode) => {
+      if (spawnFailed) return;
       if (exitCode === 0) {
-        resolve();
-      } else {
-        if (stderrChunks.length > 0) {
-          process.stderr.write(Buffer.concat(stderrChunks));
-        }
-        reject(new Error(`npm install завершился с кодом ${exitCode ?? "неизвестно"}`));
+        resolve({ status: "updated" });
+        return;
       }
+
+      const stderr = Buffer.concat(stderrChunks);
+      if (isWindows && isLoadedKoffiBusyError(stderr.toString("utf8"))) {
+        resolve({ status: "blocked-by-loaded-native-module" });
+        return;
+      }
+
+      if (stderr.length > 0) {
+        if (runtime.writeStderr) runtime.writeStderr(stderr);
+        else process.stderr.write(stderr);
+      }
+      reject(new Error(`npm install завершился с кодом ${exitCode ?? "неизвестно"}`));
     });
   });
 }
