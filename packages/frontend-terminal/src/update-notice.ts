@@ -1,4 +1,4 @@
-import type { UpdateInfo } from "./updates/updates.js";
+import type { UpdateInfo } from "./presentation-ports.js";
 import { ansi } from "./ansi.js";
 import { sectionFooter } from "./section.js";
 
