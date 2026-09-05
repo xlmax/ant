@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
 import { formatResumeReplay } from "../packages/frontend-terminal/src/resume-replay.js";
+import { sectionFooter } from "../packages/frontend-terminal/src/section.js";
 import type { HistoryEvent } from "../packages/core/src/agent.js";
 
 function withAnsiDisabled<T>(fn: () => T): T {
@@ -51,6 +52,76 @@ test("resume replay renders a completed turn without raw tool payloads", () => {
   assert.match(output, /line-00/u);
   assert.match(output, /line-04/u);
   assert.doesNotMatch(output, /SECRET-RAW/u);
+});
+
+test("resume replay renders the user block with a violet frame and raw continuations", () => {
+  const output = withAnsiDisabled(() =>
+    formatResumeReplay(
+      [
+        { type: "user", content: "Первая строка\nВторая строка\nТретья строка" },
+        {
+          type: "decision",
+          decision: { type: "finish", answer: "Ок" },
+        },
+      ],
+      { reasoningMode: "off", reasoningMaxLines: 3 },
+    ),
+  );
+
+  const lines = output.trimEnd().split("\n");
+  const frame = sectionFooter();
+
+  assert.equal(lines[0], frame);
+  assert.equal(lines[1], "› Первая строка");
+  assert.equal(lines[2], "Вторая строка");
+  assert.equal(lines[3], "Третья строка");
+  assert.equal(lines[4], frame);
+  assert.equal(output.includes("\n  Вторая строка"), false);
+  assert.equal(output.includes("\n  Третья строка"), false);
+});
+
+test("resume replay renders a single-line user block inside a violet frame", () => {
+  const output = withAnsiDisabled(() =>
+    formatResumeReplay(
+      [
+        { type: "task", content: "Сделай это" },
+        {
+          type: "decision",
+          decision: { type: "finish", answer: "Ок" },
+        },
+      ],
+      { reasoningMode: "off", reasoningMaxLines: 3 },
+    ),
+  );
+
+  const lines = output.trimEnd().split("\n");
+  const frame = sectionFooter();
+
+  assert.equal(lines[0], frame);
+  assert.equal(lines[1], "› Сделай это");
+  assert.equal(lines[2], frame);
+});
+
+test("resume replay tolerates empty user content", () => {
+  const output = withAnsiDisabled(() =>
+    formatResumeReplay(
+      [
+        { type: "user", content: "" },
+        {
+          type: "decision",
+          decision: { type: "finish", answer: "Ок" },
+        },
+      ],
+      { reasoningMode: "off", reasoningMaxLines: 3 },
+    ),
+  );
+
+  const lines = output.trimEnd().split("\n");
+  const frame = sectionFooter();
+
+  assert.equal(lines[0], frame);
+  assert.equal(lines[1], "› ");
+  assert.equal(lines[2], frame);
 });
 
 test("resume replay marks interrupted turns", () => {
