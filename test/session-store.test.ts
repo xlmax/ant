@@ -242,6 +242,62 @@ test("JSONL preserves a session across many appends", async () => {
   }
 });
 
+test("JSONL serializes concurrent appends across store instances", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const firstStore = new JsonlSessionStore(directory);
+    const secondStore = new JsonlSessionStore(directory);
+    const session = await firstStore.create({ task: "Task", payloads: [{ index: -1 }] });
+    await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        (index % 2 === 0 ? firstStore : secondStore).append(session.id, {
+          index,
+          padding: "x".repeat(index + 1),
+        }),
+      ),
+    );
+
+    const records = await firstStore.read(session.id);
+    assert.equal(records.records.length, 51);
+    assert.deepEqual(
+      records.records
+        .slice(1)
+        .map((record) => (record.payload as { index: number }).index)
+        .sort((left, right) => left - right),
+      Array.from({ length: 50 }, (_, index) => index),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("JSONL repair does not race with concurrent appends", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
+  try {
+    const store = new JsonlSessionStore(directory);
+    const session = await store.create({ task: "Task", payloads: [{ index: -1 }] });
+    const valid = await readFile(session.location!, "utf8");
+    await writeFile(session.location!, `${valid}{"schemaVersion":2`, "utf8");
+
+    await Promise.all([
+      store.read(session.id),
+      ...Array.from({ length: 20 }, (_, index) => store.append(session.id, { index })),
+    ]);
+
+    const records = await store.read(session.id);
+    assert.equal(records.records.length, 21);
+    assert.deepEqual(
+      records.records
+        .slice(1)
+        .map((record) => (record.payload as { index: number }).index)
+        .sort((left, right) => left - right),
+      Array.from({ length: 20 }, (_, index) => index),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("JSONL append updates the metadata sidecar without rebuilding the journal", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-session-"));
   try {
