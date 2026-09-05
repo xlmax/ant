@@ -31,6 +31,10 @@ function positionFor(
         column = 0;
       }
       column += 1;
+      if (column >= columns) {
+        row += 1;
+        column = 0;
+      }
     }
     positions.push({ row, column });
   }

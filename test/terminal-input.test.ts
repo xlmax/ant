@@ -11,21 +11,63 @@ import {
 } from "../packages/frontend-terminal/src/terminal-input.js";
 import { TextEditor } from "../packages/frontend-terminal/src/text-editor.js";
 
-test("terminal input redraws when backspace crosses an automatic wrap", () => {
+class FakeOutput {
+  readonly columns = 10;
+  value = "";
+  readonly writes: string[] = [];
+
+  write(value: string): void {
+    this.value += value;
+    this.writes.push(value);
+  }
+}
+
+test("terminal input redraws when backspace crosses the right edge", () => {
   const editor = new TextEditor();
-  editor.replace("abcd");
-  const before = editor.render(5, "› ").cursor;
+  editor.replace("abcdefgh");
+  const before = editor.render(10, "› ").cursor;
 
-  editor.apply({ type: "backspace" }, 5, 2);
-  const after = editor.render(5, "› ").cursor;
+  editor.apply({ type: "backspace" }, 10, 2);
+  const after = editor.render(10, "› ").cursor;
 
-  assert.deepEqual(before, { row: 1, column: 1 });
-  assert.deepEqual(after, { row: 0, column: 5 });
+  assert.deepEqual(before, { row: 1, column: 0 });
+  assert.deepEqual(after, { row: 0, column: 9 });
   assert.equal(canEraseInline(before, after), false);
 
-  editor.apply({ type: "backspace" }, 5, 2);
-  const sameRow = editor.render(5, "› ").cursor;
+  editor.apply({ type: "backspace" }, 10, 2);
+  const sameRow = editor.render(10, "› ").cursor;
   assert.equal(canEraseInline(after, sameRow), true);
+});
+
+test("terminal input controller redraws instead of inline erasing at the edge", () => {
+  const output = new FakeOutput();
+  const controller = new TerminalInputController(new InputHistory(), "› ", output);
+
+  for (const value of "abcdefgh") {
+    controller.handle({
+      type: "action",
+      action: { type: "character", value },
+    });
+  }
+
+  const writesBeforeBackspace = output.writes.length;
+  controller.handle({ type: "action", action: { type: "backspace" } });
+  const backspaceWrites = output.writes.slice(writesBeforeBackspace).join("");
+
+  assert.equal(controller.value, "abcdefg");
+  assert.equal(backspaceWrites.includes("\b \b"), false);
+  assert.equal(backspaceWrites.includes("\u001B[?25l"), true);
+
+  const writesBeforeRetype = output.writes.length;
+  controller.handle({
+    type: "action",
+    action: { type: "character", value: "i" },
+  });
+  const retypeWrites = output.writes.slice(writesBeforeRetype).join("");
+
+  assert.equal(controller.value, "abcdefgi");
+  assert.equal(retypeWrites.includes("\b \b"), false);
+  assert.equal(retypeWrites.endsWith("i"), true);
 });
 
 test("terminal input controller applies the same cancel contract for every backend", () => {
