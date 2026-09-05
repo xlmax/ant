@@ -90,15 +90,21 @@ test("loader rejects symlink escapes and permission escalation", async () => {
   const root = await mkdtemp(join(tmpdir(), "ant-plugin-security-"));
   try {
     const registry = new FilePluginRegistry(root);
-    const outside = join(root, "outside.mjs");
-    await writeFile(outside, "export default { activate() { return {}; } };\n");
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "index.mjs"), "export default { activate() { return {}; } };\n");
     const escaped = join(root, "packages", "escaped.tools");
     await mkdir(escaped, { recursive: true });
     await writeFile(
       join(escaped, "ant-plugin.json"),
-      JSON.stringify({ ...validManifest, id: "escaped.tools", permissions: [] }),
+      JSON.stringify({
+        ...validManifest,
+        id: "escaped.tools",
+        entry: "./linked/index.mjs",
+        permissions: [],
+      }),
     );
-    await symlink(outside, join(escaped, "index.mjs"));
+    await symlink(outside, join(escaped, "linked"), "junction");
     await registry.upsert({
       id: "escaped.tools",
       version: "1.2.3",

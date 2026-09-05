@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
+import { resolveNpmInvocation } from "../npm-invocation.js";
 import type { PluginPermission } from "../plugin-api.js";
 import { parsePluginManifest } from "./manifest.js";
 import { FilePluginRegistry, type InstalledPluginRecord } from "./plugin-registry.js";
@@ -81,10 +82,18 @@ export class PluginInstaller {
     let backup: string | undefined;
     let target: string | undefined;
     try {
-      const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+      const npm = await resolveNpmInvocation();
       const packedOutput = await run(
-        npm,
-        ["pack", resolve(source), "--ignore-scripts", "--json", "--pack-destination", staging],
+        npm.command,
+        [
+          ...npm.prefixArgs,
+          "pack",
+          resolve(source),
+          "--ignore-scripts",
+          "--json",
+          "--pack-destination",
+          staging,
+        ],
         staging,
       );
       const packed = JSON.parse(packedOutput) as Array<{ filename?: string }>;
@@ -93,13 +102,16 @@ export class PluginInstaller {
       const installRoot = join(staging, "install");
       await mkdir(installRoot, { recursive: true });
       await run(
-        npm,
+        npm.command,
         [
+          ...npm.prefixArgs,
           "install",
           "--ignore-scripts",
           "--omit=dev",
           "--no-package-lock",
           "--no-save",
+          "--prefix",
+          installRoot,
           join(staging, basename(filename)),
         ],
         installRoot,

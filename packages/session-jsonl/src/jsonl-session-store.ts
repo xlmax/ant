@@ -1,4 +1,13 @@
-import { appendFile, mkdir, open, readdir, readFile, stat, truncate } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  stat,
+  truncate,
+  type FileHandle,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -16,6 +25,7 @@ import { writeFileAtomically } from "./atomic-write.js";
 const SESSION_VERSION = 2;
 const SESSION_METADATA_VERSION = 2;
 const TAIL_READ_CHUNK_BYTES = 64 * 1024;
+const journalOperationQueues = new Map<string, Promise<void>>();
 
 interface StoredSessionRecord extends SessionRecord {
   sessionId: string;
@@ -339,13 +349,52 @@ async function readFinalLine(
   return { start: 0, content: Buffer.concat(chunks).toString("utf8") };
 }
 
+async function writeAt(file: FileHandle, value: string, position: number): Promise<void> {
+  const buffer = Buffer.from(value, "utf8");
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesWritten } = await file.write(
+      buffer,
+      offset,
+      buffer.length - offset,
+      position + offset,
+    );
+    if (bytesWritten === 0) throw new Error("Не удалось записать данные сессии");
+    offset += bytesWritten;
+  }
+}
+
+async function serializeJournalOperation<T>(
+  filePath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = journalOperationQueues.get(filePath) ?? Promise.resolve();
+  let release = (): void => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  journalOperationQueues.set(filePath, current);
+  await previous;
+
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (journalOperationQueues.get(filePath) === current) {
+      journalOperationQueues.delete(filePath);
+    }
+  }
+}
+
 async function appendSessionRecord(
   filePath: string,
   sessionId: string,
   serializedRecord: string,
 ): Promise<void> {
   await stat(filePath);
-  const file = await open(filePath, "a+");
+  // Windows rejects ftruncate on an append-mode handle. Inspect and repair
+  // through r+, then append through a separate O_APPEND handle.
+  const file = await open(filePath, "r+");
 
   try {
     const fileSize = (await file.stat()).size;
@@ -359,7 +408,7 @@ async function appendSessionRecord(
           if (finalRecord.sessionId !== sessionId) {
             throw new Error("Идентификатор сессии не совпадает с содержимым файла");
           }
-          await file.appendFile("\n", "utf8");
+          await writeAt(file, "\n", fileSize);
         } catch (error) {
           if (!(error instanceof InvalidRecordJsonError) || finalLine.start === 0) throw error;
           await file.truncate(finalLine.start);
@@ -367,7 +416,12 @@ async function appendSessionRecord(
       }
     }
 
-    await file.appendFile(serializedRecord, "utf8");
+    const appendHandle = await open(filePath, "a");
+    try {
+      await appendHandle.appendFile(serializedRecord, "utf8");
+    } finally {
+      await appendHandle.close();
+    }
   } finally {
     await file.close();
   }
@@ -412,24 +466,30 @@ export class JsonlSessionStore implements SessionStore {
 
   async append(sessionId: string, payload: unknown): Promise<SessionRecord> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
-    let summary: JsonlSessionSummary | undefined;
-    try {
-      summary = await readSessionMetadata(this.#sessionDirectory, sessionId);
-    } catch {
-      // Metadata is only a cache. If it is absent or damaged, append to the
-      // journal and let the next read/list rebuild it from the JSONL source.
-    }
-    const timestamp = new Date().toISOString();
-    await appendSessionRecord(filePath, sessionId, serializeRecord(sessionId, payload, timestamp));
-    if (summary) {
-      await writeSessionMetadata(this.#sessionDirectory, { ...summary, updatedAt: timestamp });
-    }
-    return {
-      schemaVersion: SESSION_VERSION,
-      sessionId,
-      timestamp,
-      payload: structuredClone(payload),
-    };
+    return serializeJournalOperation(filePath, async () => {
+      let summary: JsonlSessionSummary | undefined;
+      try {
+        summary = await readSessionMetadata(this.#sessionDirectory, sessionId);
+      } catch {
+        // Metadata is only a cache. If it is absent or damaged, append to the
+        // journal and let the next read/list rebuild it from the JSONL source.
+      }
+      const timestamp = new Date().toISOString();
+      await appendSessionRecord(
+        filePath,
+        sessionId,
+        serializeRecord(sessionId, payload, timestamp),
+      );
+      if (summary) {
+        await writeSessionMetadata(this.#sessionDirectory, { ...summary, updatedAt: timestamp });
+      }
+      return {
+        schemaVersion: SESSION_VERSION,
+        sessionId,
+        timestamp,
+        payload: structuredClone(payload),
+      };
+    });
   }
 
   async list(): Promise<SessionList> {
@@ -462,17 +522,23 @@ export class JsonlSessionStore implements SessionStore {
       const filePath = sessionFilePath(this.#sessionDirectory, id);
 
       try {
-        let summary: JsonlSessionSummary | undefined;
-        try {
-          summary = await readSessionMetadata(this.#sessionDirectory, id);
-        } catch {
-          summary = undefined;
-        }
+        const summary = await serializeJournalOperation(filePath, async () => {
+          let cached: JsonlSessionSummary | undefined;
+          try {
+            cached = await readSessionMetadata(this.#sessionDirectory, id);
+          } catch {
+            cached = undefined;
+          }
 
-        if (!summary) {
-          summary = summaryFromRecords(id, filePath, (await readSessionRecords(filePath)).records);
-          await writeSessionMetadata(this.#sessionDirectory, summary);
-        }
+          if (cached) return cached;
+          const rebuilt = summaryFromRecords(
+            id,
+            filePath,
+            (await readSessionRecords(filePath)).records,
+          );
+          await writeSessionMetadata(this.#sessionDirectory, rebuilt);
+          return rebuilt;
+        });
 
         sessions.push(summary);
       } catch (error) {
@@ -492,31 +558,33 @@ export class JsonlSessionStore implements SessionStore {
 
   async read(sessionId: string): Promise<ReadSession> {
     const filePath = sessionFilePath(this.#sessionDirectory, sessionId);
-    const { records, validBytes, needsNewlineSeparator } = await readSessionRecords(filePath);
+    return serializeJournalOperation(filePath, async () => {
+      const { records, validBytes, needsNewlineSeparator } = await readSessionRecords(filePath);
 
-    if (needsNewlineSeparator) {
-      // A valid final record without a trailing newline: keep it untouched and
-      // only add the separator so the next appendFile lands on a new line.
-      await appendFile(filePath, "\n", "utf8");
-    } else if (validBytes < (await stat(filePath)).size) {
-      // A crashed session may end with a torn tail line that the parser
-      // ignored. Trim it so the next appendFile lands on a clean record
-      // boundary instead of concatenating new JSON onto the damaged tail.
-      await truncate(filePath, validBytes);
-    }
+      if (needsNewlineSeparator) {
+        // A valid final record without a trailing newline: keep it untouched and
+        // only add the separator so the next appendFile lands on a new line.
+        await appendFile(filePath, "\n", "utf8");
+      } else if (validBytes < (await stat(filePath)).size) {
+        // A crashed session may end with a torn tail line that the parser
+        // ignored. Trim it so the next appendFile lands on a clean record
+        // boundary instead of concatenating new JSON onto the damaged tail.
+        await truncate(filePath, validBytes);
+      }
 
-    const summary = summaryFromRecords(sessionId, filePath, records);
-    await writeSessionMetadata(this.#sessionDirectory, summary);
-    const session: JsonlAgentSession = { id: sessionId, filePath, location: filePath };
+      const summary = summaryFromRecords(sessionId, filePath, records);
+      await writeSessionMetadata(this.#sessionDirectory, summary);
+      const session: JsonlAgentSession = { id: sessionId, filePath, location: filePath };
 
-    return {
-      records: records.map(({ schemaVersion, sessionId: id, timestamp, payload }) => ({
-        schemaVersion,
-        sessionId: id,
-        timestamp,
-        payload: structuredClone(payload),
-      })),
-      session,
-    };
+      return {
+        records: records.map(({ schemaVersion, sessionId: id, timestamp, payload }) => ({
+          schemaVersion,
+          sessionId: id,
+          timestamp,
+          payload: structuredClone(payload),
+        })),
+        session,
+      };
+    });
   }
 }

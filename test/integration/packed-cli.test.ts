@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { resolveNpmInvocation } from "../../packages/cli/src/npm-invocation.js";
 import { VERSION } from "../../packages/contracts/src/version.js";
 
 async function exec(
@@ -81,9 +82,18 @@ test("packed CLI installs in a clean project and loads the production compositio
     const address = server.address();
     assert.ok(address && typeof address === "object");
 
+    const npm = await resolveNpmInvocation();
     const packed = await exec(
-      "npm",
-      ["pack", "--workspace", "ant", "--pack-destination", packDirectory, "--silent"],
+      npm.command,
+      [
+        ...npm.prefixArgs,
+        "pack",
+        "--workspace",
+        "ant",
+        "--pack-destination",
+        packDirectory,
+        "--silent",
+      ],
       { cwd: projectRoot },
     );
     assert.equal(packed.code, 0, packed.stderr);
@@ -94,8 +104,15 @@ test("packed CLI installs in a clean project and loads the production compositio
 
     await writeFile(join(installDirectory, "package.json"), '{"private":true}', "utf8");
     const installed = await exec(
-      "npm",
-      ["install", "--omit=optional", join(packDirectory, tarball)],
+      npm.command,
+      [
+        ...npm.prefixArgs,
+        "install",
+        "--omit=optional",
+        "--prefix",
+        installDirectory,
+        join(packDirectory, tarball),
+      ],
       { cwd: installDirectory },
     );
     assert.equal(installed.code, 0, installed.stderr);
@@ -126,8 +143,15 @@ test("packed CLI installs in a clean project and loads the production compositio
       }),
       "utf8",
     );
-    const binary = join(installDirectory, "node_modules", ".bin", "ant");
-    const version = await exec(binary, ["--version"], { cwd: workspace });
+    const binShim = join(
+      installDirectory,
+      "node_modules",
+      ".bin",
+      process.platform === "win32" ? "ant.cmd" : "ant",
+    );
+    await access(binShim);
+    const binary = join(installDirectory, "node_modules", "ant", "dist", "main.js");
+    const version = await exec(process.execPath, [binary, "--version"], { cwd: workspace });
     assert.equal(version.code, 0, version.stderr);
     assert.equal(version.stdout.trim(), VERSION);
 
@@ -162,16 +186,20 @@ test("packed CLI installs in a clean project and loads the production compositio
       };\n`,
     );
     const pluginPack = await exec(
-      "npm",
-      ["pack", pluginSource, "--pack-destination", root, "--silent"],
+      npm.command,
+      [...npm.prefixArgs, "pack", pluginSource, "--pack-destination", root, "--silent"],
       { cwd: root },
     );
     assert.equal(pluginPack.code, 0, pluginPack.stderr);
     const pluginTarball = join(root, pluginPack.stdout.trim());
-    const pluginInstall = await exec(binary, ["plugins", "install", pluginTarball, "--trust"], {
-      cwd: workspace,
-      env: { HOME: home, USERPROFILE: home },
-    });
+    const pluginInstall = await exec(
+      process.execPath,
+      [binary, "plugins", "install", pluginTarball, "--trust"],
+      {
+        cwd: workspace,
+        env: { HOME: home, USERPROFILE: home },
+      },
+    );
     assert.equal(pluginInstall.code, 0, pluginInstall.stderr);
     assert.match(pluginInstall.stdout, /Installed reference\.tools 1\.0\.0/u);
     const pluginApi = await exec(
@@ -186,7 +214,7 @@ test("packed CLI installs in a clean project and loads the production compositio
     assert.equal(pluginApi.code, 0, pluginApi.stderr);
     assert.equal(pluginApi.stdout.trim(), "1.0.0");
 
-    const run = await exec(binary, ["Проверь пакет"], {
+    const run = await exec(process.execPath, [binary, "Проверь пакет"], {
       cwd: workspace,
       env: { HOME: home, USERPROFILE: home, DEEPSEEK_API_KEY: "packed-test-key" },
     });

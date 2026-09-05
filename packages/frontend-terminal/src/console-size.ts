@@ -1,4 +1,6 @@
-import { stdout } from "node:process";
+import { stdin, stdout } from "node:process";
+
+import { selectTerminalInputBackend } from "./terminal-input.js";
 
 const STD_OUTPUT_HANDLE = -11;
 
@@ -47,11 +49,12 @@ async function initWindowsConsoleWidth(): Promise<() => number> {
 }
 
 export async function initConsoleSize(): Promise<void> {
-  if (process.platform === "win32") {
-    resolveWidth = await initWindowsConsoleWidth();
-  } else {
-    resolveWidth = () => stdout.columns ?? 80;
-  }
+  const backend = selectTerminalInputBackend(
+    process.platform,
+    Boolean(stdin.isTTY),
+    Boolean(stdout.isTTY),
+  );
+  resolveWidth = backend === "win32" ? await initWindowsConsoleWidth() : () => stdout.columns ?? 80;
 }
 
 export function consoleWidth(): number {
