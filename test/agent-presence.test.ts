@@ -124,6 +124,53 @@ test("OSC is the TTY fallback and never exposes session ids", () => {
   assert.ok(!writes.some((line) => line.includes("session-secret")));
 });
 
+test("Orca receives structured OSC 9999 lifecycle states", () => {
+  const writes: string[] = [];
+  const presence = createAgentPresence({
+    environment: { TERM_PROGRAM: "Orca", ORCA_PANE_KEY: "tab:pane" },
+    isTTY: true,
+    write: (text) => writes.push(text),
+  });
+
+  presence.setState("idle");
+  presence.setState("working");
+  presence.setState("waiting_user");
+  presence.setState("error");
+  presence.setState("stopped");
+
+  const statuses = writes
+    .filter((text) => text.startsWith("\u001B]9999;"))
+    .map((text) => JSON.parse(text.slice("\u001B]9999;".length, -1)) as Record<string, unknown>);
+  assert.deepEqual(
+    statuses.map((status) => status.state),
+    ["done", "working", "blocked", "done", "done"],
+  );
+  assert.equal(
+    statuses.every((status) => status.agentType === "ant"),
+    true,
+  );
+  assert.equal(statuses[3]?.interrupted, true);
+  assert.equal(statuses[4]?.sessionBoundary, true);
+  assert.equal(
+    writes.some((text) => text.startsWith("\u001B]0;")),
+    true,
+  );
+});
+
+test("Orca status OSC is disabled when stdout is not a TTY", () => {
+  const writes: string[] = [];
+  const presence = createAgentPresence({
+    environment: { TERM_PROGRAM: "Orca", ORCA_PANE_KEY: "tab:pane" },
+    isTTY: false,
+    write: (text) => writes.push(text),
+  });
+
+  presence.setState("working");
+  presence.dispose();
+
+  assert.deepEqual(writes, []);
+});
+
 test("Herdr requires both a host pane and an integration endpoint", () => {
   const commands: string[] = [];
   for (const environment of [

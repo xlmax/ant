@@ -16,6 +16,8 @@ export interface AgentPresenceEnvironment {
   readonly HERDR_PANE_ID?: string;
   readonly HERDR_BIN_PATH?: string;
   readonly HERDR_SOCKET_PATH?: string;
+  readonly ORCA_PANE_KEY?: string;
+  readonly TERM_PROGRAM?: string;
 }
 
 export type PresenceCommandRunner = (command: string, args: readonly string[]) => void;
@@ -102,6 +104,49 @@ export class OscAgentPresence implements AgentPresence {
     this.#lastTitle = title;
     try {
       this.#write(`\u001B]0;${title}\u0007`);
+    } catch {
+      // Presence must never affect ANT execution.
+    }
+  }
+
+  setSession(): void {}
+  dispose(): void {}
+}
+
+interface OrcaAgentStatus {
+  state: "working" | "blocked" | "done";
+  prompt: string;
+  agentType: "ant";
+  interrupted?: true;
+  sessionBoundary?: true;
+}
+
+function orcaStatus(state: AgentLifecycleState): OrcaAgentStatus {
+  switch (state) {
+    case "working":
+      return { state: "working", prompt: "", agentType: "ant" };
+    case "waiting_user":
+      return { state: "blocked", prompt: "", agentType: "ant" };
+    case "error":
+      return { state: "done", prompt: "", agentType: "ant", interrupted: true };
+    case "stopped":
+      return { state: "done", prompt: "", agentType: "ant", sessionBoundary: true };
+    case "idle":
+      return { state: "done", prompt: "", agentType: "ant" };
+  }
+}
+
+/** Orca's structured agent-status channel carried by OSC 9999. */
+export class OrcaAgentPresence implements AgentPresence {
+  readonly #write: (text: string) => void;
+
+  constructor(write: (text: string) => void) {
+    this.#write = write;
+  }
+
+  setState(state: AgentLifecycleState): void {
+    try {
+      this.#write(`\u001B]9999;${JSON.stringify(orcaStatus(state))}\u0007`);
     } catch {
       // Presence must never affect ANT execution.
     }
@@ -243,6 +288,13 @@ class CompositeAgentPresence implements AgentPresence {
   }
 }
 
+function isOrcaTerminal(environment: AgentPresenceEnvironment): boolean {
+  return (
+    environment.TERM_PROGRAM?.trim().toLowerCase() === "orca" ||
+    (environment.ORCA_PANE_KEY?.trim() ?? "") !== ""
+  );
+}
+
 function herdrEndpoint(
   environment: AgentPresenceEnvironment,
 ): { paneId: string; command: string } | undefined {
@@ -254,16 +306,16 @@ function herdrEndpoint(
   return { paneId, command: binary === "" ? "herdr" : binary };
 }
 
-/** Create OSC fallback and, when a Herdr host endpoint is detected, a Herdr adapter. */
+/** Create terminal fallbacks plus host-specific Orca and Herdr presence adapters. */
 export function createAgentPresence(options: AgentPresenceOptions = {}): AgentPresence {
   try {
     const environment = options.environment ?? process.env;
     const delegates: AgentPresence[] = [];
     const isTTY = options.isTTY ?? process.stdout.isTTY === true;
     if (isTTY) {
-      delegates.push(
-        new OscAgentPresence(options.write ?? ((text: string) => process.stdout.write(text))),
-      );
+      const write = options.write ?? ((text: string) => process.stdout.write(text));
+      if (isOrcaTerminal(environment)) delegates.push(new OrcaAgentPresence(write));
+      delegates.push(new OscAgentPresence(write));
     }
 
     const endpoint = herdrEndpoint(environment);
