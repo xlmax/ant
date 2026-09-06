@@ -2,6 +2,7 @@ import type { ProjectSettingsOverrides, ReasoningDisplayMode } from "@ant/app";
 import type { FrontendSettingsCommands } from "@ant/app";
 import type { AntApplicationApi } from "@ant/app";
 import { VERSION } from "@ant/contracts";
+import type { AgentLifecycle } from "./agent-presence.js";
 import { ansi } from "./ansi.js";
 import type { CommandRegistry } from "./command-registry.js";
 import { InputHistory } from "./input-history.js";
@@ -32,6 +33,7 @@ export interface ReplOptions {
 
 export interface ReplDependencies {
   terminal: TerminalPort;
+  lifecycle: AgentLifecycle;
   process: ProcessControl;
   updates: UpdateService;
   git: GitPresentationService;
@@ -41,7 +43,7 @@ export interface ReplDependencies {
 }
 
 export async function runRepl(options: ReplOptions, dependencies: ReplDependencies): Promise<void> {
-  const { terminal, process, updates, git, commands } = dependencies;
+  const { terminal, lifecycle, process, updates, git, commands } = dependencies;
   const renderer = dependencies.createRenderer();
   const inputHistory = new InputHistory();
   terminal.log(
@@ -54,6 +56,7 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
 
   if (options.resume) {
     const resumed = await options.client.resumeSession(options.resume);
+    lifecycle.setSession(resumed.session.id);
     terminal.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
     terminal.write(
       formatResumeReplay(options.client.getLastTurnEvents(), {
@@ -94,11 +97,13 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
             workspace: options.workspace,
             client: options.client,
             renderer,
+            lifecycle,
             process,
             git,
             showChanges: options.showChanges ?? false,
           })
           .run(input, (session, created) => {
+            lifecycle.setSession(session.id);
             if (created) terminal.log(ansi.dim(`Сессия: ${session.id}`));
           });
       } catch (error) {
@@ -110,6 +115,6 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
       }
     }
   } finally {
-    terminal.close();
+    lifecycle.markIdle();
   }
 }

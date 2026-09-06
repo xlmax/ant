@@ -5,6 +5,7 @@ import test from "node:test";
 import type { AntApplicationApi } from "../packages/app/src/application-client.js";
 import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
 import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
+import { AgentLifecycle } from "../packages/frontend-terminal/src/agent-presence.js";
 import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
 import type { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
 import type {
@@ -13,8 +14,17 @@ import type {
   ProcessControl,
   TerminalPort,
 } from "../packages/frontend-terminal/src/presentation-ports.js";
+import { TerminalFrontend } from "../packages/frontend-terminal/src/terminal-frontend.js";
 import { TurnRunner } from "../packages/frontend-terminal/src/turn-runner.js";
 import { runRepl } from "../packages/frontend-terminal/src/repl.js";
+
+function lifecycle(states: string[] = [], sessions: string[] = []): AgentLifecycle {
+  return new AgentLifecycle({
+    setState: (state) => states.push(state),
+    setSession: (sessionId) => sessions.push(sessionId),
+    dispose() {},
+  });
+}
 
 function terminal(output: string[]): TerminalPort {
   return {
@@ -185,16 +195,23 @@ test("turn runner uses injected Git tracker and always removes its signal listen
     },
   } as unknown as AntApplicationApi;
 
-  await new TurnRunner({ workspace: ".", client, renderer, process, git, showChanges: true }).run(
-    "task",
-  );
+  const states: string[] = [];
+  await new TurnRunner({
+    workspace: ".",
+    client,
+    renderer,
+    lifecycle: lifecycle(states),
+    process,
+    git,
+    showChanges: true,
+  }).run("task");
   assert.deepEqual(
-    { began, finished, removed, disposed },
-    { began: 1, finished: 1, removed: 1, disposed: 1 },
+    { began, finished, removed, disposed, states },
+    { began: 1, finished: 1, removed: 1, disposed: 1, states: ["working", "idle"] },
   );
 });
 
-test("REPL uses injected services and closes input after a terminal interrupt", async () => {
+test("REPL uses injected services and leaves terminal cleanup to its owner", async () => {
   let closed = 0;
   let branchChecks = 0;
   let updateChecks = 0;
@@ -254,6 +271,7 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
     },
     {
       terminal: replTerminal,
+      lifecycle: lifecycle(),
       process,
       git,
       updates: {
@@ -276,8 +294,165 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
 
   assert.deepEqual(
     { closed, branchChecks, updateChecks },
-    { closed: 1, branchChecks: 1, updateChecks: 1 },
+    { closed: 0, branchChecks: 1, updateChecks: 1 },
   );
+});
+
+test("terminal frontend owns idle, stopped, and terminal cleanup", async () => {
+  let closed = 0;
+  const states: string[] = [];
+  const ownedLifecycle = lifecycle(states);
+  const output: string[] = [];
+  const terminalPort = {
+    ...terminal(output),
+    async read() {
+      return undefined;
+    },
+    close() {
+      closed += 1;
+    },
+  };
+  const process: ProcessControl = {
+    onInterrupt() {
+      return () => {};
+    },
+    timeout: () => new AbortController().signal,
+    setExitCode() {},
+  };
+  const git: GitPresentationService = {
+    async branch() {
+      return "feature";
+    },
+    createChangeTracker() {
+      throw new Error("turn tracker is not needed");
+    },
+  };
+  const client = {
+    activeSession: undefined,
+    modelDescriptor: {
+      providerId: "test",
+      modelId: "model",
+      contextWindow: 1_000,
+      capabilities: {
+        vision: false,
+        reasoning: { supported: false, enabled: false, availableEfforts: [] },
+      },
+    },
+  } as unknown as AntApplicationApi;
+
+  await new TerminalFrontend(
+    {
+      task: "",
+      workspace: ".",
+      color: true,
+      settings: { async saveReasoningMode() {} },
+      projectOverrides: {
+        modelId: false,
+        modelThinking: false,
+        reasoningMode: false,
+        showChanges: false,
+      },
+      showChanges: false,
+      reasoningMode: "off",
+      reasoningMaxLines: 5,
+    },
+    {
+      createTerminal: () => terminalPort,
+      lifecycle: ownedLifecycle,
+      process,
+      updates: {
+        managedByNpm: false,
+        async check() {
+          return undefined;
+        },
+        async install() {
+          return { status: "updated" };
+        },
+      },
+      git,
+      commands: createBuiltinCommandRegistry(),
+      async initialize() {},
+      createRenderer: () => ({}) as ConsoleRenderer,
+      createTurnRunner: () => {
+        throw new Error("turn runner is not needed");
+      },
+    },
+  ).run(client);
+
+  assert.deepEqual({ closed, states }, { closed: 1, states: ["idle", "stopped"] });
+});
+
+test("terminal frontend reports fatal errors before stopping", async () => {
+  const states: string[] = [];
+  const ownedLifecycle = lifecycle(states);
+  const failure = new Error("startup failed");
+  const client = {
+    activeSession: undefined,
+    modelDescriptor: {
+      providerId: "test",
+      modelId: "model",
+      contextWindow: 1_000,
+      capabilities: {
+        vision: false,
+        reasoning: { supported: false, enabled: false, availableEfforts: [] },
+      },
+    },
+  } as unknown as AntApplicationApi;
+
+  await assert.rejects(
+    new TerminalFrontend(
+      {
+        task: "",
+        workspace: ".",
+        color: true,
+        settings: { async saveReasoningMode() {} },
+        projectOverrides: {
+          modelId: false,
+          modelThinking: false,
+          reasoningMode: false,
+          showChanges: false,
+        },
+        showChanges: false,
+        reasoningMode: "off",
+        reasoningMaxLines: 5,
+      },
+      {
+        createTerminal: () => terminal([]),
+        lifecycle: ownedLifecycle,
+        process: {
+          onInterrupt: () => () => {},
+          timeout: () => new AbortController().signal,
+          setExitCode() {},
+        },
+        updates: {
+          managedByNpm: false,
+          async check() {
+            throw failure;
+          },
+          async install() {
+            return { status: "updated" };
+          },
+        },
+        git: {
+          async branch() {
+            return undefined;
+          },
+          createChangeTracker() {
+            throw new Error("turn tracker is not needed");
+          },
+        },
+        commands: createBuiltinCommandRegistry(),
+        async initialize() {},
+        createRenderer: () => ({}) as ConsoleRenderer,
+        createTurnRunner: () => {
+          throw new Error("turn runner is not needed");
+        },
+      },
+    ).run(client),
+    failure,
+  );
+
+  assert.deepEqual(states, ["idle", "error", "stopped"]);
 });
 
 test("REPL resume replays the last turn after the continuation banner", async () => {
@@ -364,6 +539,7 @@ test("REPL resume replays the last turn after the continuation banner", async ()
       },
       {
         terminal: replTerminal,
+        lifecycle: lifecycle(),
         process,
         git,
         updates: {

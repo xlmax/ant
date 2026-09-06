@@ -2,6 +2,7 @@ import type { ReasoningDisplayMode } from "@ant/app";
 import type { AntApplicationApi, SubmittedTurn } from "@ant/app";
 import type { AgentSession } from "@ant/app";
 import type { AgentObserver, AgentResult } from "@ant/core";
+import type { AgentLifecycle } from "./agent-presence.js";
 import type { InputHistory } from "./input-history.js";
 import type { TurnChangeSummary } from "./turn-change-summary.js";
 
@@ -71,6 +72,7 @@ export interface TurnExecutorOptions {
   workspace: string;
   client: AntApplicationApi;
   renderer: TerminalRenderer;
+  lifecycle: AgentLifecycle;
   process: ProcessControl;
   git: GitPresentationService;
   showChanges?: boolean;

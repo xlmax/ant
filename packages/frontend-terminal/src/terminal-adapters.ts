@@ -4,6 +4,7 @@ import { createInterface, type Interface } from "node:readline/promises";
 import { promisify } from "node:util";
 
 import { checkForUpdates, isRunningUnderNpm, runGlobalUpdate } from "./updates/updates.js";
+import type { AgentLifecycle } from "./agent-presence.js";
 import { closeUserInputFrame, openUserInputFrame } from "./input-frame.js";
 import type { InputHistory } from "./input-history.js";
 import type {
@@ -18,7 +19,12 @@ import { TurnChangeTracker } from "./turn-change-summary.js";
 const execFileAsync = promisify(execFile);
 
 export class ConsoleTerminal implements TerminalPort {
+  readonly #lifecycle: AgentLifecycle;
   #readline: Interface | undefined;
+
+  constructor(lifecycle: AgentLifecycle) {
+    this.#lifecycle = lifecycle;
+  }
 
   #getReadline(): Interface | undefined {
     if (usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY), Boolean(stdout.isTTY))) {
@@ -60,16 +66,20 @@ export class ConsoleTerminal implements TerminalPort {
     if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
     this.#closeReadline();
     const { readHiddenTerminalInput } = await import("./terminal-secret-input.js");
-    return readHiddenTerminalInput(prompt, signal === undefined ? {} : { signal });
+    return this.#lifecycle.waitForUser(() =>
+      readHiddenTerminalInput(prompt, signal === undefined ? {} : { signal }),
+    );
   }
   async confirm(prompt: string, signal?: AbortSignal): Promise<boolean | undefined> {
     if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
     this.#closeReadline();
     const { readTerminalPrompt } = await import("./terminal-secret-input.js");
-    const answer = await readTerminalPrompt(prompt, {
-      hidden: false,
-      ...(signal === undefined ? {} : { signal }),
-    });
+    const answer = await this.#lifecycle.waitForUser(() =>
+      readTerminalPrompt(prompt, {
+        hidden: false,
+        ...(signal === undefined ? {} : { signal }),
+      }),
+    );
     if (answer === undefined) return undefined;
     const normalized = answer.trim().toLowerCase();
     if (normalized === "" || normalized === "y" || normalized === "yes") return true;
