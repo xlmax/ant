@@ -121,18 +121,32 @@ interface OrcaAgentStatus {
   sessionBoundary?: true;
 }
 
+// Orca uses prompt as the row's primary text. A static label keeps rapid
+// working-to-done transitions visible without exposing user or session data.
+const ORCA_DISPLAY_PROMPT = "ANT";
+
 function orcaStatus(state: AgentLifecycleState): OrcaAgentStatus {
   switch (state) {
     case "working":
-      return { state: "working", prompt: "", agentType: "ant" };
+      return { state: "working", prompt: ORCA_DISPLAY_PROMPT, agentType: "ant" };
     case "waiting_user":
-      return { state: "blocked", prompt: "", agentType: "ant" };
+      return { state: "blocked", prompt: ORCA_DISPLAY_PROMPT, agentType: "ant" };
     case "error":
-      return { state: "done", prompt: "", agentType: "ant", interrupted: true };
+      return {
+        state: "done",
+        prompt: ORCA_DISPLAY_PROMPT,
+        agentType: "ant",
+        interrupted: true,
+      };
     case "stopped":
-      return { state: "done", prompt: "", agentType: "ant", sessionBoundary: true };
+      return {
+        state: "done",
+        prompt: ORCA_DISPLAY_PROMPT,
+        agentType: "ant",
+        sessionBoundary: true,
+      };
     case "idle":
-      return { state: "done", prompt: "", agentType: "ant" };
+      return { state: "done", prompt: ORCA_DISPLAY_PROMPT, agentType: "ant" };
   }
 }
 

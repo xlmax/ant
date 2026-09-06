@@ -149,6 +149,10 @@ test("Orca receives structured OSC 9999 lifecycle states", () => {
     statuses.every((status) => status.agentType === "ant"),
     true,
   );
+  assert.equal(
+    statuses.every((status) => status.prompt === "ANT"),
+    true,
+  );
   assert.equal(statuses[3]?.interrupted, true);
   assert.equal(statuses[4]?.sessionBoundary, true);
   assert.equal(
