@@ -15,14 +15,12 @@ export class TurnRunner {
     content: string,
     onSessionPrepared?: (session: AgentSession, created: boolean) => void | Promise<void>,
   ): Promise<SubmittedTurn> {
-    const { client, renderer, workspace, showChanges, process, git } = this.#options;
+    const { client, renderer, lifecycle, workspace, showChanges, process, git } = this.#options;
     renderer.beginTurn();
 
     // The change tracker takes a Git snapshot and hashes every dirty file, so
     // it is only attached when the summary will actually be shown.
     const changes = showChanges ? git.createChangeTracker(workspace) : undefined;
-    await changes?.begin();
-
     const cancelTurn = new AbortController();
     const onSigint = (): void => {
       if (!cancelTurn.signal.aborted) {
@@ -33,8 +31,10 @@ export class TurnRunner {
     const removeInterrupt = process.onInterrupt(onSigint);
 
     try {
+      await changes?.begin();
+      lifecycle.markWorking();
       const submitted = await client.submitTurn(content, {
-        observers: [renderer, ...(changes ? [changes] : [])],
+        observers: [lifecycle, renderer, ...(changes ? [changes] : [])],
         onTextDelta: renderer.onTextDelta,
         onReasoningDelta: renderer.onReasoningDelta,
         signal: cancelTurn.signal,
@@ -47,6 +47,7 @@ export class TurnRunner {
       }
       return submitted;
     } finally {
+      lifecycle.markIdle();
       removeInterrupt();
       renderer.dispose();
     }

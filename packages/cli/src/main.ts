@@ -22,11 +22,13 @@ import { loadInstalledPlugins, selectCompatibleToolPacks } from "./plugins/plugi
 import { VERSION } from "@ant/contracts";
 import { defaultAgentRuntime } from "@ant/core";
 import {
+  AgentLifecycle,
   ConsoleTerminal,
   ConsoleRenderer,
   TerminalFrontend,
   TurnRunner,
   configureAnsi,
+  createAgentPresence,
   createBuiltinCommandRegistry,
   gitPresentationService,
   globalUpdateService,
@@ -41,6 +43,9 @@ import {
 import { JsonlSessionStore } from "@ant/session-jsonl";
 import { codingToolPack, ToolEnvironment } from "@ant/tools-coding";
 
+let activeLifecycle: AgentLifecycle | undefined;
+let activeTerminal: ConsoleTerminal | undefined;
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const output = {
@@ -49,6 +54,10 @@ async function main(): Promise<void> {
   };
   if (await handlePluginCommand(args, { output })) return;
 
+  const lifecycle = new AgentLifecycle(createAgentPresence());
+  activeLifecycle = lifecycle;
+  const terminal = new ConsoleTerminal(lifecycle);
+  activeTerminal = terminal;
   const workspace = process.cwd();
   const plugins = await loadInstalledPlugins({
     root: defaultPluginRoot(),
@@ -61,7 +70,6 @@ async function main(): Promise<void> {
     );
   }
 
-  const terminal = new ConsoleTerminal();
   const credentials = new DeepSeekCredentialManager({
     store: new FileCredentialStore(),
     terminal,
@@ -72,7 +80,7 @@ async function main(): Promise<void> {
   configurationRegistry.register(deepSeekConfigurationSection);
   registerBuiltinConfigurationSections(configurationRegistry);
 
-  const lifecycle = new ModuleRegistry();
+  const moduleLifecycle = new ModuleRegistry();
   for (const descriptor of [
     moduleDescriptor("ant.runtime.default", "runtime", ["agent.runtime"]),
     moduleDescriptor("ant.configuration.file", "configuration", ["configuration.sections"]),
@@ -86,10 +94,10 @@ async function main(): Promise<void> {
       ["agent.runtime", "model.provider", "session.store"],
     ),
   ])
-    lifecycle.register({ descriptor });
+    moduleLifecycle.register({ descriptor });
 
   const application = new AntApplication({
-    lifecycle,
+    lifecycle: moduleLifecycle,
     runtime: defaultAgentRuntime,
     settings: createFileSettingsModule(configurationRegistry),
     loadSystemPrompt,
@@ -136,6 +144,7 @@ async function main(): Promise<void> {
       );
       return new TerminalFrontend(options, {
         createTerminal: () => terminal,
+        lifecycle,
         process: nodeProcessControl,
         updates: globalUpdateService,
         git: gitPresentationService,
@@ -165,7 +174,13 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+main()
+  .catch((error: unknown) => {
+    activeLifecycle?.markFatalError();
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    activeLifecycle?.stop();
+    activeTerminal?.close();
+  });

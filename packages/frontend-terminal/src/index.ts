@@ -1,3 +1,4 @@
+export * from "./agent-presence.js";
 export * from "./ansi.js";
 export * from "./command-modules.js";
 export * from "./command-registry.js";
