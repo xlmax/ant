@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 
 import { checkForUpdates, isRunningUnderNpm, runGlobalUpdate } from "./updates/updates.js";
 import { closeUserInputFrame, openUserInputFrame } from "./input-frame.js";
+import { createAgentPresence, type AgentPresence } from "./agent-presence.js";
 import type { InputHistory } from "./input-history.js";
 import type {
   GitPresentationService,
@@ -19,6 +20,11 @@ const execFileAsync = promisify(execFile);
 
 export class ConsoleTerminal implements TerminalPort {
   #readline: Interface | undefined;
+  readonly #presence: AgentPresence;
+
+  constructor(presence: AgentPresence = createAgentPresence()) {
+    this.#presence = presence;
+  }
 
   #getReadline(): Interface | undefined {
     if (usesCustomTerminalInput(process.platform, Boolean(stdin.isTTY), Boolean(stdout.isTTY))) {
@@ -60,21 +66,31 @@ export class ConsoleTerminal implements TerminalPort {
     if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
     this.#closeReadline();
     const { readHiddenTerminalInput } = await import("./terminal-secret-input.js");
-    return readHiddenTerminalInput(prompt, signal === undefined ? {} : { signal });
+    this.#presence.setState("waiting_user");
+    try {
+      return await readHiddenTerminalInput(prompt, signal === undefined ? {} : { signal });
+    } finally {
+      this.#presence.setState("idle");
+    }
   }
   async confirm(prompt: string, signal?: AbortSignal): Promise<boolean | undefined> {
     if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
     this.#closeReadline();
     const { readTerminalPrompt } = await import("./terminal-secret-input.js");
-    const answer = await readTerminalPrompt(prompt, {
-      hidden: false,
-      ...(signal === undefined ? {} : { signal }),
-    });
-    if (answer === undefined) return undefined;
-    const normalized = answer.trim().toLowerCase();
-    if (normalized === "" || normalized === "y" || normalized === "yes") return true;
-    if (normalized === "n" || normalized === "no") return false;
-    throw new Error("Введите Y или N.");
+    this.#presence.setState("waiting_user");
+    try {
+      const answer = await readTerminalPrompt(prompt, {
+        hidden: false,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      if (answer === undefined) return undefined;
+      const normalized = answer.trim().toLowerCase();
+      if (normalized === "" || normalized === "y" || normalized === "yes") return true;
+      if (normalized === "n" || normalized === "no") return false;
+      throw new Error("Введите Y или N.");
+    } finally {
+      this.#presence.setState("idle");
+    }
   }
   close(): void {
     this.#closeReadline();

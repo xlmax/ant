@@ -6,7 +6,9 @@ import type { AntApplicationApi } from "../packages/app/src/application-client.j
 import type { CommandContext } from "../packages/frontend-terminal/src/command-registry.js";
 import { configureAnsi } from "../packages/frontend-terminal/src/ansi.js";
 import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
+import type { AgentPresence } from "../packages/frontend-terminal/src/agent-presence.js";
 import type { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
+import { TerminalFrontend } from "../packages/frontend-terminal/src/terminal-frontend.js";
 import type {
   ChangeTracker,
   GitPresentationService,
@@ -33,6 +35,16 @@ function terminal(output: string[]): TerminalPort {
       return true;
     },
     close() {},
+  };
+}
+
+function presence(states: string[]): AgentPresence {
+  return {
+    setState(state) {
+      states.push(state);
+    },
+    setSession() {},
+    dispose() {},
   };
 }
 
@@ -88,6 +100,7 @@ test("turn runner uses injected Git tracker and always removes its signal listen
   let finished = 0;
   let removed = 0;
   let disposed = 0;
+  const states: string[] = [];
   const tracker: ChangeTracker = {
     async begin() {
       began += 1;
@@ -141,12 +154,18 @@ test("turn runner uses injected Git tracker and always removes its signal listen
     },
   } as unknown as AntApplicationApi;
 
-  await new TurnRunner({ workspace: ".", client, renderer, process, git, showChanges: true }).run(
-    "task",
-  );
+  await new TurnRunner({
+    workspace: ".",
+    client,
+    renderer,
+    presence: presence(states),
+    process,
+    git,
+    showChanges: true,
+  }).run("task");
   assert.deepEqual(
-    { began, finished, removed, disposed },
-    { began: 1, finished: 1, removed: 1, disposed: 1 },
+    { began, finished, removed, disposed, states },
+    { began: 1, finished: 1, removed: 1, disposed: 1, states: ["working", "idle"] },
   );
 });
 
@@ -154,6 +173,7 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
   let closed = 0;
   let branchChecks = 0;
   let updateChecks = 0;
+  const states: string[] = [];
   const output: string[] = [];
   const replTerminal = {
     ...terminal(output),
@@ -206,6 +226,7 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
       },
       reasoningMode: "off",
       reasoningMaxLines: 5,
+      presence: presence(states),
       showChanges: false,
     },
     {
@@ -229,15 +250,102 @@ test("REPL uses injected services and closes input after a terminal interrupt", 
   );
 
   assert.deepEqual(
-    { closed, branchChecks, updateChecks },
-    { closed: 1, branchChecks: 1, updateChecks: 1 },
+    { closed, branchChecks, updateChecks, states },
+    { closed: 1, branchChecks: 1, updateChecks: 1, states: ["idle"] },
   );
+});
+
+test("terminal frontend marks the session stopped when the REPL exits", async () => {
+  let closed = 0;
+  const states: string[] = [];
+  const presenceRecorder = presence(states);
+  const output: string[] = [];
+  const terminalPort = {
+    ...terminal(output),
+    async read() {
+      return undefined;
+    },
+    close() {
+      closed += 1;
+    },
+  };
+  const process: ProcessControl = {
+    onInterrupt() {
+      return () => {};
+    },
+    timeout: () => new AbortController().signal,
+    setExitCode() {},
+  };
+  const git: GitPresentationService = {
+    async branch() {
+      return "feature";
+    },
+    createChangeTracker() {
+      throw new Error("turn tracker is not needed");
+    },
+  };
+  const client = {
+    activeSession: undefined,
+    modelDescriptor: {
+      providerId: "test",
+      modelId: "model",
+      contextWindow: 1_000,
+      capabilities: {
+        vision: false,
+        reasoning: { supported: false, enabled: false, availableEfforts: [] },
+      },
+    },
+  } as unknown as AntApplicationApi;
+
+  await new TerminalFrontend(
+    {
+      task: "",
+      workspace: ".",
+      color: true,
+      settings: { async saveReasoningMode() {} },
+      projectOverrides: {
+        modelId: false,
+        modelThinking: false,
+        reasoningMode: false,
+        showChanges: false,
+      },
+      showChanges: false,
+      reasoningMode: "off",
+      reasoningMaxLines: 5,
+    },
+    {
+      createPresence() {
+        return presenceRecorder;
+      },
+      createTerminal() {
+        return terminalPort;
+      },
+      process,
+      updates: {
+        managedByNpm: false,
+        async check() {
+          return undefined;
+        },
+        async install() {},
+      },
+      git,
+      commands: createBuiltinCommandRegistry(),
+      async initialize() {},
+      createRenderer: () => ({}) as ConsoleRenderer,
+      createTurnRunner: () => {
+        throw new Error("turn runner is not needed");
+      },
+    },
+  ).run(client);
+
+  assert.deepEqual({ closed, states }, { closed: 1, states: ["idle", "stopped"] });
 });
 
 test("REPL resume replays the last turn after the continuation banner", async () => {
   configureAnsi(false);
   try {
     const output: string[] = [];
+    const states: string[] = [];
     const replTerminal = {
       ...terminal(output),
       async read() {
@@ -313,6 +421,7 @@ test("REPL resume replays the last turn after the continuation banner", async ()
         },
         reasoningMode: "full",
         reasoningMaxLines: 5,
+        presence: presence(states),
         showChanges: false,
         resume: "session-1",
       },
@@ -343,6 +452,7 @@ test("REPL resume replays the last turn after the continuation banner", async ()
     assert.match(joined, /✓ read/u);
     assert.match(joined, /Готово/u);
     assert.doesNotMatch(joined, /SECRET-RAW/u);
+    assert.deepEqual(states, ["idle"]);
   } finally {
     configureAnsi(true);
   }

@@ -3,6 +3,7 @@ import type { AntApplicationApi, SubmittedTurn } from "@ant/app";
 import type { AgentSession } from "@ant/app";
 import type { AgentObserver, AgentResult } from "@ant/core";
 import type { InputHistory } from "./input-history.js";
+import type { AgentPresence } from "./agent-presence.js";
 import type { TurnChangeSummary } from "./turn-change-summary.js";
 import type { UpdateInfo } from "./updates/updates.js";
 
@@ -64,6 +65,7 @@ export interface TurnExecutorOptions {
   workspace: string;
   client: AntApplicationApi;
   renderer: TerminalRenderer;
+  presence: AgentPresence;
   process: ProcessControl;
   git: GitPresentationService;
   showChanges?: boolean;

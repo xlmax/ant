@@ -24,6 +24,7 @@ import { defaultAgentRuntime } from "@ant/core";
 import {
   ConsoleTerminal,
   ConsoleRenderer,
+  createAgentPresence,
   TerminalFrontend,
   TurnRunner,
   configureAnsi,
@@ -135,7 +136,8 @@ async function main(): Promise<void> {
         }),
       );
       return new TerminalFrontend(options, {
-        createTerminal: () => terminal,
+        createPresence: () => createAgentPresence(),
+        createTerminal: (presence) => new ConsoleTerminal(presence),
         process: nodeProcessControl,
         updates: globalUpdateService,
         git: gitPresentationService,

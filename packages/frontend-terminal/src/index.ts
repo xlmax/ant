@@ -1,4 +1,5 @@
 export * from "./ansi.js";
+export * from "./agent-presence.js";
 export * from "./command-modules.js";
 export * from "./command-registry.js";
 export * from "./console-renderer.js";

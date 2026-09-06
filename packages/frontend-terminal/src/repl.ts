@@ -2,6 +2,7 @@ import type { ProjectSettingsOverrides, ReasoningDisplayMode } from "@ant/app";
 import type { FrontendSettingsCommands } from "@ant/app";
 import type { AntApplicationApi } from "@ant/app";
 import { VERSION } from "@ant/contracts";
+import type { AgentPresence } from "./agent-presence.js";
 import { ansi } from "./ansi.js";
 import type { CommandRegistry } from "./command-registry.js";
 import { InputHistory } from "./input-history.js";
@@ -26,6 +27,8 @@ export interface ReplOptions {
   projectOverrides: ProjectSettingsOverrides;
   reasoningMode: ReasoningDisplayMode;
   reasoningMaxLines: number;
+  presence: AgentPresence;
+  closeOnExit?: boolean;
   showChanges?: boolean;
   resume?: string;
 }
@@ -44,6 +47,7 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
   const { terminal, process, updates, git, commands } = dependencies;
   const renderer = dependencies.createRenderer();
   const inputHistory = new InputHistory();
+  options.presence.setState("idle");
   terminal.log(
     formatStartScreen({
       workspace: options.workspace,
@@ -54,6 +58,7 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
 
   if (options.resume) {
     const resumed = await options.client.resumeSession(options.resume);
+    options.presence.setSession(resumed.session.id);
     terminal.log(ansi.dim(`Продолжена сессия: ${resumed.session.id}`));
     terminal.write(
       formatResumeReplay(options.client.getLastTurnEvents(), {
@@ -76,14 +81,23 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
 
       const command = commands.parse(input.trim());
       if (command) {
-        const result = await commands.dispatch(command, {
-          options,
-          renderer,
-          terminal,
-          process,
-          updates,
-        });
-        if (result === "exit") return;
+        try {
+          const result = await commands.dispatch(command, {
+            options,
+            renderer,
+            terminal,
+            process,
+            updates,
+          });
+          if (result === "exit") return;
+        } catch (error) {
+          options.presence.setState("error");
+          terminal.error(
+            ansi.red(
+              `Не удалось выполнить команду: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          );
+        }
         continue;
       }
 
@@ -94,14 +108,17 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
             workspace: options.workspace,
             client: options.client,
             renderer,
+            presence: options.presence,
             process,
             git,
             showChanges: options.showChanges ?? false,
           })
           .run(input, (session, created) => {
+            options.presence.setSession(session.id);
             if (created) terminal.log(ansi.dim(`Сессия: ${session.id}`));
           });
       } catch (error) {
+        options.presence.setState("error");
         terminal.error(
           ansi.red(
             `Не удалось выполнить ход: ${error instanceof Error ? error.message : String(error)}`,
@@ -110,6 +127,8 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
       }
     }
   } finally {
-    terminal.close();
+    if (options.closeOnExit ?? true) {
+      terminal.close();
+    }
   }
 }
