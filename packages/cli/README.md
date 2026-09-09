@@ -8,6 +8,38 @@ After installing, launch Ant in your project directory with `ant` (or `npm run d
 
 ## Installation
 
+### Install Node.js
+
+Ant requires Node.js 20.12 or newer; `npm` is included with Node.js. Install the current LTS release using one of these options:
+
+- Windows with [WinGet](https://learn.microsoft.com/windows/package-manager/winget/):
+
+  ```powershell
+  winget install OpenJS.NodeJS.LTS
+  ```
+
+- macOS with [Homebrew](https://brew.sh/):
+
+  ```bash
+  brew install node
+  ```
+
+- Linux or macOS with an existing [nvm](https://github.com/nvm-sh/nvm) installation:
+
+  ```bash
+  nvm install --lts
+  nvm use --lts
+  ```
+
+Alternatively, download an installer from the official [Node.js download page](https://nodejs.org/en/download). Reopen the terminal after installation, then verify the versions:
+
+```bash
+node --version
+npm --version
+```
+
+If `node --version` reports a version older than `v20.12.0`, upgrade Node.js before installing Ant.
+
 ### Prebuilt
 
 The easiest way is to install it with a script.
@@ -30,7 +62,7 @@ Or manually from [GitHub Releases](https://github.com/xlmax/ant/releases) by sub
 npm install -g https://github.com/xlmax/ant/releases/download/vX.Y.Z/ant-X.Y.Z.tgz
 ```
 
-Requires Node.js ≥ 20.12. After installation, run it as `ant`.
+After installation, run Ant with `ant`.
 
 ### From source
 
