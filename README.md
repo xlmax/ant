@@ -24,10 +24,10 @@ PowerShell (Windows):
 irm https://raw.githubusercontent.com/xlmax/ant/master/install.ps1 | iex
 ```
 
-Or manually from GitHub Releases (replace with the latest version):
+Or manually from [GitHub Releases](https://github.com/xlmax/ant/releases) by substituting the current version for `X.Y.Z`:
 
 ```bash
-npm install -g https://github.com/xlmax/ant/releases/download/v0.5.8/ant-0.5.8.tgz
+npm install -g https://github.com/xlmax/ant/releases/download/vX.Y.Z/ant-X.Y.Z.tgz
 ```
 
 Requires Node.js ≥ 20.12. After installation, run it as `ant`.
@@ -72,18 +72,20 @@ remain supported as a compatibility format.
 
 Tools implement application-owned `Tool` and `ToolPack` contracts. Each tool
 declares its owner, side effects, parallel-safety, and required platform
-capabilities. The composition root registers the built-in coding pack and the
-registry validates ownership, capabilities, and name conflicts before creating
-the environment. Additional statically linked packs require one registration;
-dynamic third-party loading is intentionally not supported yet.
+capabilities. The composition root registers the built-in coding pack, loads
+explicitly installed external tool-pack plugins, and validates ownership,
+capabilities, permissions, and name conflicts before creating the environment.
 
-Modules are selected statically at startup — Ant does not load third-party packages or hot-swap a running session.
+Runtime, frontend, model provider, session store, and configuration modules are
+selected statically at startup. External plugins can contribute tool packs, but
+cannot replace those application modules or be hot-swapped during a running
+session.
 
-Layer ownership is explicit: `core/` contains the infrastructure-independent agent domain and ports, `app/` contains application contracts and use cases, while `cli/`, `config/`, `models/`, `sessions/`, `tools/`, and `ui/` are concrete adapters. `main.ts` is the composition root. An AST-based architecture test checks every production layer, rejects outward dependencies, and detects runtime import cycles.
+Layer ownership is explicit: `packages/core` contains the infrastructure-independent agent domain and ports, `packages/app` contains application contracts and use cases, `packages/contracts` contains shared release metadata, and the remaining workspace packages provide concrete adapters. `packages/cli/src/main.ts` is the composition root. AST-based architecture tests check every production layer, reject outward dependencies, and detect runtime import cycles.
 
 The terminal frontend is composed from presentation ports for terminal I/O, process signals/timeouts, update operations, and Git status. REPL commands are registered as independent modules with their own descriptor, parser, and handler; adding a command does not require editing a central parser or dispatch switch. The default Node.js terminal, updater, and Git implementations are wired only in the composition root and can be replaced in tests or by another frontend assembly.
 
-Statically composed modules have a common application-owned descriptor (`id`, `kind`, API version, provided and required capabilities). The module registry validates the complete composition before startup, exposes health diagnostics, and guarantees reverse-order cleanup after successful runs, startup failures, and frontend errors.
+Statically composed application modules have a common application-owned descriptor (`id`, `kind`, API version, provided and required capabilities). The module registry validates the complete composition before startup, exposes health diagnostics, and guarantees reverse-order cleanup after successful runs, startup failures, and frontend errors.
 
 > [!WARNING]
 > Ant has no built-in guardrails: it runs commands and edits files with the same permissions as the user who launched it, and it is not confined to the working directory. Any consequences are your responsibility. Don't run it in directories with sensitive data or use keys with a valuable balance.
@@ -262,7 +264,7 @@ npm run dev -- -s <session-id>
 When the interactive mode starts, Ant checks GitHub Releases and, if a newer version is available, shows a hint below the banner:
 
 ```text
-A new version of ant is available: v0.5.8 (you have 0.5.7)
+A new version of ant is available: vX.Y.Z (you have A.B.C)
 Update globally: /update
 ```
 
@@ -287,7 +289,7 @@ Ant is an npm-workspaces repository with explicit build and dependency boundarie
 - `packages/frontend-terminal` — terminal presentation, commands and platform ports;
 - `packages/cli` — the composition root and the single distributable `ant` executable.
 
-Every package exports only its root public API. Cross-package imports use package names; imports from another package's `src`, `dist`, or undeclared subpaths are rejected by architecture tests. `npm run build` compiles all TypeScript project references and then bundles the production composition into the CLI artifact. `npm pack --workspace ant` produces the installable tarball; users do not need to install or compose the internal workspaces themselves.
+Internal workspace packages export only their root public API. Cross-package imports use package names; imports from another package's `src`, `dist`, or undeclared subpaths are rejected by architecture tests. The distributable `ant` package additionally exposes the stable `ant/plugin-api` entrypoint for external plugin authors. `npm run build` compiles all TypeScript project references and then bundles the production composition into the CLI artifact. `npm pack --workspace ant` produces the installable tarball; users do not need to install or compose the internal workspaces themselves.
 
 ## External plugins
 
