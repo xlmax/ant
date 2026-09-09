@@ -70,7 +70,11 @@ export class ConsoleTerminal implements TerminalPort {
       readHiddenTerminalInput(prompt, signal === undefined ? {} : { signal }),
     );
   }
-  async confirm(prompt: string, signal?: AbortSignal): Promise<boolean | undefined> {
+  async confirm(
+    prompt: string,
+    signal?: AbortSignal,
+    defaultAnswer = true,
+  ): Promise<boolean | undefined> {
     if (!stdin.isTTY || !stdout.isTTY) throw new Error("Интерактивный ввод недоступен");
     this.#closeReadline();
     const { readTerminalPrompt } = await import("./terminal-secret-input.js");
@@ -82,7 +86,8 @@ export class ConsoleTerminal implements TerminalPort {
     );
     if (answer === undefined) return undefined;
     const normalized = answer.trim().toLowerCase();
-    if (normalized === "" || normalized === "y" || normalized === "yes") return true;
+    if (normalized === "") return defaultAnswer;
+    if (normalized === "y" || normalized === "yes") return true;
     if (normalized === "n" || normalized === "no") return false;
     throw new Error("Введите Y или N.");
   }

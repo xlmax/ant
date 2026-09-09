@@ -60,6 +60,7 @@ test("session controller does not advance memory when append fails", async () =>
     },
     read: (sessionId) => delegate.read(sessionId),
     list: () => delegate.list(),
+    deleteAll: () => delegate.deleteAll(),
   };
   const controller = new SessionController(store);
   const created = await controller.prepareUserMessage("Задача");

@@ -296,22 +296,57 @@ export function createBuiltinCommandRegistry(): CommandRegistry {
     ),
   );
   registry.register(
-    simple(
-      "session",
-      "/session",
-      "Показать идентификатор и путь текущей сессии.",
-      ({ options, terminal }) => {
-        const active = options.client.activeSession;
-        terminal.log(
-          active
-            ? ansi.dim(
-                `Сессия: ${active.session.id}${active.session.location ? `\nХранилище: ${active.session.location}` : ""}`,
-              )
-            : ansi.dim("Сессия ещё не создана."),
-        );
-        return "continue";
+    module<{ clear: boolean }>(
+      {
+        name: "session",
+        usage: "/session [clear]",
+        description: "Показать текущую или удалить все сохранённые сессии.",
+        aliases: ["s"],
       },
-      ["s"],
+      (args) => {
+        if (args.length === 0) return { clear: false };
+        if (args.length === 1 && args[0] === "clear") return { clear: true };
+        throw new CommandUsageError("Использование: /session [clear]");
+      },
+      async ({ clear }, { options, terminal }) => {
+        if (!clear) {
+          const active = options.client.activeSession;
+          terminal.log(
+            active
+              ? ansi.dim(
+                  `Сессия: ${active.session.id}${active.session.location ? `\nХранилище: ${active.session.location}` : ""}`,
+                )
+              : ansi.dim("Сессия ещё не создана."),
+          );
+          return "continue" as const;
+        }
+
+        try {
+          const confirmed = await terminal.confirm(
+            "Удалить все сохранённые сессии текущего проекта? Это действие необратимо. [y/N] ",
+            undefined,
+            false,
+          );
+          if (confirmed !== true) {
+            terminal.log(ansi.dim("Удаление сессий отменено."));
+            return "continue" as const;
+          }
+
+          const deleted = await options.client.deleteAllSessions();
+          terminal.log(
+            deleted === 0
+              ? ansi.dim("Сохранённых сессий нет.")
+              : ansi.green(`Удалено сессий: ${deleted}. Активная сессия сброшена.`),
+          );
+        } catch (error) {
+          terminal.error(
+            ansi.red(
+              `Не удалось удалить сессии: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          );
+        }
+        return "continue" as const;
+      },
     ),
   );
   registry.register(

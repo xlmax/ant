@@ -77,6 +77,21 @@ function sessionStoreContract(name: string, factory: StoreFactory): void {
       await item.cleanup();
     }
   });
+
+  test(`${name}: deleteAll removes every session`, async () => {
+    const item = await factory();
+    try {
+      const first = await item.store.create({ task: "First", payloads: [{ value: 1 }] });
+      await item.store.create({ task: "Second", payloads: [{ value: 2 }] });
+
+      assert.equal(await item.store.deleteAll(), 2);
+      assert.deepEqual(await item.store.list(), { sessions: [], warnings: [] });
+      await assert.rejects(() => item.store.read(first.id));
+      assert.equal(await item.store.deleteAll(), 0);
+    } finally {
+      await item.cleanup();
+    }
+  });
 }
 
 sessionStoreContract("MemorySessionStore", memoryFactory);

@@ -22,7 +22,11 @@ export interface TerminalPort {
   clear(): void;
   read(history: InputHistory, prompt: string): Promise<string | undefined>;
   readSecret(prompt: string, signal?: AbortSignal): Promise<string | undefined>;
-  confirm(prompt: string, signal?: AbortSignal): Promise<boolean | undefined>;
+  confirm(
+    prompt: string,
+    signal?: AbortSignal,
+    defaultAnswer?: boolean,
+  ): Promise<boolean | undefined>;
   close(): void;
 }
 

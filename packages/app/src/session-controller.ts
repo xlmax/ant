@@ -90,6 +90,12 @@ export class SessionController {
     this.#active = undefined;
   }
 
+  async deleteAll(): Promise<number> {
+    const deleted = await this.#store.deleteAll();
+    this.#active = undefined;
+    return deleted;
+  }
+
   #observer(sessionId: string): AgentObserver {
     return {
       onEvent: async (event) => {

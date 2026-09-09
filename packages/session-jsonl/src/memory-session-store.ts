@@ -65,4 +65,10 @@ export class MemorySessionStore implements SessionStore {
       warnings: [],
     };
   }
+
+  async deleteAll(): Promise<number> {
+    const deleted = this.#entries.size;
+    this.#entries.clear();
+    return deleted;
+  }
 }

@@ -104,6 +104,10 @@ function createHarness(): Harness {
     async list() {
       return { sessions: [], warnings: [] };
     },
+    async deleteAll() {
+      calls.push("sessions.deleteAll");
+      return 2;
+    },
   };
 
   const createModel = (id: string): AgentModel => ({
@@ -311,6 +315,15 @@ test("resume and reset session are application operations", async () => {
   const submitted = await harness.client.submitTurn("new task");
   assert.equal(submitted.created, true);
   assert.equal(submitted.session.id, "session-1");
+});
+
+test("deleting all sessions resets the active session", async () => {
+  const harness = createHarness();
+  await harness.client.submitTurn("task");
+
+  assert.equal(await harness.client.deleteAllSessions(), 2);
+  assert.equal(harness.client.activeSession, undefined);
+  assert.equal(harness.calls.at(-1), "sessions.deleteAll");
 });
 
 test("last turn events expose the latest replayable slice", async () => {

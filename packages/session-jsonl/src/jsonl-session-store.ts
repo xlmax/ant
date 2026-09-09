@@ -4,6 +4,7 @@ import {
   open,
   readdir,
   readFile,
+  rm,
   stat,
   truncate,
   type FileHandle,
@@ -554,6 +555,26 @@ export class JsonlSessionStore implements SessionStore {
         .map(({ id, createdAt, updatedAt, task }) => ({ id, createdAt, updatedAt, task })),
       warnings,
     };
+  }
+
+  async deleteAll(): Promise<number> {
+    let entries: Array<{ name: string; isFile(): boolean }>;
+
+    try {
+      entries = await readdir(this.#sessionDirectory, {
+        withFileTypes: true,
+        encoding: "utf8",
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+      throw error;
+    }
+
+    const deleted = entries.filter(
+      (entry) => entry.isFile() && entry.name.endsWith(".jsonl"),
+    ).length;
+    await rm(this.#sessionDirectory, { recursive: true, force: true });
+    return deleted;
   }
 
   async read(sessionId: string): Promise<ReadSession> {

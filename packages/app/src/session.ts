@@ -39,4 +39,6 @@ export interface SessionStore {
   append(sessionId: string, payload: unknown): Promise<SessionRecord>;
   read(sessionId: string): Promise<ReadSession>;
   list(): Promise<SessionList>;
+  /** Permanently removes every session owned by this store. */
+  deleteAll(): Promise<number>;
 }

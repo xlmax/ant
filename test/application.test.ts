@@ -88,6 +88,9 @@ function createHarness(sessionList: SessionList = { sessions: [], warnings: [] }
     async read() {
       throw new Error("read is not used in this test");
     },
+    async deleteAll() {
+      throw new Error("deleteAll is not used in this test");
+    },
   };
   const model: AgentModel = {
     async decide() {

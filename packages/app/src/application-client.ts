@@ -80,6 +80,7 @@ export interface AntApplicationApi {
   resumeSession(sessionId: string): Promise<ActiveSessionInfo>;
   getLastTurnEvents(): readonly HistoryEvent[] | undefined;
   resetSession(): void;
+  deleteAllSessions(): Promise<number>;
   submitTurn(content: string, options?: SubmitTurnOptions): Promise<SubmittedTurn>;
   getContextStatus(): ContextBudget;
   listModels(signal?: AbortSignal): Promise<readonly string[]>;
@@ -149,6 +150,10 @@ export class AntApplicationClient implements AntApplicationApi {
 
   resetSession(): void {
     this.#sessions.reset();
+  }
+
+  deleteAllSessions(): Promise<number> {
+    return this.#sessions.deleteAll();
   }
 
   async submitTurn(content: string, options: SubmitTurnOptions = {}): Promise<SubmittedTurn> {

@@ -107,7 +107,11 @@ test("command registry exposes help aliases and parses built-in command aliases"
   });
   assert.deepEqual(invocation(registry, "/s"), {
     name: "session",
-    input: undefined,
+    input: { clear: false },
+  });
+  assert.deepEqual(invocation(registry, "/session clear"), {
+    name: "session",
+    input: { clear: true },
   });
   assert.deepEqual(invocation(registry, "/c"), {
     name: "clear",
@@ -171,6 +175,9 @@ test("command registry validates arguments, lists aliases, and suggests a simila
   const registry = createInteractiveRegistry();
   configureAnsi(false);
   assert.deepEqual(registry.parse("/context extra"), { error: "Использование: /context" });
+  assert.deepEqual(registry.parse("/session remove"), {
+    error: "Использование: /session [clear]",
+  });
   assert.deepEqual(registry.parse("/model first second"), {
     error: "Использование: /model [list|id]",
   });
@@ -202,6 +209,45 @@ test("command registry validates arguments, lists aliases, and suggests a simila
     terminal: { log: (message: string) => modelHelp.push(message) },
   } as unknown as CommandContext);
   assert.match(modelHelp.join("\n"), /^\/model \(m\) \[list\|id\|N\]/u);
+});
+
+test("session clear requires confirmation and deletes every session", async () => {
+  configureAnsi(false);
+  const registry = createInteractiveRegistry();
+  const confirmations = [false, true];
+  const output = { log: [] as string[], error: [] as string[] };
+  let deleteCalls = 0;
+  const context = {
+    options: {
+      client: {
+        activeSession: undefined,
+        async deleteAllSessions() {
+          deleteCalls += 1;
+          return 3;
+        },
+      },
+    },
+    terminal: {
+      log: (message: string) => output.log.push(message),
+      error: (message: string) => output.error.push(message),
+      async confirm(_prompt: string, _signal?: AbortSignal, defaultAnswer?: boolean) {
+        assert.equal(defaultAnswer, false);
+        return confirmations.shift();
+      },
+    },
+  } as unknown as CommandContext;
+  const parsed = registry.parse("/session clear");
+  assert.ok(parsed && !("error" in parsed));
+
+  await registry.dispatch(parsed, context);
+  await registry.dispatch(parsed, context);
+
+  assert.equal(deleteCalls, 1);
+  assert.deepEqual(output.log, [
+    "Удаление сессий отменено.",
+    "Удалено сессий: 3. Активная сессия сброшена.",
+  ]);
+  assert.deepEqual(output.error, []);
 });
 
 test("model command supports numeric selection, range errors, and numbered lists", async () => {

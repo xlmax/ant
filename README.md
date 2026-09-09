@@ -137,7 +137,7 @@ npm run dev -- -s <session-id>        # resume a specific session
 npm run dev -- -s <session-id> "now run the tests"
 ```
 
-`-r` and `-h` work without an API key. Corrupted JSONL files are skipped and reported as warnings.
+`-r` and `-h` work without an API key. Corrupted JSONL files are skipped and reported as warnings. In interactive mode, `/session clear` permanently deletes all saved sessions for the current project after confirmation and resets the active session.
 
 > A session file may contain `read` and `bash` results, model reasoning, and accidentally exposed secrets. It is meant for local inspection only.
 
@@ -233,6 +233,7 @@ There are commands inside — `/help` shows the full list. Key ones: `/help (?, 
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
+- `/session clear` permanently deletes all saved sessions for the current project after confirmation.
 - `/key` reports only whether the DeepSeek key is configured and its source; `/key set` securely replaces the saved credential and `/key clear` removes only the saved credential. `DEEPSEEK_API_KEY` is never changed and always has priority.
 - `/balance` queries DeepSeek's official account endpoint directly. It does not use the configurable model `baseUrl`, so the API key is never sent to a model proxy for this account operation.
 - `/model (m)` and `/think (t)` switch the model and reasoning mode on the fly:
