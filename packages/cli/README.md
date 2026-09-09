@@ -193,7 +193,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
     },
     "ui": {
       "version": 1,
-      "value": { "reasoningMode": "off", "reasoningMaxLines": 6 }
+      "value": { "reasoningMode": "compact", "reasoningMaxLines": 6 }
     },
     "prompts": {
       "version": 1,
@@ -251,7 +251,7 @@ There are commands inside — `/help` shows the full list. Key ones: `/help (?, 
 
 `/model`, `/think`, and `/reasoning` choices are saved to `~/.ant/settings.json`. If the project `.ant/settings.json` has the same keys, it wins — the command warns about it. `/help` also accepts `?` and `h`.
 
-Reasoning display modes:
+Reasoning is shown in `compact` mode by default. Available display modes:
 
 - `off` — hide model reasoning;
 - `compact` — show a live scrolling viewport limited by `ui.reasoningMaxLines` (6 by default, 1–20);

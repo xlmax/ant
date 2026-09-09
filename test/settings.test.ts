@@ -542,6 +542,18 @@ test("saving thinking settings uses the global layer", async () => {
   }
 });
 
+test("reasoning display defaults to compact mode", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.ui.reasoningMode, "compact");
+    assert.equal(loaded.settings.ui.reasoningMaxLines, 6);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
 test("reasoning display settings load compact mode and viewport height", async () => {
   const { workspace, home } = await temporaryDirectories();
 

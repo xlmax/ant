@@ -65,7 +65,7 @@ function section<T, P>(
 const uiSection: ConfigurationSection<UiSettings, Partial<UiSettings>> = {
   ...section<UiSettings, Partial<UiSettings>>({
     key: UI_CONFIGURATION,
-    defaults: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: true },
+    defaults: { reasoningMode: "compact", reasoningMaxLines: 6, showChanges: false, color: true },
     parse(value) {
       const source = record(value, "ui");
       let reasoningMode = source.reasoningMode;
