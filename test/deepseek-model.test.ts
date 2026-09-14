@@ -246,7 +246,7 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
   assert.deepEqual(usages, [
     {
       provider: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       reasoning: "high",
       inputTokens: 24100,
       outputTokens: 1040,
@@ -457,6 +457,47 @@ test("DeepSeekModel omits saved reasoning when thinking is disabled", async () =
   });
 });
 
+test("DeepSeekModel preserves saved reasoning with tools when thinking is disabled", async () => {
+  let request: RequestInit | undefined;
+  const model = new DeepSeekModel({
+    apiKey: "test-key",
+    systemPrompt: "Тестовая системная инструкция.",
+    thinkingEnabled: false,
+    fetch: (async (_input, init) => {
+      request = init;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "Готово" } }] }), {
+        status: 200,
+      });
+    }) as typeof fetch,
+  });
+
+  await model.decide({
+    events: [
+      { type: "task", content: "Начни" },
+      {
+        type: "decision",
+        decision: { type: "finish", answer: "Первый ответ", reasoning: "Сохранённое рассуждение" },
+      },
+      { type: "user", content: "Продолжай" },
+    ],
+    tools: [
+      {
+        name: "echo",
+        description: "Returns text",
+        inputSchema: { type: "object" },
+      },
+    ],
+  });
+
+  const body = JSON.parse(String(request?.body));
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.deepEqual(body.messages[2], {
+    role: "assistant",
+    content: "Первый ответ",
+    reasoning_content: "Сохранённое рассуждение",
+  });
+});
+
 test("DeepSeekModel forwards image tool results to a vision model", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ant-image-"));
   const imagePath = join(directory, "screen.png");
@@ -480,8 +521,7 @@ test("DeepSeekModel forwards image tool results to a vision model", async () => 
     const model = new DeepSeekModel({
       apiKey: "test-key",
       systemPrompt: "Тестовая системная инструкция.",
-      model: "custom-vision-model",
-      supportsImages: true,
+      model: "deepseek-flash",
       fetch: fetchMock,
     });
     const call = { id: "read-image", name: "read", input: { path: imagePath } };
@@ -546,7 +586,7 @@ test("DeepSeekModel keeps image observations textual for a non-vision model", as
   const model = new DeepSeekModel({
     apiKey: "test-key",
     systemPrompt: "Тестовая системная инструкция.",
-    model: "deepseek-v4-flash",
+    model: "deepseek-v4-pro",
     fetch: fetchMock,
   });
   const call = { id: "read-image", name: "read", input: { path: "missing.png" } };
@@ -593,7 +633,7 @@ test("DeepSeekModel lists provider models without starting a completion", async 
     request = init;
     return new Response(
       JSON.stringify({
-        data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-v4-flash" }],
+        data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-flash" }],
       }),
       { status: 200 },
     );
@@ -604,7 +644,7 @@ test("DeepSeekModel lists provider models without starting a completion", async 
     fetch: fetchMock,
   });
 
-  assert.deepEqual(await model.listModels(), ["deepseek-v4-flash", "deepseek-v4-pro"]);
+  assert.deepEqual(await model.listModels(), ["deepseek-flash", "deepseek-v4-pro"]);
   assert.equal(url, "https://api.deepseek.com/models");
   assert.equal(request?.method, "GET");
   assert.deepEqual(request?.headers, { Authorization: "Bearer test-key" });

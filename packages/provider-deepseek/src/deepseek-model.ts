@@ -9,11 +9,14 @@ import type {
   TextDeltaHandler,
 } from "@ant/core";
 import { buildMessages } from "./deepseek/message-builder.js";
+import {
+  DEFAULT_DEEPSEEK_MODEL_ID,
+  deepSeekModelSupportsVision,
+} from "./deepseek-model-profile.js";
 import { createTools, parseDecision, parseModelList, parseUsage } from "./deepseek/protocol.js";
 import { parseStreamingDecision } from "./deepseek/stream-parser.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 const COMPACTION_PROMPT = `Составь компактное структурированное резюме предыдущей части сессии coding-агента.
 Сохрани цели пользователя, принятые решения, важные факты, изменённые файлы, выполненные команды и их существенные результаты, ошибки, ограничения и незавершённую работу.
@@ -51,10 +54,10 @@ export class DeepSeekModel implements AgentModel {
 
     this.#apiKey = options.apiKey;
     this.#systemPrompt = options.systemPrompt;
-    this.#model = options.model ?? DEFAULT_MODEL;
+    this.#model = options.model ?? DEFAULT_DEEPSEEK_MODEL_ID;
     this.#contextWindow = options.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
     this.#thinkingEnabled = options.thinkingEnabled ?? true;
-    this.#supportsImages = options.supportsImages ?? false;
+    this.#supportsImages = options.supportsImages ?? deepSeekModelSupportsVision(this.#model);
     this.#reasoningEffort = options.reasoningEffort ?? "high";
     this.#baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/u, "");
     this.#fetch = options.fetch ?? globalThis.fetch;
@@ -88,13 +91,14 @@ export class DeepSeekModel implements AgentModel {
     onUsage?: ModelUsageHandler,
     onActivity?: ModelActivityHandler,
   ) {
+    const includeReasoningHistory = input.tools.length > 0;
     const budget = estimateContextBudget({
       systemPrompt: this.#systemPrompt,
       events: input.events,
       tools: input.tools,
       contextWindow: this.#contextWindow,
       includeImages: this.#supportsImages,
-      includeReasoning: this.#thinkingEnabled,
+      includeReasoning: includeReasoningHistory,
     });
     if (budget.estimatedTokens >= this.#contextWindow) {
       throw new Error(
@@ -105,7 +109,7 @@ export class DeepSeekModel implements AgentModel {
     const messages = await buildMessages(
       input.events,
       this.#systemPrompt,
-      this.#thinkingEnabled,
+      includeReasoningHistory,
       this.#supportsImages,
       signal,
     );

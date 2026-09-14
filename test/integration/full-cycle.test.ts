@@ -172,6 +172,7 @@ test("CLI completes a sandboxed task through DeepSeek, tools, and the session jo
     assert.equal(requests.length, 2);
     assert.equal(requests[0]?.authorization, "Bearer integration-test-key");
     assert.equal(requests[1]?.authorization, "Bearer integration-test-key");
+    assert.equal(requests[0]?.body.model, "deepseek-flash");
     assert.ok(Array.isArray(requests[0]?.body.tools));
 
     const secondMessages = requests[1]?.body.messages;

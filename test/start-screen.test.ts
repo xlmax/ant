@@ -8,10 +8,10 @@ import { VERSION } from "../packages/contracts/src/version.js";
 
 const descriptor: ModelDescriptor = {
   providerId: "deepseek",
-  modelId: "deepseek-v4-flash",
+  modelId: "deepseek-flash",
   contextWindow: 1_000_000,
   capabilities: {
-    vision: false,
+    vision: true,
     reasoning: {
       supported: true,
       enabled: true,
@@ -31,7 +31,7 @@ test("start screen shows logo, version, model, location and commands", () => {
 
   assert.match(screen, /█████╗/u);
   assert.ok(screen.includes(`Agentic Native Tool · v${VERSION}`));
-  assert.match(screen, /● deepseek\/deepseek-v4-flash · think: high/u);
+  assert.match(screen, /● deepseek\/deepseek-flash · think: high/u);
   assert.match(screen, /▸ C:\/Projects\/aiAgent/u);
   assert.match(screen, /└ dev/u);
   assert.match(screen, /\/model/u);

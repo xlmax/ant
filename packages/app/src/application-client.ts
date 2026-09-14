@@ -188,13 +188,14 @@ export class AntApplicationClient implements AntApplicationApi {
   }
 
   getContextStatus(): ContextBudget {
+    const tools = this.#environment.tools();
     return estimateContextBudget({
       systemPrompt: this.#systemPrompt,
       events: this.#sessions.active?.state.events ?? [],
-      tools: this.#environment.tools(),
+      tools,
       contextWindow: this.#modelDescriptor.contextWindow,
       includeImages: this.#modelDescriptor.capabilities.vision,
-      includeReasoning: this.#modelDescriptor.capabilities.reasoning.enabled,
+      includeReasoning: tools.length > 0,
     });
   }
 
@@ -249,13 +250,14 @@ export class AntApplicationClient implements AntApplicationApi {
       summary,
       retainedEvents: plan.retainedEvents,
     };
+    const tools = this.#environment.tools();
     const after = estimateContextBudget({
       systemPrompt: this.#systemPrompt,
       events: [...active.state.events, event],
-      tools: this.#environment.tools(),
+      tools,
       contextWindow: this.#modelDescriptor.contextWindow,
       includeImages: this.#modelDescriptor.capabilities.vision,
-      includeReasoning: this.#modelDescriptor.capabilities.reasoning.enabled,
+      includeReasoning: tools.length > 0,
     });
     if (after.estimatedTokens >= before.estimatedTokens) {
       return { status: "not-smaller", before, after };

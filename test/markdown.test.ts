@@ -40,17 +40,17 @@ test("streaming markdown renderer aligns a completed table", () => {
 
   assert.equal(
     renderer.push(
-      "| Модель | Контекст |\n| :--- | ---: |\n| deepseek-v4-flash | 1M |\n| deepseek-v4-pro | 1M |\n",
+      "| Модель | Контекст |\n| :--- | ---: |\n| deepseek-flash | 1M |\n| deepseek-v4-pro | 1M |\n",
     ),
     "",
   );
   assert.equal(
     renderer.finish(),
     [
-      "  Модель             Контекст",
-      "  ─────────────────  ────────",
-      "  deepseek-v4-flash        1M",
-      "  deepseek-v4-pro          1M",
+      "  Модель           Контекст",
+      "  ───────────────  ────────",
+      "  deepseek-flash         1M",
+      "  deepseek-v4-pro        1M",
     ].join("\n"),
   );
 });

@@ -5,6 +5,7 @@ import type {
   ModelProvider,
 } from "@ant/app";
 import { DeepSeekModel } from "./deepseek-model.js";
+import { canonicalDeepSeekModelId, deepSeekModelSupportsVision } from "./deepseek-model-profile.js";
 
 export interface DeepSeekProviderOptions {
   apiKey: string;
@@ -97,7 +98,7 @@ export class DeepSeekProvider implements ModelProvider {
       modelId: configuration.modelId,
       contextWindow: options.contextWindow,
       capabilities: {
-        vision: options.vision ?? /vision/iu.test(configuration.modelId),
+        vision: options.vision ?? deepSeekModelSupportsVision(configuration.modelId),
         reasoning: {
           supported: true,
           enabled: options.thinking.enabled,
@@ -127,7 +128,7 @@ export class DeepSeekProvider implements ModelProvider {
     deepSeekOptions(configuration);
     const normalized = modelId.trim();
     if (normalized === "") throw new Error("DeepSeek modelId must not be empty");
-    return { ...configuration, modelId: normalized };
+    return { ...configuration, modelId: canonicalDeepSeekModelId(normalized) };
   }
 
   selectReasoning(configuration: ModelConfiguration, selection: string): ModelConfigurationChange {

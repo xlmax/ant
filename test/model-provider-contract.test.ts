@@ -72,7 +72,7 @@ function runModelProviderContract(
   });
 }
 
-function deepSeekConfiguration(modelId = "deepseek-v4-flash"): ModelConfiguration {
+function deepSeekConfiguration(modelId = "deepseek-flash"): ModelConfiguration {
   return {
     providerId: "deepseek",
     modelId,
@@ -92,7 +92,7 @@ runModelProviderContract("DeepSeekProvider", () => ({
       const url = String(input);
       if (url.endsWith("/models")) {
         return new Response(
-          JSON.stringify({ data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-vision" }] }),
+          JSON.stringify({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4-pro" }] }),
           { status: 200 },
         );
       }
@@ -100,7 +100,7 @@ runModelProviderContract("DeepSeekProvider", () => ({
     },
   }),
   configuration: deepSeekConfiguration(),
-  alternativeModelId: "deepseek-vision",
+  alternativeModelId: "deepseek-v4-pro",
   reasoningSelection: "max",
 }));
 
@@ -108,12 +108,28 @@ test("DeepSeekProvider resolves capabilities and validates its own options", () 
   const provider = new DeepSeekProvider({ apiKey: "test-key", systemPrompt: "system" });
 
   assert.equal(
-    provider.describe(deepSeekConfiguration("deepseek-vision")).capabilities.vision,
+    provider.describe(deepSeekConfiguration("deepseek-flash")).capabilities.vision,
     true,
   );
   assert.equal(
+    provider.describe(deepSeekConfiguration("deepseek-v4-flash")).capabilities.vision,
+    true,
+  );
+  assert.equal(
+    provider.describe(deepSeekConfiguration("deepseek-v4-flash-vision-exp")).capabilities.vision,
+    true,
+  );
+  assert.equal(
+    provider.describe(deepSeekConfiguration("deepseek-v4-pro")).capabilities.vision,
+    false,
+  );
+  assert.equal(
+    provider.selectModel(deepSeekConfiguration(), "deepseek-v4-flash").modelId,
+    "deepseek-flash",
+  );
+  assert.equal(
     provider.describe({
-      ...deepSeekConfiguration("deepseek-vision"),
+      ...deepSeekConfiguration("deepseek-flash"),
       providerOptions: {
         ...(deepSeekConfiguration().providerOptions as Record<string, unknown>),
         vision: false,

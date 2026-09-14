@@ -117,6 +117,64 @@ async function savedSection(home: string, namespace: string): Promise<Record<str
   return saved.sections[namespace]?.value ?? {};
 }
 
+test("DeepSeek settings default to the canonical Flash model with vision", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.modelId, "deepseek-flash");
+    assert.equal(modelVision(loaded), true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("versioned DeepSeek settings migrate retired Flash aliases", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    for (const modelId of ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]) {
+      await writeFile(
+        join(home, ".ant", "settings.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          sections: {
+            model: { version: 1, value: { providerId: "deepseek", modelId } },
+          },
+        }),
+        "utf8",
+      );
+
+      const loaded = await loadSettings(workspace, home);
+      assert.equal(loaded.settings.model.modelId, "deepseek-flash");
+      assert.equal(modelVision(loaded), true);
+    }
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("legacy auto-written vision does not disable vision after Flash migration", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({ model: { id: "deepseek-v4-flash", vision: false } }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.modelId, "deepseek-flash");
+    assert.equal(await readExplicitVision(workspace, home), undefined);
+    assert.equal(modelVision(loaded), true);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
 test("stale user-layer vision is ignored before the first /model", async () => {
   const { workspace, home } = await temporaryDirectories();
 

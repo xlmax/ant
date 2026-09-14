@@ -6,10 +6,10 @@ import { formatModelStatus } from "../packages/frontend-terminal/src/runtime-mod
 
 const current: ModelDescriptor = {
   providerId: "deepseek",
-  modelId: "deepseek-v4-flash",
+  modelId: "deepseek-flash",
   contextWindow: 1_000_000,
   capabilities: {
-    vision: false,
+    vision: true,
     reasoning: {
       supported: true,
       enabled: true,
@@ -20,7 +20,7 @@ const current: ModelDescriptor = {
 };
 
 test("runtime model status shows provider, model and reasoning mode", () => {
-  assert.match(formatModelStatus(current), /deepseek\/deepseek-v4-flash/u);
+  assert.match(formatModelStatus(current), /deepseek\/deepseek-flash/u);
   assert.match(
     formatModelStatus({
       ...current,

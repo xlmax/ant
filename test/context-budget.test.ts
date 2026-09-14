@@ -32,7 +32,7 @@ test("context budget separates messages, tool results, schemas, and images", () 
   assert.ok(budget.breakdown.systemPrompt > 0);
   assert.ok(budget.breakdown.messages > 0);
   assert.ok(budget.breakdown.toolResults >= 1_000);
-  assert.equal(budget.breakdown.images, 1_000);
+  assert.equal(budget.breakdown.images, 1_024);
   assert.ok(budget.breakdown.toolSchemas > 0);
   assert.equal(budget.heavyObservations[0]?.callId, "read-1");
   assert.equal(

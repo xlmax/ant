@@ -2,6 +2,7 @@ import type { HistoryEvent, ToolSpec } from "./agent.js";
 import { activeContextEvents } from "./context-events.js";
 
 const BYTES_PER_TOKEN = 4;
+const IMAGE_TOKENS_PER_ATTACHMENT = 1_024;
 
 export interface HeavyObservation {
   callId: string;
@@ -32,10 +33,7 @@ export function estimateTokens(value: unknown): number {
 }
 
 function estimateImageTokens(event: Extract<HistoryEvent, { type: "observation" }>): number {
-  return (event.observation.attachments ?? []).reduce(
-    (total, attachment) => total + Math.ceil(attachment.bytes / 3),
-    0,
-  );
+  return (event.observation.attachments?.length ?? 0) * IMAGE_TOKENS_PER_ATTACHMENT;
 }
 
 export function estimateContextBudget(options: {

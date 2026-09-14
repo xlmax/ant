@@ -179,14 +179,13 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
   "schemaVersion": 1,
   "sections": {
     "model": {
-      "version": 1,
+      "version": 2,
       "value": {
         "providerId": "deepseek",
-        "modelId": "deepseek-v4-flash",
+        "modelId": "deepseek-flash",
         "providerOptions": {
           "baseUrl": "https://api.deepseek.com",
           "contextWindow": 1000000,
-          "vision": false,
           "thinking": { "enabled": true, "effort": "high" }
         }
       }
@@ -205,7 +204,7 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
 
 The previous flat format remains supported and is migrated atomically when a command first saves user settings. Unknown sections and unsupported root or section versions are rejected instead of being silently ignored.
 
-Only `deepseek` is supported. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Use `/key` to inspect or manage the saved DeepSeek credential; the command never displays the key.
+Only `deepseek` is supported. `deepseek-flash` is the default and supports vision; `deepseek-v4-pro` is text-only. Retired `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` settings are migrated to `deepseek-flash`. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Use `/key` to inspect or manage the saved DeepSeek credential; the command never displays the key.
 
 `contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 
