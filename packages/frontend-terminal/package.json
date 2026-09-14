@@ -1,6 +1,6 @@
 {
   "name": "@ant/frontend-terminal",
-  "version": "0.5.35",
+  "version": "0.5.36",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,9 +13,9 @@
     "dist"
   ],
   "dependencies": {
-    "@ant/contracts": "0.5.35",
-    "@ant/core": "0.5.35",
-    "@ant/app": "0.5.35",
+    "@ant/contracts": "0.5.36",
+    "@ant/core": "0.5.36",
+    "@ant/app": "0.5.36",
     "highlight.js": "^11.12.0",
     "marked": "^18.0.10",
     "string-width": "^8.2.2"

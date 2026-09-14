@@ -1,6 +1,6 @@
 {
   "name": "@ant/tools-coding",
-  "version": "0.5.35",
+  "version": "0.5.36",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,9 +13,9 @@
     "dist"
   ],
   "dependencies": {
-    "@ant/contracts": "0.5.35",
-    "@ant/core": "0.5.35",
-    "@ant/app": "0.5.35",
+    "@ant/contracts": "0.5.36",
+    "@ant/core": "0.5.36",
+    "@ant/app": "0.5.36",
     "minimatch": "^10.2.6"
   }
 }
