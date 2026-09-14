@@ -117,13 +117,13 @@ async function savedSection(home: string, namespace: string): Promise<Record<str
   return saved.sections[namespace]?.value ?? {};
 }
 
-test("DeepSeek settings default to the canonical Flash model with vision", async () => {
+test("DeepSeek settings default to the reliable Pro model", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.modelId, "deepseek-flash");
-    assert.equal(modelVision(loaded), true);
+    assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
+    assert.equal(modelVision(loaded), false);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -147,15 +147,47 @@ test("versioned DeepSeek settings migrate retired Flash aliases", async () => {
       );
 
       const loaded = await loadSettings(workspace, home);
-      assert.equal(loaded.settings.model.modelId, "deepseek-flash");
-      assert.equal(modelVision(loaded), true);
+      assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
+      assert.equal(modelVision(loaded), false);
     }
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
 });
 
-test("legacy auto-written vision does not disable vision after Flash migration", async () => {
+test("v0.5.35 Flash settings migrate to Pro without stale vision", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        sections: {
+          model: {
+            version: 2,
+            value: {
+              providerId: "deepseek",
+              modelId: "deepseek-flash",
+              providerOptions: { vision: true },
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const loaded = await loadSettings(workspace, home);
+    assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
+    assert.equal(await readExplicitVision(workspace, home), undefined);
+    assert.equal(modelVision(loaded), false);
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("legacy auto-written vision is removed when migrating to Pro", async () => {
   const { workspace, home } = await temporaryDirectories();
 
   try {
@@ -167,9 +199,9 @@ test("legacy auto-written vision does not disable vision after Flash migration",
     );
 
     const loaded = await loadSettings(workspace, home);
-    assert.equal(loaded.settings.model.modelId, "deepseek-flash");
+    assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
     assert.equal(await readExplicitVision(workspace, home), undefined);
-    assert.equal(modelVision(loaded), true);
+    assert.equal(modelVision(loaded), false);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }

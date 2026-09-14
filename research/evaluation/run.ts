@@ -645,7 +645,7 @@ async function main(): Promise<void> {
     `${JSON.stringify(
       {
         startedAt: startedAt.toISOString(),
-        model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-flash",
+        model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-pro",
         passed,
         total: reports.length,
         modelCalls,

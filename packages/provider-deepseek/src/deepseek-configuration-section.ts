@@ -1,7 +1,11 @@
 import type { ConfigurationSection } from "@ant/app";
 import { MODEL_CONFIGURATION } from "@ant/app";
 import type { ModelConfiguration } from "@ant/app";
-import { DEFAULT_DEEPSEEK_MODEL_ID, canonicalDeepSeekModelId } from "./deepseek-model-profile.js";
+import {
+  DEEPSEEK_FLASH_MODEL_ID,
+  DEFAULT_DEEPSEEK_MODEL_ID,
+  canonicalDeepSeekModelId,
+} from "./deepseek-model-profile.js";
 
 type ModelPartial = Partial<Omit<ModelConfiguration, "providerOptions">> & {
   providerOptions?: unknown;
@@ -37,6 +41,17 @@ function canonicalModel(value: unknown): unknown {
     return { ...value, modelId, providerOptions };
   }
   return { ...value, modelId };
+}
+
+function reliableDefault(value: unknown): unknown {
+  if (!isRecord(value) || value.modelId !== DEEPSEEK_FLASH_MODEL_ID) return value;
+  if (!isRecord(value.providerOptions)) {
+    return { ...value, modelId: DEFAULT_DEEPSEEK_MODEL_ID };
+  }
+
+  const providerOptions = { ...value.providerOptions };
+  delete providerOptions.vision;
+  return { ...value, modelId: DEFAULT_DEEPSEEK_MODEL_ID, providerOptions };
 }
 
 function nonEmptyString(value: unknown, path: string): string | undefined {
@@ -80,7 +95,7 @@ function validateDeepSeekOptions(value: unknown): void {
 export const deepSeekConfigurationSection: ConfigurationSection<ModelConfiguration, ModelPartial> =
   {
     key: MODEL_CONFIGURATION,
-    version: 2,
+    version: 3,
     defaults: {
       providerId: "deepseek",
       modelId: DEFAULT_DEEPSEEK_MODEL_ID,
@@ -90,7 +105,7 @@ export const deepSeekConfigurationSection: ConfigurationSection<ModelConfigurati
         thinking: { enabled: true, effort: "high" },
       },
     },
-    migrations: { 0: legacyModel, 1: canonicalModel },
+    migrations: { 0: legacyModel, 1: canonicalModel, 2: reliableDefault },
     sensitivePaths: ["providerId", "providerOptions.baseUrl"],
     secretPaths: ["providerOptions.apiKey"],
     parse(value, context) {

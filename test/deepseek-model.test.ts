@@ -246,7 +246,7 @@ test("DeepSeekModel streams text deltas and returns the final decision", async (
   assert.deepEqual(usages, [
     {
       provider: "deepseek",
-      model: "deepseek-flash",
+      model: "deepseek-v4-pro",
       reasoning: "high",
       inputTokens: 24100,
       outputTokens: 1040,
