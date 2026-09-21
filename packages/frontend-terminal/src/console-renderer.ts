@@ -10,6 +10,7 @@ import type {
 import { ansi } from "./ansi.js";
 import { StreamingMarkdownRenderer } from "./markdown.js";
 import { consoleWidth } from "./console-size.js";
+import { displayWidth, truncateDisplayWidth } from "./display-width.js";
 import { sectionFooter, sectionHeader } from "./section.js";
 import { TypingPump } from "./typing-pump.js";
 import { formatToolLabel } from "./turn-formatters.js";
@@ -97,6 +98,7 @@ export interface ConsoleRendererOptions {
   showReasoning?: boolean;
   write?: (text: string) => void;
   interactive?: () => boolean;
+  width?: () => number;
 }
 
 export class ConsoleRenderer implements AgentObserver {
@@ -109,11 +111,12 @@ export class ConsoleRenderer implements AgentObserver {
   #reasoningCompact = false;
   #markdown = new StreamingMarkdownRenderer();
   readonly #interactive: () => boolean;
+  readonly #width: () => number;
   readonly #typing: TypingPump;
   #usage: ModelUsage | undefined;
   readonly #finishedToolCalls = new Set<string>();
   #activeTools = new Map<string, { name: string; startedAt: number }>();
-  #modelStatus: { label: string; startedAt: number } | undefined;
+  #modelStatus: { label: string; compactLabel: string; startedAt: number } | undefined;
   #spinnerTimer: ReturnType<typeof setInterval> | undefined;
   #spinnerFrame = 0;
   #spinnerLineVisible = false;
@@ -126,6 +129,7 @@ export class ConsoleRenderer implements AgentObserver {
       options.reasoningMode ?? (options.showReasoning === true ? "full" : "off");
     this.#reasoningMaxLines = Math.min(20, Math.max(1, options.reasoningMaxLines ?? 6));
     this.#interactive = options.interactive ?? (() => process.stdout.isTTY === true);
+    this.#width = options.width ?? consoleWidth;
     this.#typing = new TypingPump({
       write: options.write ?? ((text) => process.stdout.write(text)),
       interactive: this.#interactive,
@@ -162,7 +166,11 @@ export class ConsoleRenderer implements AgentObserver {
     this.#hadTools = false;
     this.#toolGroupPendingSeparator = false;
     if (this.#isInteractive() && this.#typing.tryEnterLiveMode()) {
-      this.#modelStatus = { label: "Подготовка запроса", startedAt: Date.now() };
+      this.#modelStatus = {
+        label: "Подготовка запроса",
+        compactLabel: "Подготовка",
+        startedAt: Date.now(),
+      };
       this.#drawSpinner();
       this.#startSpinnerTimer();
     }
@@ -191,7 +199,7 @@ export class ConsoleRenderer implements AgentObserver {
       if (this.#reasoningCompact) {
         this.#typing.beginViewport({
           maxRows: this.#reasoningMaxLines,
-          width: consoleWidth,
+          width: this.#width,
           frame: sectionFooter,
           styleRow: ansi.dim,
         });
@@ -256,6 +264,7 @@ export class ConsoleRenderer implements AgentObserver {
           event.maxAttempts > 1
             ? `Ожидание модели · попытка ${event.attempt}/${event.maxAttempts}`
             : "Ожидание модели",
+          event.maxAttempts > 1 ? `Модель ${event.attempt}/${event.maxAttempts}` : "Модель",
         );
         break;
 
@@ -266,7 +275,11 @@ export class ConsoleRenderer implements AgentObserver {
         if (this.#isInteractive() && this.#modelStatus) {
           this.#eraseSpinner();
           this.#writeLine(warning);
-          this.#modelStatus = { label: "Ожидание повтора", startedAt: Date.now() };
+          this.#modelStatus = {
+            label: "Ожидание повтора",
+            compactLabel: "Повтор",
+            startedAt: Date.now(),
+          };
           this.#drawSpinner();
         } else {
           this.#emitInstant(`${warning}\n`);
@@ -449,11 +462,13 @@ export class ConsoleRenderer implements AgentObserver {
     if (!this.#isInteractive()) return;
 
     let label: string;
+    let compactLabel: string;
     let startedAt: number;
     let style: (text: string) => string;
     if (this.#activeTools.size > 0) {
       const active = [...this.#activeTools.values()];
       label = active.map((tool) => tool.name).join(", ");
+      compactLabel = label;
       startedAt = active.reduce(
         (min, tool) => Math.min(min, tool.startedAt),
         Number.POSITIVE_INFINITY,
@@ -461,17 +476,22 @@ export class ConsoleRenderer implements AgentObserver {
       style = ansi.yellow;
     } else if (this.#modelStatus) {
       label = this.#modelStatus.label;
+      compactLabel = this.#modelStatus.compactLabel;
       startedAt = this.#modelStatus.startedAt;
       style = ansi.violet;
     } else {
       return;
     }
 
-    const line = `${SPINNER_FRAMES[this.#spinnerFrame % SPINNER_FRAMES.length]} ${label} · ${formatDuration(
-      Date.now() - startedAt,
-    )}`;
+    const frame = SPINNER_FRAMES[this.#spinnerFrame % SPINNER_FRAMES.length];
+    const duration = formatDuration(Date.now() - startedAt);
+    const fullLine = `${frame} ${label} · ${duration}`;
+    const compactLine = `${frame} ${compactLabel} · ${duration}`;
+    const availableWidth = this.#width() - 1;
+    if (availableWidth <= 0) return;
+    const line = displayWidth(fullLine) <= availableWidth ? fullLine : compactLine;
     this.#spinnerFrame += 1;
-    this.#typing.updateLiveLine(style(line));
+    this.#typing.updateLiveLine(style(truncateDisplayWidth(line, availableWidth)));
     this.#spinnerLineVisible = true;
   }
 
@@ -493,10 +513,10 @@ export class ConsoleRenderer implements AgentObserver {
     this.#typing.leaveLiveMode();
   }
 
-  #showModelStatus(label: string): void {
+  #showModelStatus(label: string, compactLabel: string): void {
     if (!this.#isInteractive() || this.#turnCancelled || !this.#typing.tryEnterLiveMode()) return;
     this.#eraseSpinner();
-    this.#modelStatus = { label, startedAt: Date.now() };
+    this.#modelStatus = { label, compactLabel, startedAt: Date.now() };
     this.#drawSpinner();
     this.#startSpinnerTimer();
   }
@@ -532,7 +552,7 @@ export class ConsoleRenderer implements AgentObserver {
     if (compact) {
       this.#typing.beginViewport({
         maxRows: this.#reasoningMaxLines,
-        width: consoleWidth,
+        width: this.#width,
         frame: sectionFooter,
         styleRow: ansi.dim,
       });
@@ -549,7 +569,7 @@ export class ConsoleRenderer implements AgentObserver {
 
   #createReasoningMarkdown(): StreamingMarkdownRenderer {
     return this.#reasoningMode === "compact" && this.#isInteractive()
-      ? new StreamingMarkdownRenderer({ maxTableWidth: consoleWidth })
+      ? new StreamingMarkdownRenderer({ maxTableWidth: this.#width })
       : new StreamingMarkdownRenderer();
   }
 

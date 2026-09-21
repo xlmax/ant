@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ConsoleRenderer } from "../packages/frontend-terminal/src/console-renderer.js";
+import { displayWidth } from "../packages/frontend-terminal/src/display-width.js";
 
 function createRenderer(writes: string[], showReasoning = false): ConsoleRenderer {
   return new ConsoleRenderer({
@@ -50,6 +51,28 @@ test("turn shows an immediate status until the model starts responding", async (
     const rendered = writes.join("");
     assert.match(stripAnsi(rendered), /Ожидание модели · попытка 2\/3/u);
     assert.ok(rendered.lastIndexOf("\r\x1b[2K") < rendered.lastIndexOf("───"));
+  } finally {
+    renderer.dispose();
+  }
+});
+
+test("live status stays on one row in a narrow terminal", async () => {
+  const writes: string[] = [];
+  const renderer = new ConsoleRenderer({
+    write: (text) => writes.push(text),
+    interactive: () => true,
+    width: () => 24,
+  });
+  try {
+    renderer.beginTurn();
+    await renderer.onEvent({ type: "model.requested", attempt: 1, maxAttempts: 3 });
+
+    const statusWrites = writes
+      .map(stripAnsi)
+      .map((text) => text.replace(/^\r/u, ""))
+      .filter((text) => text !== "");
+    assert.ok(statusWrites.some((text) => text.includes("Модель 1/3")));
+    assert.ok(statusWrites.every((text) => !text.includes("\n") && displayWidth(text) <= 23));
   } finally {
     renderer.dispose();
   }
