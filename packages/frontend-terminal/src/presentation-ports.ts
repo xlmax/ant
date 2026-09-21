@@ -57,6 +57,7 @@ export interface TerminalRenderer extends AgentObserver {
   readonly reasoningMaxLines: number;
   setReasoningMode(mode: ReasoningDisplayMode): void;
   beginTurn(): void;
+  printNotice(message: string): void;
   readonly onTextDelta: (text: string) => void;
   readonly onReasoningDelta: (text: string) => void;
   printCancellationPending(): void;

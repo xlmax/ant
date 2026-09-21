@@ -113,6 +113,7 @@ export class ConsoleRenderer implements AgentObserver {
   #usage: ModelUsage | undefined;
   readonly #finishedToolCalls = new Set<string>();
   #activeTools = new Map<string, { name: string; startedAt: number }>();
+  #modelStatus: { label: string; startedAt: number } | undefined;
   #spinnerTimer: ReturnType<typeof setInterval> | undefined;
   #spinnerFrame = 0;
   #spinnerLineVisible = false;
@@ -160,14 +161,27 @@ export class ConsoleRenderer implements AgentObserver {
     this.#finishedToolCalls.clear();
     this.#hadTools = false;
     this.#toolGroupPendingSeparator = false;
+    if (this.#isInteractive() && this.#typing.tryEnterLiveMode()) {
+      this.#modelStatus = { label: "Подготовка запроса", startedAt: Date.now() };
+      this.#drawSpinner();
+      this.#startSpinnerTimer();
+    }
+  }
+
+  printNotice(message: string): void {
+    if (this.#isInteractive() && (this.#modelStatus || this.#activeTools.size > 0)) {
+      this.#eraseSpinner();
+      this.#writeLine(message);
+      this.#drawSpinner();
+      return;
+    }
+    this.#emitInstant(`${message}\n`);
   }
 
   onReasoningDelta = (text: string): void => {
     if (this.#reasoningMode === "off") {
       return;
     }
-
-    this.#finalizeSpinner();
 
     if (!this.#reasoningOpen) {
       if (text.trim() === "") {
@@ -183,6 +197,9 @@ export class ConsoleRenderer implements AgentObserver {
         });
       } else {
         this.#typing.holdCursor();
+      }
+      this.#finalizeSpinner();
+      if (!this.#reasoningCompact) {
         this.#emitInstant(`${sectionFooter()}\n`);
       }
       this.#reasoningOpen = true;
@@ -199,12 +216,12 @@ export class ConsoleRenderer implements AgentObserver {
   };
 
   onTextDelta = (text: string): void => {
+    if (!this.#streamedText) this.#typing.holdCursor();
     this.#finalizeSpinner();
     this.closeReasoningBlock();
     this.#typing.observeIncoming(text);
 
     if (!this.#streamedText) {
-      this.#typing.holdCursor();
       if (this.#hadTools) {
         this.#emitInstant("\n");
       }
@@ -235,15 +252,27 @@ export class ConsoleRenderer implements AgentObserver {
 
     switch (event.type) {
       case "model.requested":
-        break;
-
-      case "model.retry":
-        this.#emitInstant(
-          `${ansi.yellow(
-            `⚠ Повтор запроса к модели: ${event.reason}. Попытка ${event.nextAttempt}/${event.maxAttempts} начнётся через ${event.delayMs / 1_000} с.`,
-          )}\n`,
+        this.#showModelStatus(
+          event.maxAttempts > 1
+            ? `Ожидание модели · попытка ${event.attempt}/${event.maxAttempts}`
+            : "Ожидание модели",
         );
         break;
+
+      case "model.retry": {
+        const warning = ansi.yellow(
+          `⚠ Повтор запроса к модели: ${event.reason}. Попытка ${event.nextAttempt}/${event.maxAttempts} начнётся через ${event.delayMs / 1_000} с.`,
+        );
+        if (this.#isInteractive() && this.#modelStatus) {
+          this.#eraseSpinner();
+          this.#writeLine(warning);
+          this.#modelStatus = { label: "Ожидание повтора", startedAt: Date.now() };
+          this.#drawSpinner();
+        } else {
+          this.#emitInstant(`${warning}\n`);
+        }
+        break;
+      }
 
       case "model.usage":
         this.#usage = event.usage;
@@ -266,6 +295,7 @@ export class ConsoleRenderer implements AgentObserver {
           break;
         }
         this.#eraseSpinner();
+        this.#modelStatus = undefined;
         this.#activeTools.set(event.call.id, {
           name: event.call.name,
           startedAt,
@@ -337,6 +367,7 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   async printResult(result: AgentResult): Promise<void> {
+    if (result.status === "completed" && !this.#streamedText) this.#typing.holdCursor();
     this.#finalizeSpinner();
     switch (result.status) {
       case "completed":
@@ -345,7 +376,6 @@ export class ConsoleRenderer implements AgentObserver {
           this.printAgentBlockEnd();
         } else {
           const markdown = new StreamingMarkdownRenderer();
-          this.#typing.holdCursor();
           this.#typing.observeIncoming(result.answer);
           this.printAgentBlockStart();
           this.#emit(markdown.push(result.answer));
@@ -416,18 +446,32 @@ export class ConsoleRenderer implements AgentObserver {
   }
 
   #drawSpinner(): void {
-    if (!this.#isInteractive() || this.#activeTools.size === 0) return;
-    const active = [...this.#activeTools.values()];
-    const names = active.map((tool) => tool.name).join(", ");
-    const oldest = active.reduce(
-      (min, tool) => Math.min(min, tool.startedAt),
-      Number.POSITIVE_INFINITY,
-    );
-    const line = `${SPINNER_FRAMES[this.#spinnerFrame % SPINNER_FRAMES.length]} ${names} · ${formatDuration(
-      Date.now() - oldest,
+    if (!this.#isInteractive()) return;
+
+    let label: string;
+    let startedAt: number;
+    let style: (text: string) => string;
+    if (this.#activeTools.size > 0) {
+      const active = [...this.#activeTools.values()];
+      label = active.map((tool) => tool.name).join(", ");
+      startedAt = active.reduce(
+        (min, tool) => Math.min(min, tool.startedAt),
+        Number.POSITIVE_INFINITY,
+      );
+      style = ansi.yellow;
+    } else if (this.#modelStatus) {
+      label = this.#modelStatus.label;
+      startedAt = this.#modelStatus.startedAt;
+      style = ansi.violet;
+    } else {
+      return;
+    }
+
+    const line = `${SPINNER_FRAMES[this.#spinnerFrame % SPINNER_FRAMES.length]} ${label} · ${formatDuration(
+      Date.now() - startedAt,
     )}`;
     this.#spinnerFrame += 1;
-    this.#typing.updateLiveLine(ansi.yellow(line));
+    this.#typing.updateLiveLine(style(line));
     this.#spinnerLineVisible = true;
   }
 
@@ -445,6 +489,16 @@ export class ConsoleRenderer implements AgentObserver {
   #finalizeSpinner(): void {
     this.#stopSpinnerTimer();
     this.#eraseSpinner();
+    this.#modelStatus = undefined;
+    this.#typing.leaveLiveMode();
+  }
+
+  #showModelStatus(label: string): void {
+    if (!this.#isInteractive() || this.#turnCancelled || !this.#typing.tryEnterLiveMode()) return;
+    this.#eraseSpinner();
+    this.#modelStatus = { label, startedAt: Date.now() };
+    this.#drawSpinner();
+    this.#startSpinnerTimer();
   }
 
   private closeReasoningBlock(): void {

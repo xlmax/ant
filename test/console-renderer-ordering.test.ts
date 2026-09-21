@@ -15,6 +15,61 @@ function stripAnsi(text: string): string {
   return text.replaceAll(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "gu"), "");
 }
 
+test("turn shows an immediate status until the model starts responding", async () => {
+  const writes: string[] = [];
+  const renderer = createRenderer(writes);
+  try {
+    renderer.beginTurn();
+    assert.match(stripAnsi(writes.join("")), /⠋ Подготовка запроса · \d+ ms/u);
+
+    renderer.printNotice("Сессия: test-session");
+    const noticeOutput = writes.join("");
+    const clearLine = `\r${String.fromCharCode(27)}[2K`;
+    const sessionBoundary = `${clearLine}Сессия: test-session\n${clearLine}`;
+    assert.ok(noticeOutput.includes(sessionBoundary));
+    assert.ok(
+      noticeOutput.lastIndexOf("Подготовка запроса") > noticeOutput.indexOf(sessionBoundary),
+    );
+
+    await renderer.onEvent({ type: "model.requested", attempt: 1, maxAttempts: 3 });
+    assert.match(stripAnsi(writes.join("")), /Ожидание модели · попытка 1\/3/u);
+
+    await renderer.onEvent({
+      type: "model.retry",
+      reason: "таймаут",
+      nextAttempt: 2,
+      maxAttempts: 3,
+      delayMs: 1_000,
+    });
+    const retryOutput = stripAnsi(writes.join(""));
+    assert.match(retryOutput, /⚠ Повтор запроса к модели: таймаут/u);
+    assert.match(retryOutput, /Ожидание повтора/u);
+
+    await renderer.onEvent({ type: "model.requested", attempt: 2, maxAttempts: 3 });
+    renderer.onTextDelta("Ответ");
+    const rendered = writes.join("");
+    assert.match(stripAnsi(rendered), /Ожидание модели · попытка 2\/3/u);
+    assert.ok(rendered.lastIndexOf("\r\x1b[2K") < rendered.lastIndexOf("───"));
+  } finally {
+    renderer.dispose();
+  }
+});
+
+test("redirected output does not contain transient request status", async () => {
+  const writes: string[] = [];
+  const renderer = new ConsoleRenderer({
+    write: (text) => writes.push(text),
+    interactive: () => false,
+  });
+  try {
+    renderer.beginTurn();
+    await renderer.onEvent({ type: "model.requested", attempt: 1, maxAttempts: 1 });
+    assert.equal(writes.join(""), "");
+  } finally {
+    renderer.dispose();
+  }
+});
+
 test("reasoning and answer headers hide the cursor before buffered text arrives", async () => {
   const writes: string[] = [];
   const renderer = createRenderer(writes, true);

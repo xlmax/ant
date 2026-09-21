@@ -61,11 +61,12 @@ export class TerminalFrontend implements AntFrontend {
         const resumed = await client.resumeSession(this.#options.resume);
         lifecycle.setSession(resumed.session.id);
       }
+      const renderer = this.#dependencies.createRenderer();
       const result = await this.#dependencies
         .createTurnRunner({
           workspace: this.#options.workspace,
           client,
-          renderer: this.#dependencies.createRenderer(),
+          renderer,
           lifecycle,
           process: this.#dependencies.process,
           git: this.#dependencies.git,
@@ -73,7 +74,7 @@ export class TerminalFrontend implements AntFrontend {
         })
         .run(this.#options.task, (session) => {
           lifecycle.setSession(session.id);
-          terminal.log(`Сессия: ${session.id}`);
+          renderer.printNotice(`Сессия: ${session.id}`);
         });
       if (result.result.status === "cancelled") this.#dependencies.process.setExitCode(2);
     } catch (error) {

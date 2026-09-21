@@ -104,7 +104,7 @@ export async function runRepl(options: ReplOptions, dependencies: ReplDependenci
           })
           .run(input, (session, created) => {
             lifecycle.setSession(session.id);
-            if (created) terminal.log(ansi.dim(`Сессия: ${session.id}`));
+            if (created) renderer.printNotice(ansi.dim(`Сессия: ${session.id}`));
           });
       } catch (error) {
         terminal.error(

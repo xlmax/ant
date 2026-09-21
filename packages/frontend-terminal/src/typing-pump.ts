@@ -237,9 +237,18 @@ export class TypingPump {
     return new Promise((resolve) => this.#idleWaiters.push(resolve));
   }
 
+  /** Takes live-line ownership immediately when no transcript output is pending. */
+  tryEnterLiveMode(): boolean {
+    if (this.#liveMode) return true;
+    if (this.#liveModePending || this.#queue.length > 0 || this.#timer !== undefined) return false;
+    this.#liveMode = true;
+    this.#hideCursor();
+    return true;
+  }
+
   /** Waits for transcript output, then gives exclusive ownership to a live status line. */
   async enterLiveMode(): Promise<void> {
-    if (this.#liveMode) return;
+    if (this.tryEnterLiveMode()) return;
     const generation = this.#generation;
     this.#liveModePending = true;
     await this.whenIdle();
