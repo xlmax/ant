@@ -47,6 +47,7 @@ export function createDoctorCommand(options: DoctorCommandOptions): CommandModul
       name: "doctor",
       usage: "/doctor",
       description: "Проверить окружение, DeepSeek API и реальный ответ выбранной модели.",
+      aliases: ["d"],
     },
     parse(args) {
       return noArguments(args, "/doctor");

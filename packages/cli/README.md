@@ -242,7 +242,7 @@ npm run dev
 
 Or just `ant` if installed globally.
 
-There are commands inside — `/help` shows the full list. Key ones: `/help (?, h)`, `/new (n)`, `/session (s)`, `/clear (c)`, `/context (ctx)`, `/compact (cmp)`, `/model (m)`, `/think (t)`, `/reasoning (r)`, `/key (k)`, `/balance (bal)`, `/doctor`, `/update (u)`, `/exit (q)`.
+There are commands inside — `/help` shows the full list. Key ones: `/help (?, h)`, `/new (n)`, `/session (s)`, `/clear (c)`, `/context (ctx)`, `/compact (cmp)`, `/model (m)`, `/think (t)`, `/reasoning (r)`, `/key (k)`, `/balance (bal)`, `/doctor (d)`, `/update (u)`, `/exit (q)`.
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.

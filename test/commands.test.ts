@@ -163,6 +163,10 @@ test("command registry exposes help aliases and parses built-in command aliases"
     name: "doctor",
     input: undefined,
   });
+  assert.deepEqual(invocation(registry, "/d"), {
+    name: "doctor",
+    input: undefined,
+  });
   assert.deepEqual(invocation(registry, "/model list"), {
     name: "model",
     input: { list: true },
@@ -207,7 +211,7 @@ test("command registry validates arguments, lists aliases, and suggests a simila
   assert.match(helpText, /\/context \(ctx\)/u);
   assert.match(helpText, /\/model \(m\)/u);
   assert.match(helpText, /\/balance \(bal\)/u);
-  assert.match(helpText, /\/doctor/u);
+  assert.match(helpText, /\/doctor \(d\)/u);
 
   const modelHelp: string[] = [];
   const modelRequested = registry.parse("/help m");
