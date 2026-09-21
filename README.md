@@ -10,28 +10,42 @@ After installing, launch Ant in your project directory with `ant` (or `npm run d
 
 ### Install Node.js
 
-Ant requires Node.js 20.12 or newer; `npm` is included with Node.js. Install the current LTS release using one of these options:
+Ant requires Node.js 20.12 or newer; `npm` is included with Node.js. The recommended installation methods for the primary supported environments are below.
 
-- Windows with [WinGet](https://learn.microsoft.com/windows/package-manager/winget/):
+#### Windows
 
-  ```powershell
-  winget install OpenJS.NodeJS.LTS
-  ```
+Install the current LTS release with [WinGet](https://learn.microsoft.com/windows/package-manager/winget/):
 
-- macOS with [Homebrew](https://brew.sh/):
+```powershell
+winget install OpenJS.NodeJS.LTS
+```
 
-  ```bash
-  brew install node
-  ```
+Reopen PowerShell after installation. If WinGet is unavailable, use the Windows installer from the official [Node.js download page](https://nodejs.org/en/download).
 
-- Linux or macOS with an existing [nvm](https://github.com/nvm-sh/nvm) installation:
+#### Ubuntu and Debian
 
-  ```bash
-  nvm install --lts
-  nvm use --lts
-  ```
+Install Node.js 24 LTS from the [NodeSource](https://github.com/nodesource/distributions) APT repository:
 
-Alternatively, download an installer from the official [Node.js download page](https://nodejs.org/en/download). Reopen the terminal after installation, then verify the versions:
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+Using NodeSource avoids the older Node.js versions that may be provided by the standard Ubuntu or Debian repository. Do not install a separate `npm` package: the NodeSource `nodejs` package already includes npm.
+
+#### Other environments
+
+On macOS, install Node.js with [Homebrew](https://brew.sh/):
+
+```bash
+brew install node
+```
+
+Developers who need to switch between several Node.js versions can instead use [nvm](https://github.com/nvm-sh/nvm). Other platforms can use the official [Node.js download page](https://nodejs.org/en/download).
+
+After installation, verify the versions:
 
 ```bash
 node --version
