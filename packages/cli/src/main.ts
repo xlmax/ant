@@ -11,6 +11,7 @@ import {
 import { runCli } from "./cli-adapter.js";
 import { createBalanceCommand } from "./balance-command.js";
 import { applyLocalEnvironment } from "./config/local-environment.js";
+import { createDoctorCommand } from "./doctor-command.js";
 import { registerBuiltinConfigurationSections } from "./config/builtin-configuration-sections.js";
 import { createFileSettingsModule } from "./config/settings-module.js";
 import { loadSystemPrompt } from "./config/system-prompt.js";
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
     createFrontend: (options) => {
       const commands = createBuiltinCommandRegistry();
       commands.register(createKeyCommand(credentials));
+      commands.register(createDoctorCommand({ credentials }));
       commands.register(
         createBalanceCommand(async (signal) => {
           const credential = await credentials.resolve(signal);

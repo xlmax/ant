@@ -111,7 +111,9 @@ function createHarness(): Harness {
   };
 
   const createModel = (id: string): AgentModel => ({
-    async decide() {
+    async decide(_input, _signal, onTextDelta, _onReasoningDelta, _onUsage, onActivity) {
+      onActivity?.();
+      onTextDelta?.("OK");
       return { type: "finish", answer: id };
     },
   });
@@ -390,6 +392,18 @@ test("listModels and context status use application-owned state", async () => {
   const context = harness.client.getContextStatus();
   assert.equal(context.contextWindow, 10_000);
   assert.ok(context.estimatedTokens > 0);
+});
+
+test("model diagnostics use the active model without creating a session", async () => {
+  const harness = createHarness();
+  const diagnostic = await harness.client.diagnoseModel();
+
+  assert.ok(diagnostic.firstActivityMs >= 0);
+  assert.ok(diagnostic.durationMs >= diagnostic.firstActivityMs);
+  assert.equal(diagnostic.toolsEnabled, false);
+  assert.equal(harness.client.activeSession, undefined);
+  assert.deepEqual(harness.records, []);
+  assert.ok(!harness.calls.some((call) => call.startsWith("session.create")));
 });
 
 test("compactContext persists only a smaller valid compaction", async () => {

@@ -242,13 +242,14 @@ npm run dev
 
 Or just `ant` if installed globally.
 
-There are commands inside — `/help` shows the full list. Key ones: `/help (?, h)`, `/new (n)`, `/session (s)`, `/clear (c)`, `/context (ctx)`, `/compact (cmp)`, `/model (m)`, `/think (t)`, `/reasoning (r)`, `/key (k)`, `/balance (bal)`, `/update (u)`, `/exit (q)`.
+There are commands inside — `/help` shows the full list. Key ones: `/help (?, h)`, `/new (n)`, `/session (s)`, `/clear (c)`, `/context (ctx)`, `/compact (cmp)`, `/model (m)`, `/think (t)`, `/reasoning (r)`, `/key (k)`, `/balance (bal)`, `/doctor`, `/update (u)`, `/exit (q)`.
 
 - `/context` estimates context window usage locally and shows a breakdown; it does not call the API.
 - `/compact` compresses the older part of the history into a summary, keeping the last two user turns verbatim. Original events stay in the JSONL.
 - `/session clear` permanently deletes all saved sessions for the current project after confirmation.
 - `/key` reports only whether the DeepSeek key is configured and its source; `/key set` securely replaces the saved credential and `/key clear` removes only the saved credential. `DEEPSEEK_API_KEY` is never changed and always has priority.
 - `/balance` queries DeepSeek's official account endpoint directly. It does not use the configurable model `baseUrl`, so the API key is never sent to a model proxy for this account operation.
+- `/doctor` checks Node.js, credential source, proxy presence and the Models API, then performs one short real completion with the active model and current thinking/tools settings. It does not create or modify a session and never prints the API key.
 - `/model (m)` and `/think (t)` switch the model and reasoning mode on the fly:
 
 ```text

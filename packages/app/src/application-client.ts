@@ -73,6 +73,12 @@ export interface CompactionOptions {
   onStarted?(): void | Promise<void>;
 }
 
+export interface ModelDiagnostic {
+  readonly firstActivityMs: number;
+  readonly durationMs: number;
+  readonly toolsEnabled: boolean;
+}
+
 /** Stable use-case surface consumed by presentation adapters. */
 export interface AntApplicationApi {
   readonly modelDescriptor: ModelDescriptor;
@@ -86,6 +92,7 @@ export interface AntApplicationApi {
   listModels(signal?: AbortSignal): Promise<readonly string[]>;
   selectModel(id: string): Promise<ModelSelectionResult>;
   selectThinking(selection: ThinkingSelection): Promise<ModelSelectionResult>;
+  diagnoseModel(signal?: AbortSignal): Promise<ModelDiagnostic>;
   compactContext(options?: CompactionOptions): Promise<CompactionResult>;
 }
 
@@ -227,6 +234,52 @@ export class AntApplicationClient implements AntApplicationApi {
     );
     if (changed) this.#replaceModel(selected.configuration);
     return { descriptor: this.#modelDescriptor, changed };
+  }
+
+  async diagnoseModel(signal?: AbortSignal): Promise<ModelDiagnostic> {
+    const startedAt = Date.now();
+    let firstActivityAt: number | undefined;
+    const markActivity = (): void => {
+      firstActivityAt ??= Date.now();
+    };
+    const effectiveSignal =
+      signal === undefined
+        ? AbortSignal.timeout(this.#limits.modelRequestTimeoutSeconds * 1_000)
+        : AbortSignal.any([
+            signal,
+            AbortSignal.timeout(this.#limits.modelRequestTimeoutSeconds * 1_000),
+          ]);
+    const tools = this.#environment.tools();
+    const decision = await this.#model.decide(
+      {
+        events: [
+          {
+            type: "user",
+            content:
+              "Диагностическая проверка соединения. Не вызывай инструменты. Ответь только словом OK.",
+          },
+        ],
+        tools,
+      },
+      effectiveSignal,
+      markActivity,
+      markActivity,
+      undefined,
+      markActivity,
+    );
+    markActivity();
+    if (decision.type !== "finish") {
+      throw new Error("Модель вызвала инструмент во время диагностической проверки");
+    }
+    if (decision.answer.trim() === "") {
+      throw new Error("Модель вернула пустой диагностический ответ");
+    }
+    const finishedAt = Date.now();
+    return {
+      firstActivityMs: (firstActivityAt ?? finishedAt) - startedAt,
+      durationMs: finishedAt - startedAt,
+      toolsEnabled: tools.length > 0,
+    };
   }
 
   async compactContext(options: CompactionOptions = {}): Promise<CompactionResult> {

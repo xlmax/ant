@@ -10,6 +10,7 @@ import {
 import { createBuiltinCommandRegistry } from "../packages/frontend-terminal/src/command-modules.js";
 import { createBalanceCommand } from "../packages/cli/src/balance-command.js";
 import { createKeyCommand } from "../packages/cli/src/credentials/key-command.js";
+import { createDoctorCommand } from "../packages/cli/src/doctor-command.js";
 import type { DeepSeekCredentialManager } from "../packages/cli/src/credentials/deepseek-credentials.js";
 import type { ModelDescriptor } from "../packages/app/src/model-provider.js";
 
@@ -30,6 +31,7 @@ function createInteractiveRegistry(): CommandRegistry {
     hasEnvironmentKey: () => false,
   } as unknown as DeepSeekCredentialManager;
   registry.register(createKeyCommand(credentials));
+  registry.register(createDoctorCommand({ credentials }));
   registry.register(
     createBalanceCommand(async () => ({
       available: true,
@@ -157,6 +159,10 @@ test("command registry exposes help aliases and parses built-in command aliases"
     name: "balance",
     input: undefined,
   });
+  assert.deepEqual(invocation(registry, "/doctor"), {
+    name: "doctor",
+    input: undefined,
+  });
   assert.deepEqual(invocation(registry, "/model list"), {
     name: "model",
     input: { list: true },
@@ -201,6 +207,7 @@ test("command registry validates arguments, lists aliases, and suggests a simila
   assert.match(helpText, /\/context \(ctx\)/u);
   assert.match(helpText, /\/model \(m\)/u);
   assert.match(helpText, /\/balance \(bal\)/u);
+  assert.match(helpText, /\/doctor/u);
 
   const modelHelp: string[] = [];
   const modelRequested = registry.parse("/help m");
@@ -314,6 +321,59 @@ test("model command supports numeric selection, range errors, and numbered lists
   assert.ok(numericSelection && !("error" in numericSelection));
   await registry.dispatch(numericSelection, failingContext);
   assert.deepEqual(output.error, ["Не удалось получить список моделей: network down"]);
+});
+
+test("doctor checks the live model without exposing credentials", async () => {
+  configureAnsi(false);
+  const output: string[] = [];
+  const times = [100, 220];
+  const registry = new CommandRegistry();
+  registry.register(
+    createDoctorCommand({
+      credentials: {
+        async status() {
+          return "credentials";
+        },
+      },
+      environment: { HTTPS_PROXY: "http://secret-proxy.example" },
+      nodeVersion: "24.1.0",
+      now: () => times.shift() ?? 220,
+    }),
+  );
+  const parsed = registry.parse("/doctor");
+  assert.ok(parsed && !("error" in parsed));
+
+  await registry.dispatch(parsed, {
+    options: {
+      client: {
+        modelDescriptor: modelDescriptor("model-a"),
+        async listModels() {
+          return ["model-a", "model-b"];
+        },
+        async diagnoseModel() {
+          return { firstActivityMs: 350, durationMs: 720, toolsEnabled: true };
+        },
+      },
+    },
+    terminal: { log: (message: string) => output.push(message) },
+    process: {
+      onInterrupt() {
+        return () => {};
+      },
+      timeout() {
+        return new AbortController().signal;
+      },
+    },
+  } as unknown as CommandContext);
+
+  const rendered = output.join("\n");
+  assert.match(rendered, /Node\.js: 24\.1\.0/u);
+  assert.match(rendered, /DeepSeek API key: хранилище ANT/u);
+  assert.match(rendered, /Proxy: HTTPS_PROXY/u);
+  assert.match(rendered, /Models API: 2 моделей · 120 ms/u);
+  assert.match(rendered, /Активная модель: test\/model-a/u);
+  assert.match(rendered, /Completion: первый сигнал 350 ms · всего 720 ms · tools on/u);
+  assert.doesNotMatch(rendered, /secret-proxy/u);
 });
 
 test("an independent command registers and runs without changing dispatch infrastructure", async () => {
