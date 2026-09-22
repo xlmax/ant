@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   AntApplicationClient,
   type ApplicationClientDependencies,
+  type AutoCompactionEvent,
 } from "../packages/app/src/application-client.js";
+import type { ContextSettings } from "../packages/app/src/configuration.js";
 import type {
   ModelConfiguration,
   ModelDescriptor,
@@ -51,7 +53,9 @@ interface Harness {
   runtimeDependencies: AgentDependencies[];
   failModelSave: boolean;
   failThinkingSave: boolean;
+  failSummary: boolean;
   summaryText: string;
+  contextSettings: ContextSettings;
 }
 
 function createHarness(): Harness {
@@ -60,7 +64,12 @@ function createHarness(): Harness {
   const runtimeDependencies: AgentDependencies[] = [];
   let failModelSave = false;
   let failThinkingSave = false;
+  let failSummary = false;
   let summaryText = "summary";
+  const contextSettings: ContextSettings = {
+    autoCompact: false,
+    autoCompactThreshold: 0.8,
+  };
   let nextSession = 1;
 
   const session = (id: string): AgentSession => ({ id, location: `/sessions/${id}` });
@@ -120,6 +129,7 @@ function createHarness(): Harness {
   const createSummarizer = (id: string): ContextSummarizer => ({
     async summarize() {
       calls.push(`summarize:${id}`);
+      if (failSummary) throw new Error("summary failed");
       return summaryText;
     },
   });
@@ -206,6 +216,7 @@ function createHarness(): Harness {
       modelRequestTimeoutSeconds: 5,
       modelMaxAttempts: 2,
     },
+    context: contextSettings,
     verification: { enabled: true, maxRounds: 1, checks: ["empty-answer"] },
     settings: {
       async saveModelId(id) {
@@ -225,6 +236,7 @@ function createHarness(): Harness {
     records,
     calls,
     runtimeDependencies,
+    contextSettings,
     get failModelSave() {
       return failModelSave;
     },
@@ -236,6 +248,12 @@ function createHarness(): Harness {
     },
     set failThinkingSave(value: boolean) {
       failThinkingSave = value;
+    },
+    get failSummary() {
+      return failSummary;
+    },
+    set failSummary(value: boolean) {
+      failSummary = value;
     },
     get summaryText() {
       return summaryText;
@@ -404,6 +422,181 @@ test("model diagnostics use the active model without creating a session", async 
   assert.equal(harness.client.activeSession, undefined);
   assert.deepEqual(harness.records, []);
   assert.ok(!harness.calls.some((call) => call.startsWith("session.create")));
+});
+
+test("automatic compaction stays idle below its configured threshold", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.99;
+  await harness.client.submitTurn("one");
+  const events: AutoCompactionEvent[] = [];
+
+  await harness.client.submitTurn("two", {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events, []);
+  assert.equal(
+    harness.calls.some((call) => call.startsWith("summarize:")),
+    false,
+  );
+});
+
+test("automatic compaction threshold includes the pending user message", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.5;
+  await harness.client.submitTurn("one");
+  assert.ok(harness.client.getContextStatus().percentage < 50);
+  const events: AutoCompactionEvent[] = [];
+
+  await harness.client.submitTurn("x".repeat(25_000), {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(events.at(0)?.type, "started");
+  assert.ok((events.at(0)?.before.percentage ?? 0) >= 50);
+});
+
+test("automatic compaction reports insufficient history without calling the summarizer", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.0001;
+  await harness.client.submitTurn("one");
+  const events: AutoCompactionEvent[] = [];
+
+  const submitted = await harness.client.submitTurn("two", {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(submitted.result.status, "completed");
+  assert.deepEqual(
+    events.map((event) =>
+      event.type === "skipped" ? `${event.type}:${event.reason}` : event.type,
+    ),
+    ["started", "skipped:not-enough-history"],
+  );
+  assert.equal(
+    harness.calls.some((call) => call.startsWith("summarize:")),
+    false,
+  );
+});
+
+test("submitTurn automatically compacts a large active context before appending the user", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.0001;
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+  await harness.client.submitTurn("three");
+
+  const events: AutoCompactionEvent[] = [];
+  const submitted = await harness.client.submitTurn("four", {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(submitted.result.status, "completed");
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["started", "completed"],
+  );
+  const completed = events.at(-1);
+  assert.ok(completed?.type === "completed");
+  assert.ok(completed.after.estimatedTokens < completed.before.estimatedTokens);
+  assert.ok(harness.records.some((event) => event.type === "compaction"));
+  assert.equal(harness.records.at(-2)?.type, "user");
+  assert.equal(harness.records.at(-1)?.type, "decision");
+});
+
+test("a failed automatic compaction keeps history and continues the turn", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.0001;
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+  await harness.client.submitTurn("three");
+  harness.failSummary = true;
+  const events: AutoCompactionEvent[] = [];
+
+  const submitted = await harness.client.submitTurn("four", {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(submitted.result.status, "completed");
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["started", "failed"],
+  );
+  assert.equal(
+    harness.records.some((event) => event.type === "compaction"),
+    false,
+  );
+  assert.equal(harness.records.at(-2)?.type, "user");
+});
+
+test("automatic compaction tries only once and keeps history when the summary is not smaller", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.0001;
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+  await harness.client.submitTurn("three");
+  harness.summaryText = "x".repeat(20_000);
+  const summariesBefore = harness.calls.filter((call) => call.startsWith("summarize:")).length;
+  const events: AutoCompactionEvent[] = [];
+
+  const submitted = await harness.client.submitTurn("four", {
+    onAutoCompaction: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(submitted.result.status, "completed");
+  assert.deepEqual(
+    events.map((event) =>
+      event.type === "skipped" ? `${event.type}:${event.reason}` : event.type,
+    ),
+    ["started", "skipped:not-smaller"],
+  );
+  assert.equal(
+    harness.calls.filter((call) => call.startsWith("summarize:")).length - summariesBefore,
+    1,
+  );
+  assert.equal(
+    harness.records.some((event) => event.type === "compaction"),
+    false,
+  );
+});
+
+test("cancelling automatic compaction does not append the pending user message", async () => {
+  const harness = createHarness();
+  harness.contextSettings.autoCompact = true;
+  harness.contextSettings.autoCompactThreshold = 0.0001;
+  await harness.client.submitTurn("one");
+  await harness.client.submitTurn("two");
+  await harness.client.submitTurn("three");
+  const recordsBefore = harness.records.length;
+  const cancel = new AbortController();
+  cancel.abort();
+
+  const submitted = await harness.client.submitTurn("four", { signal: cancel.signal });
+
+  assert.equal(submitted.result.status, "cancelled");
+  assert.equal(harness.records.length, recordsBefore);
+  assert.equal(
+    harness.records.some((event) => event.type === "compaction"),
+    false,
+  );
 });
 
 test("compactContext persists only a smaller valid compaction", async () => {

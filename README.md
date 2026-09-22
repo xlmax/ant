@@ -208,6 +208,10 @@ Non-secret settings are layered: `~/.ant/settings.json`, then `.ant/settings.jso
       "version": 1,
       "value": { "reasoningMode": "compact", "reasoningMaxLines": 6 }
     },
+    "context": {
+      "version": 1,
+      "value": { "autoCompact": true, "autoCompactThreshold": 0.8 }
+    },
     "prompts": {
       "version": 1,
       "value": { "additionalPaths": ["prompts/local.md"] }
@@ -220,7 +224,7 @@ The previous flat format remains supported and is migrated atomically when a com
 
 Only `deepseek` is supported. `deepseek-v4-pro` is the conservative default and is text-only; `deepseek-flash` supports vision and can be selected explicitly. Retired `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` aliases are normalized to `deepseek-flash` when selected. Existing settings from earlier model-section versions are migrated to the reliable default. For a custom vision model, set `model.providerOptions.vision: true` in the canonical format (or `model.vision` in the legacy format). To reset an inherited `tools.bashPath` in project settings, set `"bashPath": null`. The model endpoint can only be set in the user-level `~/.ant/settings.json`. Use `/key` to inspect or manage the saved DeepSeek credential; the command never displays the key.
 
-`contextWindow` defaults to 1 000 000. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
+`contextWindow` defaults to 1 000 000. Before a new user message is persisted, Ant estimates the resulting context and automatically compacts the older history when `context.autoCompact` is enabled and `context.autoCompactThreshold` is reached (80% by default). The last two user turns remain verbatim, original JSONL history is retained, and an ineffective summary is never saved. A turn is limited to 15 minutes. A model request is retried (up to three times with 1 and 2 second pauses) only if the model was silent for 90 seconds, on a network error, `429`, or `5xx`.
 
 ## Verification gate
 

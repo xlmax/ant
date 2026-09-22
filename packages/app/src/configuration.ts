@@ -22,6 +22,11 @@ export interface PromptSettings {
   additionalPaths: string[];
 }
 
+export interface ContextSettings {
+  autoCompact: boolean;
+  autoCompactThreshold: number;
+}
+
 export interface ToolSettings {
   bashPath?: string;
 }
@@ -29,6 +34,7 @@ export interface ToolSettings {
 export const MODEL_CONFIGURATION = configurationKey<ModelConfiguration>("model");
 export const UI_CONFIGURATION = configurationKey<UiSettings>("ui");
 export const PROMPT_CONFIGURATION = configurationKey<PromptSettings>("prompts");
+export const CONTEXT_CONFIGURATION = configurationKey<ContextSettings>("context");
 export const TOOL_CONFIGURATION = configurationKey<ToolSettings>("tools");
 export const LIMIT_CONFIGURATION = configurationKey<RuntimeLimits>("limits");
 export const VERIFICATION_CONFIGURATION = configurationKey<VerificationSettings>("verification");

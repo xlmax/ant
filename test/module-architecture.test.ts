@@ -96,6 +96,7 @@ test("application client composes replaceable runtime, provider, session, and en
       modelRequestTimeoutSeconds: 10,
       modelMaxAttempts: 1,
     },
+    context: { autoCompact: true, autoCompactThreshold: 0.8 },
   });
 
   const frontend: AntFrontend = {

@@ -25,6 +25,7 @@ const loadedValues: Record<string, unknown> = {
   ui: { reasoningMode: "off", reasoningMaxLines: 6, showChanges: false, color: false },
   prompts: { additionalPaths: ["extra.md"] },
   tools: {},
+  context: { autoCompact: true, autoCompactThreshold: 0.8 },
   limits: {
     turnTimeoutSeconds: 60,
     modelRequestTimeoutSeconds: 10,

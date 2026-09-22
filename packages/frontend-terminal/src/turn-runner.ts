@@ -37,6 +37,7 @@ export class TurnRunner {
         observers: [lifecycle, renderer, ...(changes ? [changes] : [])],
         onTextDelta: renderer.onTextDelta,
         onReasoningDelta: renderer.onReasoningDelta,
+        onAutoCompaction: renderer.onAutoCompaction,
         signal: cancelTurn.signal,
         ...(onSessionPrepared === undefined ? {} : { onSessionPrepared }),
       });

@@ -1,11 +1,13 @@
 import type { ConfigurationRegistry } from "@ant/app";
 import type { ConfigurationSection } from "@ant/app";
 import {
+  CONTEXT_CONFIGURATION,
   LIMIT_CONFIGURATION,
   PROMPT_CONFIGURATION,
   TOOL_CONFIGURATION,
   UI_CONFIGURATION,
   VERIFICATION_CONFIGURATION,
+  type ContextSettings,
   type PromptSettings,
   type ReasoningDisplayMode,
   type RuntimeLimits,
@@ -43,6 +45,14 @@ function positiveInteger(value: unknown, path: string): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new Error(`Настройка ${path} должна быть положительным целым числом`);
+  }
+  return value;
+}
+
+function fraction(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value >= 1) {
+    throw new Error(`Настройка ${path} должна быть числом больше 0 и меньше 1`);
   }
   return value;
 }
@@ -118,6 +128,25 @@ const promptSection = section<PromptSettings, Partial<PromptSettings>>({
     const source = record(value, "prompts");
     const additionalPaths = stringArray(source.additionalPaths, "prompts.additionalPaths");
     return additionalPaths === undefined ? {} : { additionalPaths };
+  },
+  merge: (current, partial) => ({ ...current, ...partial }),
+  serialize: (value) => value,
+});
+
+const contextSection = section<ContextSettings, Partial<ContextSettings>>({
+  key: CONTEXT_CONFIGURATION,
+  defaults: { autoCompact: true, autoCompactThreshold: 0.8 },
+  parse(value) {
+    const source = record(value, "context");
+    const autoCompact = boolean(source.autoCompact, "context.autoCompact");
+    const autoCompactThreshold = fraction(
+      source.autoCompactThreshold,
+      "context.autoCompactThreshold",
+    );
+    return {
+      ...(autoCompact === undefined ? {} : { autoCompact }),
+      ...(autoCompactThreshold === undefined ? {} : { autoCompactThreshold }),
+    };
   },
   merge: (current, partial) => ({ ...current, ...partial }),
   serialize: (value) => value,
@@ -199,6 +228,7 @@ const verificationSection = section<VerificationSettings, Partial<VerificationSe
 export function registerBuiltinConfigurationSections(registry: ConfigurationRegistry): void {
   registry.register(uiSection);
   registry.register(promptSection);
+  registry.register(contextSection);
   registry.register(toolSection);
   registry.register(limitSection);
   registry.register(verificationSection);

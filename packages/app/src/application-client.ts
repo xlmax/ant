@@ -10,7 +10,7 @@ import type {
 import { estimateContextBudget, type ContextBudget } from "@ant/core";
 import { createCompactionPlan, type ContextSummarizer } from "@ant/core";
 import type { AgentRuntime } from "@ant/core";
-import type { RuntimeLimits, VerificationSettings } from "./configuration.js";
+import type { ContextSettings, RuntimeLimits, VerificationSettings } from "./configuration.js";
 import type { ModelConfiguration, ModelDescriptor, ModelProvider } from "./model-provider.js";
 import { SessionController } from "./session-controller.js";
 import type { AgentSession, SessionStore } from "./session.js";
@@ -29,6 +29,7 @@ export interface ApplicationClientDependencies {
   modelConfiguration: ModelConfiguration;
   settings: ApplicationSettingsCommands;
   limits: RuntimeLimits;
+  context: ContextSettings;
   verification?: VerificationSettings;
 }
 
@@ -38,6 +39,7 @@ export interface SubmitTurnOptions {
   onReasoningDelta?: ReasoningDeltaHandler;
   signal?: AbortSignal;
   onSessionPrepared?(session: AgentSession, created: boolean): void | Promise<void>;
+  onAutoCompaction?(event: AutoCompactionEvent): void | Promise<void>;
 }
 
 export interface SubmittedTurn {
@@ -79,6 +81,20 @@ export interface ModelDiagnostic {
   readonly toolsEnabled: boolean;
 }
 
+export type AutoCompactionEvent =
+  | { readonly type: "started"; readonly before: ContextBudget }
+  | {
+      readonly type: "completed";
+      readonly before: ContextBudget;
+      readonly after: ContextBudget;
+    }
+  | {
+      readonly type: "skipped";
+      readonly before: ContextBudget;
+      readonly reason: "not-enough-history" | "not-smaller";
+    }
+  | { readonly type: "failed"; readonly before: ContextBudget; readonly message: string };
+
 /** Stable use-case surface consumed by presentation adapters. */
 export interface AntApplicationApi {
   readonly modelDescriptor: ModelDescriptor;
@@ -108,6 +124,7 @@ export class AntApplicationClient implements AntApplicationApi {
   readonly #systemPrompt: string;
   readonly #settings: ApplicationSettingsCommands;
   readonly #limits: RuntimeLimits;
+  readonly #context: ContextSettings;
   readonly #verification: VerificationSettings | undefined;
   readonly #sessions: SessionController;
   #modelConfiguration: ModelConfiguration;
@@ -122,6 +139,7 @@ export class AntApplicationClient implements AntApplicationApi {
     this.#systemPrompt = dependencies.systemPrompt;
     this.#settings = dependencies.settings;
     this.#limits = dependencies.limits;
+    this.#context = dependencies.context;
     this.#verification = dependencies.verification;
     this.#sessions = new SessionController(dependencies.sessions);
     if (dependencies.provider.id !== dependencies.modelConfiguration.providerId) {
@@ -164,8 +182,6 @@ export class AntApplicationClient implements AntApplicationApi {
   }
 
   async submitTurn(content: string, options: SubmitTurnOptions = {}): Promise<SubmittedTurn> {
-    const prepared = await this.#sessions.prepareUserMessage(content);
-    await options.onSessionPrepared?.(prepared.session, prepared.created);
     const signal =
       options.signal === undefined
         ? AbortSignal.timeout(this.#limits.turnTimeoutSeconds * 1_000)
@@ -173,6 +189,26 @@ export class AntApplicationClient implements AntApplicationApi {
             options.signal,
             AbortSignal.timeout(this.#limits.turnTimeoutSeconds * 1_000),
           ]);
+
+    if (this.#context.autoCompact && this.#sessions.active) {
+      try {
+        await this.#autoCompact(content, signal, options.onAutoCompaction);
+      } catch (error) {
+        if (signal.aborted && !this.#sessions.active) throw error;
+      }
+      if (signal.aborted) {
+        const active = this.#sessions.active;
+        if (!active) throw signal.reason;
+        return {
+          created: false,
+          session: active.session,
+          result: { status: "cancelled", state: active.state },
+        };
+      }
+    }
+
+    const prepared = await this.#sessions.prepareUserMessage(content);
+    await options.onSessionPrepared?.(prepared.session, prepared.created);
     const result = await this.#runtime.run(prepared.state, {
       model: this.#model,
       environment: this.#environment,
@@ -195,15 +231,7 @@ export class AntApplicationClient implements AntApplicationApi {
   }
 
   getContextStatus(): ContextBudget {
-    const tools = this.#environment.tools();
-    return estimateContextBudget({
-      systemPrompt: this.#systemPrompt,
-      events: this.#sessions.active?.state.events ?? [],
-      tools,
-      contextWindow: this.#modelDescriptor.contextWindow,
-      includeImages: this.#modelDescriptor.capabilities.vision,
-      includeReasoning: tools.length > 0,
-    });
+    return this.#estimateContext(this.#sessions.active?.state.events ?? []);
   }
 
   listModels(signal?: AbortSignal): Promise<readonly string[]> {
@@ -285,10 +313,7 @@ export class AntApplicationClient implements AntApplicationApi {
   async compactContext(options: CompactionOptions = {}): Promise<CompactionResult> {
     const active = this.#sessions.active;
     if (!active) return { status: "no-session" };
-    const plan = createCompactionPlan(active.state.events);
-    if (!plan) return { status: "not-enough-history" };
-
-    const before = this.getContextStatus();
+    if (!createCompactionPlan(active.state.events)) return { status: "not-enough-history" };
     await options.onStarted?.();
     const effectiveSignal =
       options.signal === undefined
@@ -297,25 +322,83 @@ export class AntApplicationClient implements AntApplicationApi {
             options.signal,
             AbortSignal.timeout(this.#limits.turnTimeoutSeconds * 1_000),
           ]);
-    const summary = await this.#summarizer.summarize(plan.eventsToSummarize, effectiveSignal);
-    const event = {
-      type: "compaction" as const,
-      summary,
-      retainedEvents: plan.retainedEvents,
-    };
+    return this.#compactActiveContext(effectiveSignal);
+  }
+
+  #estimateContext(events: readonly HistoryEvent[]): ContextBudget {
     const tools = this.#environment.tools();
-    const after = estimateContextBudget({
+    return estimateContextBudget({
       systemPrompt: this.#systemPrompt,
-      events: [...active.state.events, event],
+      events,
       tools,
       contextWindow: this.#modelDescriptor.contextWindow,
       includeImages: this.#modelDescriptor.capabilities.vision,
       includeReasoning: tools.length > 0,
     });
+  }
+
+  async #autoCompact(
+    content: string,
+    signal: AbortSignal,
+    notify?: (event: AutoCompactionEvent) => void | Promise<void>,
+  ): Promise<void> {
+    const active = this.#sessions.active;
+    if (!active) return;
+    const pendingUser = { type: "user" as const, content };
+    const before = this.#estimateContext([...active.state.events, pendingUser]);
+    if (before.percentage < this.#context.autoCompactThreshold * 100) return;
+
+    await notify?.({ type: "started", before });
+    let result: CompactionResult;
+    try {
+      result = await this.#compactActiveContext(signal);
+    } catch (error) {
+      if (!signal.aborted) {
+        await notify?.({
+          type: "failed",
+          before,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
+    }
+
+    if (result.status === "not-enough-history" || result.status === "no-session") {
+      await notify?.({ type: "skipped", before, reason: "not-enough-history" });
+      return;
+    }
+    if (result.status === "not-smaller") {
+      await notify?.({ type: "skipped", before, reason: "not-smaller" });
+      return;
+    }
+
+    const compacted = this.#sessions.active;
+    if (!compacted) return;
+    const after = this.#estimateContext([...compacted.state.events, pendingUser]);
+    await notify?.({ type: "completed", before, after });
+  }
+
+  async #compactActiveContext(signal: AbortSignal): Promise<CompactionResult> {
+    const active = this.#sessions.active;
+    if (!active) return { status: "no-session" };
+    const plan = createCompactionPlan(active.state.events);
+    if (!plan) return { status: "not-enough-history" };
+
+    const before = this.#estimateContext(active.state.events);
+    signal.throwIfAborted();
+    const summary = await this.#summarizer.summarize(plan.eventsToSummarize, signal);
+    signal.throwIfAborted();
+    const event = {
+      type: "compaction" as const,
+      summary,
+      retainedEvents: plan.retainedEvents,
+    };
+    const after = this.#estimateContext([...active.state.events, event]);
     if (after.estimatedTokens >= before.estimatedTokens) {
       return { status: "not-smaller", before, after };
     }
 
+    signal.throwIfAborted();
     await this.#sessions.appendPersistentEvent(event);
     return {
       status: "compacted",

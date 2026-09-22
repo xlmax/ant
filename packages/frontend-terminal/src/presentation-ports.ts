@@ -1,5 +1,5 @@
 import type { ReasoningDisplayMode } from "@ant/app";
-import type { AntApplicationApi, SubmittedTurn } from "@ant/app";
+import type { AntApplicationApi, AutoCompactionEvent, SubmittedTurn } from "@ant/app";
 import type { AgentSession } from "@ant/app";
 import type { AgentObserver, AgentResult } from "@ant/core";
 import type { AgentLifecycle } from "./agent-presence.js";
@@ -58,6 +58,7 @@ export interface TerminalRenderer extends AgentObserver {
   setReasoningMode(mode: ReasoningDisplayMode): void;
   beginTurn(): void;
   printNotice(message: string): void;
+  onAutoCompaction(event: AutoCompactionEvent): void;
   readonly onTextDelta: (text: string) => void;
   readonly onReasoningDelta: (text: string) => void;
   printCancellationPending(): void;

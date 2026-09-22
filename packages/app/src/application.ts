@@ -2,6 +2,7 @@ import type { Environment } from "@ant/core";
 import type { AgentRuntime } from "@ant/core";
 import { AntApplicationClient } from "./application-client.js";
 import {
+  CONTEXT_CONFIGURATION,
   LIMIT_CONFIGURATION,
   MODEL_CONFIGURATION,
   PROMPT_CONFIGURATION,
@@ -81,6 +82,7 @@ export class AntApplication {
     const prompts = configuration.get(PROMPT_CONFIGURATION);
     const modelConfiguration = configuration.get(MODEL_CONFIGURATION);
     const tools = configuration.get(TOOL_CONFIGURATION);
+    const context = configuration.get(CONTEXT_CONFIGURATION);
     const limits = configuration.get(LIMIT_CONFIGURATION);
     const verification = configuration.get(VERIFICATION_CONFIGURATION);
     const ui = configuration.get(UI_CONFIGURATION);
@@ -106,6 +108,7 @@ export class AntApplication {
           this.#modules.settings.saveModelProviderOptions(providerId, update),
       },
       limits,
+      context,
       verification,
     });
     const frontend = this.#modules.createFrontend({

@@ -56,6 +56,34 @@ test("turn shows an immediate status until the model starts responding", async (
   }
 });
 
+test("automatic compaction replaces the preparation status and reports savings", () => {
+  const writes: string[] = [];
+  const renderer = createRenderer(writes);
+  try {
+    renderer.beginTurn();
+    const before = {
+      contextWindow: 1_000,
+      estimatedTokens: 820,
+      percentage: 82,
+      breakdown: { systemPrompt: 10, messages: 700, toolResults: 100, toolSchemas: 10, images: 0 },
+      heavyObservations: [],
+    };
+    renderer.onAutoCompaction({ type: "started", before });
+    renderer.onAutoCompaction({
+      type: "completed",
+      before,
+      after: { ...before, estimatedTokens: 140, percentage: 14 },
+    });
+
+    const rendered = stripAnsi(writes.join(""));
+    assert.match(rendered, /Контекст заполнен на 82\.0%/u);
+    assert.match(rendered, /Компакция контекста/u);
+    assert.match(rendered, /Контекст сжат: ~820 → ~140 токенов/u);
+  } finally {
+    renderer.dispose();
+  }
+});
+
 test("live status stays on one row in a narrow terminal", async () => {
   const writes: string[] = [];
   const renderer = new ConsoleRenderer({
@@ -86,6 +114,22 @@ test("redirected output does not contain transient request status", async () => 
   });
   try {
     renderer.beginTurn();
+    renderer.onAutoCompaction({
+      type: "started",
+      before: {
+        contextWindow: 1_000,
+        estimatedTokens: 800,
+        percentage: 80,
+        breakdown: {
+          systemPrompt: 10,
+          messages: 680,
+          toolResults: 100,
+          toolSchemas: 10,
+          images: 0,
+        },
+        heavyObservations: [],
+      },
+    });
     await renderer.onEvent({ type: "model.requested", attempt: 1, maxAttempts: 1 });
     assert.equal(writes.join(""), "");
   } finally {

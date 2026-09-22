@@ -1,4 +1,4 @@
-import type { ReasoningDisplayMode } from "@ant/app";
+import type { AutoCompactionEvent, ReasoningDisplayMode } from "@ant/app";
 import type {
   AgentEvent,
   AgentObserver,
@@ -185,6 +185,39 @@ export class ConsoleRenderer implements AgentObserver {
     }
     this.#emitInstant(`${message}\n`);
   }
+
+  onAutoCompaction = (event: AutoCompactionEvent): void => {
+    if (!this.#isInteractive()) return;
+    switch (event.type) {
+      case "started":
+        this.printNotice(
+          ansi.yellow(
+            `Контекст заполнен на ${event.before.percentage.toFixed(1)}%. Выполняю автоматическую компакцию…`,
+          ),
+        );
+        this.#showModelStatus("Компакция контекста", "Компакция");
+        break;
+      case "completed":
+        this.printNotice(
+          ansi.green(
+            `Контекст сжат: ~${formatTokens(event.before.estimatedTokens)} → ~${formatTokens(event.after.estimatedTokens)} токенов.`,
+          ),
+        );
+        break;
+      case "skipped":
+        this.printNotice(
+          ansi.yellow(
+            event.reason === "not-enough-history"
+              ? "Автокомпакция пропущена: недостаточно завершённых ходов."
+              : "Автокомпакция пропущена: резюме не уменьшило контекст.",
+          ),
+        );
+        break;
+      case "failed":
+        this.printNotice(ansi.yellow(`Автокомпакция не выполнена: ${event.message}`));
+        break;
+    }
+  };
 
   onReasoningDelta = (text: string): void => {
     if (this.#reasoningMode === "off") {

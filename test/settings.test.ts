@@ -5,12 +5,14 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 import {
+  CONTEXT_CONFIGURATION,
   LIMIT_CONFIGURATION,
   MODEL_CONFIGURATION,
   PROMPT_CONFIGURATION,
   TOOL_CONFIGURATION,
   UI_CONFIGURATION,
   VERIFICATION_CONFIGURATION,
+  type ContextSettings,
   type ProjectSettingsOverrides,
   type RuntimeLimits,
   type UiSettings,
@@ -31,6 +33,7 @@ interface LoadedSettings {
     ui: UiSettings;
     prompts: PromptSettings;
     tools: ToolSettings;
+    context: ContextSettings;
     limits: RuntimeLimits;
     verification: VerificationSettings;
   };
@@ -53,6 +56,7 @@ async function loadSettings(workspace: string, home: string): Promise<LoadedSett
       ui: configuration.get(UI_CONFIGURATION),
       prompts: configuration.get(PROMPT_CONFIGURATION),
       tools: configuration.get(TOOL_CONFIGURATION),
+      context: configuration.get(CONTEXT_CONFIGURATION),
       limits: configuration.get(LIMIT_CONFIGURATION),
       verification: configuration.get(VERIFICATION_CONFIGURATION),
     },
@@ -124,6 +128,10 @@ test("DeepSeek settings default to the reliable Pro model", async () => {
     const loaded = await loadSettings(workspace, home);
     assert.equal(loaded.settings.model.modelId, "deepseek-v4-pro");
     assert.equal(modelVision(loaded), false);
+    assert.deepEqual(loaded.settings.context, {
+      autoCompact: true,
+      autoCompactThreshold: 0.8,
+    });
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
@@ -435,6 +443,7 @@ test("settings merge global and project layers without environment overrides", a
       },
       prompts: { additionalPaths: ["prompts/extra.md"] },
       tools: { bashPath: "/custom/bash" },
+      context: { autoCompact: true, autoCompactThreshold: 0.8 },
       limits: {
         turnTimeoutSeconds: 120,
         modelRequestTimeoutSeconds: 90,
@@ -627,6 +636,61 @@ test("saving thinking settings uses the global layer", async () => {
       enabled: true,
       effort: "low",
     });
+  } finally {
+    await rm(join(workspace, ".."), { recursive: true, force: true });
+  }
+});
+
+test("context settings configure automatic compaction", async () => {
+  const { workspace, home } = await temporaryDirectories();
+
+  try {
+    await mkdir(join(home, ".ant"), { recursive: true });
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        sections: {
+          context: {
+            version: 1,
+            value: { autoCompact: true, autoCompactThreshold: 0.65 },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    await mkdir(join(workspace, ".ant"), { recursive: true });
+    await writeFile(
+      join(workspace, ".ant", "settings.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        sections: {
+          context: {
+            version: 1,
+            value: { autoCompact: false, autoCompactThreshold: 0.7 },
+          },
+        },
+      }),
+      "utf8",
+    );
+    const loaded = await loadSettings(workspace, home);
+    assert.deepEqual(loaded.settings.context, {
+      autoCompact: false,
+      autoCompactThreshold: 0.7,
+    });
+
+    await writeFile(
+      join(home, ".ant", "settings.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        sections: {
+          context: { version: 1, value: { autoCompactThreshold: 1 } },
+        },
+      }),
+      "utf8",
+    );
+    await assert.rejects(loadSettings(workspace, home), /context\.autoCompactThreshold/u);
   } finally {
     await rm(join(workspace, ".."), { recursive: true, force: true });
   }
